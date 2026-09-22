@@ -42,6 +42,15 @@ def main():
                       "data-testid":el.get_attribute("data-testid"),
                     }))
             except: pass
+        # Open participant picker and inspect its controls.
+        try:
+            part=d.find_element(By.CSS_SELECTOR,"button[data-testid='dropdown-field--participants']")
+            d.execute_script("arguments[0].click();",part)
+            time.sleep(1.5)
+            print("PARTICIPANT_MODAL_OPENED", True)
+        except Exception as e:
+            print("PARTICIPANT_MODAL_OPENED", False, type(e).__name__, str(e)[:120])
+
         print("BUTTONS")
         n=0
         for el in d.find_elements(By.TAG_NAME,"button"):
@@ -53,6 +62,18 @@ def main():
                         n+=1
                         if n>=160: break
             except: pass
+        print("SELECTS")
+        for el in d.find_elements(By.TAG_NAME,"select"):
+            try:
+                if el.is_displayed():
+                    print(repr({
+                      "name":el.get_attribute("name"),
+                      "aria":el.get_attribute("aria-label"),
+                      "value":el.get_attribute("value"),
+                      "html":el.get_attribute("outerHTML")[:800],
+                    }))
+            except: pass
+
         body=d.find_element(By.TAG_NAME,"body").text
         print("LINES")
         for line in [x.strip() for x in body.splitlines() if x.strip()]:
