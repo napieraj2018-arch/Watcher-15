@@ -2,7 +2,7 @@ import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 
 URL="https://www.travelplanet.pl/wakacje/super-last-minute/"
 
@@ -64,6 +64,59 @@ def main():
                 if any(k in attrs.lower() for k in ["age","wiek","child","dzie"]):
                     print(repr({"tag":el.tag_name,"text":txt[:240],"testid":el.get_attribute("data-testid"),"name":el.get_attribute("name"),"value":el.get_attribute("value"),"aria":el.get_attribute("aria-label"),"html":el.get_attribute("outerHTML")[:1400]}))
             except:pass
+
+        print("SET_AGES_5_7")
+        try:
+            Select(d.find_element(By.CSS_SELECTOR,"select[name='child-1']")).select_by_value("5")
+            time.sleep(.3)
+            Select(d.find_element(By.CSS_SELECTOR,"select[name='child-2']")).select_by_value("7")
+            time.sleep(.5)
+            print("AGES_AFTER",
+                  d.find_element(By.CSS_SELECTOR,"select[name='child-1']").get_attribute("value"),
+                  d.find_element(By.CSS_SELECTOR,"select[name='child-2']").get_attribute("value"))
+        except Exception as e:
+            print("SET_AGES_ERROR",type(e).__name__,str(e)[:240])
+
+        # Close picker by clicking the main page heading/search area if necessary.
+        try:
+            d.find_element(By.CSS_SELECTOR,"[data-testid='sf-submit-button']").click()
+        except Exception:
+            try:
+                d.execute_script("arguments[0].click();",d.find_element(By.CSS_SELECTOR,"[data-testid='sf-submit-button']"))
+            except Exception as e:
+                print("SEARCH_CLICK_ERROR",type(e).__name__,str(e)[:200])
+        time.sleep(6)
+        print("AFTER_SEARCH_URL",d.current_url)
+        print("AFTER_SEARCH_PARTY",
+              d.find_element(By.CSS_SELECTOR,"[data-testid='person-textbox-control-adults']").get_attribute("value"),
+              d.find_element(By.CSS_SELECTOR,"[data-testid='person-textbox-control-children']").get_attribute("value"))
+
+        # Inspect a few listing links and first promising detail page.
+        print("LISTING_CARDS")
+        cards=d.find_elements(By.CSS_SELECTOR,"[data-testid='product-grid-item']")
+        detail=None
+        for card in cards[:20]:
+            try:
+                txt=compact(card.text)
+                a=card.find_element(By.CSS_SELECTOR,"a[href*='/hotele/']")
+                href=a.get_attribute("href")
+                print(repr({"text":txt[:900],"href":href}))
+                if detail is None and "All inclusive" in txt and href:
+                    detail=href
+            except Exception:
+                pass
+        print("DETAIL_CHOSEN",detail)
+        if detail:
+            d.get(detail)
+            WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete")
+            time.sleep(5)
+            print("DETAIL_URL",d.current_url)
+            body=d.find_element(By.TAG_NAME,"body").text
+            print("DETAIL_RELEVANT")
+            for line in [x.strip() for x in body.splitlines() if x.strip()]:
+                lo=line.lower()
+                if any(k in lo for k in ["cena","razem","łącznie","doros","dzieci","wiek","zł","all inclusive","uczest"]):
+                    print(line[:700])
 
         d.save_screenshot("travelplanet-family.png")
     finally:d.quit()
