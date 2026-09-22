@@ -1356,13 +1356,45 @@ def rainbow_stars(body):
 
 def rainbow_verify_offer(driver,offer,cfg,adult_dobs,child_dobs):
     print("RAINBOW_VERIFY",offer["hotel"],offer["href"])
-    driver.get(offer["href"])
+
+    # Re-open the exact departure-day result page before entering the hotel.
+    # Rainbow's plain hotel URL may otherwise select a different/default date.
+    search=rainbow_search_url(cfg,offer["departure"],adult_dobs,child_dobs)
+    driver.get(search)
+    WebDriverWait(driver,45).until(
+        lambda d:d.execute_script("return document.readyState")=="complete"
+    )
+    time.sleep(3.5)
+    dismiss_cookies(driver)
+
+    target_path=urlsplit(offer["href"]).path.rstrip("/")
+    clicked=False
+    for a in driver.find_elements(By.TAG_NAME,"a"):
+        try:
+            href=a.get_attribute("href") or ""
+            txt=compact(a.text)
+            if urlsplit(href).path.rstrip("/") != target_path:
+                continue
+            if "SZCZEGÓŁY" not in txt:
+                continue
+            if offer["departure"].strftime("%d.%m.%Y") not in txt:
+                continue
+            driver.execute_script("arguments[0].click();",a)
+            clicked=True
+            break
+        except Exception:
+            pass
+
+    if not clicked:
+        return None,"rainbow_exact_listing_link_not_found",None,None
+
     WebDriverWait(driver,45).until(
         lambda d:d.execute_script("return document.readyState")=="complete"
     )
     time.sleep(4)
-    dismiss_cookies(driver)
 
+    # The listing click gives Rainbow the concrete offer key/date; now add all
+    # four DOBs explicitly so detail pricing remains exact 2+2.
     family_url=rainbow_force_family_url(driver.current_url,adult_dobs,child_dobs)
     driver.get(family_url)
     WebDriverWait(driver,45).until(
