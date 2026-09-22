@@ -13,7 +13,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import Select, WebDriverWait
 
 TZ = ZoneInfo("Europe/Warsaw")
 CONFIG_PATH = Path("config/watchers.json")
@@ -25,6 +25,10 @@ UNAVAILABLE_PHRASES = (
     "nie znaleźliśmy tej oferty",
     "ta oferta nie jest już dostępna",
 )
+KNOWN_OPERATORS = (
+    "Coral Travel", "Itaka", "Rainbow", "Grecos", "Exim Tours", "Join UP",
+    "Sun&Fun", "Anex Poland", "Nekera", "Best Reisen", "Click&Go", "TUI",
+)
 
 def compact(s: str) -> str:
     return " ".join((s or "").split())
@@ -33,8 +37,9 @@ def now_local():
     return datetime.now(TZ)
 
 def representative_dob(age: int, on_date: date) -> date:
-    # Representative DOB used only to make a booking engine price the requested age.
-    # It is deliberately not a real child's DOB.
+    # A synthetic DOB used only to price the requested completed age.
+    # Keeping it ~30 days before today's month/day prevents a birthday
+    # during the imminent monitored trip.
     try:
         birthday = on_date.replace(year=on_date.year - age)
     except ValueError:
@@ -45,8 +50,7 @@ def family_token(adults: int, child_ages: list[int], on_date: date):
     dobs = [representative_dob(age, on_date) for age in child_ages]
     if adults != 2 or len(dobs) != 2:
         raise RuntimeError("Current Wakacje.pl adapter supports 2 adults + 2 children.")
-    token = "2dorosle-2dzieci-" + "-".join(d.strftime("%Y%m%d") for d in dobs)
-    return token, dobs
+    return "2dorosle-2dzieci-" + "-".join(d.strftime("%Y%m%d") for d in dobs), dobs
 
 def chrome():
     opts = Options()
@@ -63,47 +67,60 @@ def dismiss_cookies(driver):
             els = driver.find_elements(By.XPATH, f"//button[contains(normalize-space(.), '{text}')]")
             if els and els[0].is_displayed():
                 els[0].click()
-                time.sleep(0.5)
+                time.sleep(0.4)
                 return
         except Exception:
             pass
 
 def participant_value(driver):
     try:
-        return driver.find_element(By.CSS_SELECTOR, "input[name='CalculatorPerson']").get_attribute("value") or ""
+        return driver.find_element(
+            By.CSS_SELECTOR, "input[name='CalculatorPerson']"
+        ).get_attribute("value") or ""
     except Exception:
         return ""
 
 def ensure_family(driver, child_dobs):
     value = participant_value(driver).lower()
-    if "2 dzieci" in value:
+    if "2 doros" in value and "2 dzieci" in value:
         return True
 
     try:
         participant = driver.find_element(By.CSS_SELECTOR, "input[name='CalculatorPerson']")
+        wrapper = participant.find_element(
+            By.XPATH, "./ancestor::div[contains(@class,'input-wrapper-clickable')][1]"
+        )
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", wrapper)
+        driver.execute_script("arguments[0].click();", wrapper)
+        time.sleep(0.6)
     except Exception:
         return False
-    wrapper = participant.find_element(By.XPATH, "./ancestor::div[contains(@class,'input-wrapper-clickable')][1]")
-    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", wrapper)
-    driver.execute_script("arguments[0].click();", wrapper)
-    time.sleep(0.6)
 
-    # Reset children when possible, then set exactly two.
+    # Reset children to 0, then set exactly 2.
     for _ in range(4):
         try:
             minus = driver.find_element(By.XPATH, "//button[@aria-label='Odejmij jedno dziecko']")
-            if minus.is_enabled():
-                minus.click()
-                time.sleep(0.2)
-            else:
+            count = driver.find_element(
+                By.XPATH, "//input[contains(@aria-label,'Aktualna liczba dzieci')]"
+            ).get_attribute("value")
+            if count == "0":
                 break
+            minus.click()
+            time.sleep(0.2)
         except Exception:
             break
-    for _ in range(2):
-        driver.find_element(By.XPATH, "//button[@aria-label='Dodaj jedno dziecko']").click()
-        time.sleep(0.25)
 
-    dob_inputs = [x for x in driver.find_elements(By.CSS_SELECTOR, "input[placeholder='RRRR-MM-DD']") if x.is_displayed()]
+    try:
+        for _ in range(2):
+            driver.find_element(By.XPATH, "//button[@aria-label='Dodaj jedno dziecko']").click()
+            time.sleep(0.25)
+    except Exception:
+        return False
+
+    dob_inputs = [
+        x for x in driver.find_elements(By.CSS_SELECTOR, "input[placeholder='RRRR-MM-DD']")
+        if x.is_displayed()
+    ]
     if len(dob_inputs) != 2:
         return False
 
@@ -112,19 +129,23 @@ def ensure_family(driver, child_dobs):
         inp.send_keys(Keys.CONTROL, "a")
         inp.send_keys(dob.strftime("%Y-%m-%d"))
         inp.send_keys(Keys.TAB)
-        time.sleep(0.35)
+        time.sleep(0.3)
 
-    choose = driver.find_element(By.XPATH, "//button[@aria-label='Wybierz' or normalize-space(.)='Wybierz']")
-    driver.execute_script("arguments[0].click();", choose)
     try:
-        WebDriverWait(driver, 15).until(lambda d: "2 dzieci" in participant_value(d).lower())
+        choose = driver.find_element(
+            By.XPATH, "//button[@aria-label='Wybierz' or normalize-space(.)='Wybierz']"
+        )
+        driver.execute_script("arguments[0].click();", choose)
+        WebDriverWait(driver, 15).until(
+            lambda d: "2 doros" in participant_value(d).lower()
+            and "2 dzieci" in participant_value(d).lower()
+        )
     except Exception:
         return False
-    time.sleep(2)
-    return "2 dzieci" in participant_value(driver).lower()
+    time.sleep(1.5)
+    return "2 doros" in participant_value(driver).lower() and "2 dzieci" in participant_value(driver).lower()
 
 def search_url(dep: date, family: str, nights: int):
-    # Wakacje.pl uses comma-separated filters in the query component.
     filters = [
         f"od-{dep.isoformat()}",
         f"{nights}-dni",
@@ -135,9 +156,41 @@ def search_url(dep: date, family: str, nights: int):
     ]
     return "https://www.wakacje.pl/lastminute/?" + ",".join(filters) + "&src=fromSearch"
 
+def try_sort_cheapest(driver):
+    # Wakacje.pl currently exposes a sort control; use it when available.
+    try:
+        for sel in driver.find_elements(By.TAG_NAME, "select"):
+            try:
+                if "Najtańszych" in (sel.text or ""):
+                    Select(sel).select_by_visible_text("Najtańszych")
+                    time.sleep(2.5)
+                    return True
+            except Exception:
+                pass
+        controls = driver.find_elements(
+            By.XPATH,
+            "//button[contains(normalize-space(.),'Najpopularniejszych') or contains(@aria-label,'Sort')]"
+        )
+        for control in controls:
+            if not control.is_displayed():
+                continue
+            driver.execute_script("arguments[0].click();", control)
+            time.sleep(0.5)
+            opts = driver.find_elements(
+                By.XPATH,
+                "//*[self::button or @role='option'][contains(normalize-space(.),'Najtańszych')]"
+            )
+            for opt in opts:
+                if opt.is_displayed():
+                    driver.execute_script("arguments[0].click();", opt)
+                    time.sleep(2.5)
+                    return True
+    except Exception as e:
+        print("SORT_WARN", type(e).__name__, str(e)[:120])
+    return False
+
 def parse_card(a):
     raw = a.text or ""
-    lines = [compact(x) for x in raw.splitlines() if compact(x)]
     text = compact(raw)
     href = a.get_attribute("href") or ""
     if not href or "/oferty/" not in href:
@@ -145,32 +198,61 @@ def parse_card(a):
 
     md = re.search(r"(\d{2}\.\d{2}\.\d{4})-\s*(\d{2}\.\d{2}\.\d{4})", text)
     mp = re.search(r"(?:od\s+)?([0-9][0-9 ]{2,})\s*zł\s+za wszystkich", text, re.I)
-    mr = re.search(r"\b(\d[.,]\d)\s+(?:Bardzo dobry|Dobry|Średni|Znakomity|Fantastyczny|Doskonały)", text, re.I)
-    mn = re.search(r"([0-9][0-9 ]*)\s+opini", text, re.I)
     if not md or not mp:
         return None
 
     dep = datetime.strptime(md.group(1), "%d.%m.%Y").date()
     ret = datetime.strptime(md.group(2), "%d.%m.%Y").date()
-    date_line_index = next((i for i, x in enumerate(lines) if re.search(r"\d{2}\.\d{2}\.\d{4}-", x)), None)
-    hotel = lines[date_line_index - 1] if date_line_index is not None and date_line_index >= 1 else "Hotel"
-    region = lines[date_line_index - 2] if date_line_index is not None and date_line_index >= 2 else ""
-    after = lines[date_line_index + 1:] if date_line_index is not None else lines
-
-    airport = next((x for x in after if "Warszawa" in x or "Radom" in x or "Modlin" in x), "")
-    meal = next((x for x in after if "All Inclusive" in x), "")
-    operator = ""
-    if meal and meal in lines:
-        idx = lines.index(meal)
-        if idx + 1 < len(lines):
-            operator = lines[idx + 1]
-
     mnight = re.search(r"\(\s*\d+\s+dni\s*/\s*(\d+)\s+noc", text, re.I)
     nights = int(mnight.group(1)) if mnight else (ret - dep).days
 
+    mr = re.search(
+        r"\b(\d[.,]\d)\s+(?:Bardzo dobry|Dobry|Średni|Znakomity|Fantastyczny|Doskonały|Wyjątkowy)",
+        text, re.I
+    )
+    mn = re.search(r"([0-9][0-9 ]*)\s+opini", text, re.I)
+
+    if "Ultra All Inclusive" in text:
+        meal = "Ultra All Inclusive"
+    elif "All Inclusive" in text:
+        meal = "All Inclusive"
+    else:
+        meal = ""
+
+    if "Warszawa - Radom" in text:
+        airport = "Warszawa - Radom"
+    elif "Warszawa - Modlin" in text:
+        airport = "Warszawa - Modlin"
+    elif "Warszawa" in text:
+        airport = "Warszawa"
+    else:
+        airport = ""
+
+    operator = next((op for op in KNOWN_OPERATORS if op.lower() in text.lower()), "")
+
+    hotel = ""
+    stars = None
+    try:
+        for el in a.find_elements(By.XPATH, ".//*[@aria-label]"):
+            aria = compact(el.get_attribute("aria-label"))
+            m = re.search(r"(.+?)\s+(\d)\s+gwiazdkow", aria, re.I)
+            if m:
+                hotel = m.group(1).strip()
+                stars = int(m.group(2))
+                break
+    except Exception:
+        pass
+
+    if not hotel:
+        # Fallback: keep a readable identifier from URL rather than guessing from
+        # flattened card text. Detail verification may replace this with H1.
+        slug = urlsplit(href).path.rstrip("/").split("/")[-1]
+        slug = re.sub(r"-\d+$", "", slug)
+        hotel = " ".join(x.capitalize() for x in slug.split("-")) or "Hotel"
+
     return {
         "hotel": hotel,
-        "region": region,
+        "stars": stars,
         "departure": dep,
         "return": ret,
         "nights": nights,
@@ -184,50 +266,97 @@ def parse_card(a):
         "text": text,
     }
 
-def collect_day(driver, dep: date, cfg, family, child_dobs):
-    day_offers = {}
-    for requested_nights in range(cfg["min_nights"], cfg["max_nights"] + 1):
-        url = search_url(dep, family, requested_nights)
-        print("SEARCH", dep.isoformat(), requested_nights, "nights", url)
-        driver.get(url)
-        WebDriverWait(driver, 30).until(lambda d: d.execute_script("return document.readyState") == "complete")
-        time.sleep(3.2)
-        dismiss_cookies(driver)
+def load_page(driver, url, child_dobs):
+    driver.get(url)
+    WebDriverWait(driver, 30).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+    time.sleep(3.5)
+    dismiss_cookies(driver)
+    if not ensure_family(driver, child_dobs):
+        print("REJECT_PAGE family not confirmed:", participant_value(driver))
+        return False
+    return True
 
-        if not ensure_family(driver, child_dobs):
-            print("REJECT_PAGE family not confirmed:", participant_value(driver))
+def parse_current_page(driver, requested_dep: date, cfg):
+    found = []
+    stats = {"parsed": 0, "dep": 0, "nights": 0, "meal": 0}
+    seen = set()
+    for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='/oferty/']"):
+        try:
+            item = parse_card(a)
+            if not item or item["href"] in seen:
+                continue
+            seen.add(item["href"])
+            stats["parsed"] += 1
+            if item["departure"] != requested_dep:
+                stats["dep"] += 1
+                continue
+            if not (cfg["min_nights"] <= item["nights"] <= cfg["max_nights"]):
+                stats["nights"] += 1
+                continue
+            if cfg["meal_contains"].lower() not in item["meal"].lower():
+                stats["meal"] += 1
+                continue
+            found.append(item)
+        except Exception as e:
+            print("CARD_PARSE_ERROR", type(e).__name__, str(e)[:160])
+    print("PAGE_STATS", requested_dep.isoformat(), stats, "accepted", len(found))
+    for x in found[:8]:
+        print(
+            "PAGE_MATCH", x["departure"], x["nights"], x["price"],
+            x["rating"], x["reviews"], x["airport"], x["meal"], x["hotel"]
+        )
+    return found
+
+def collect_for_search(driver, dep: date, nights_token: int, cfg, family, child_dobs):
+    url = search_url(dep, family, nights_token)
+    print("SEARCH", dep.isoformat(), nights_token, url)
+    if not load_page(driver, url, child_dobs):
+        return []
+
+    try_sort_cheapest(driver)
+
+    offers = []
+    visited = {driver.current_url}
+    queue = []
+
+    # First page.
+    offers.extend(parse_current_page(driver, dep, cfg))
+    for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='str-']"):
+        href = a.get_attribute("href") or ""
+        if href and href not in visited and family in href:
+            queue.append(href)
+
+    # Follow a few result pages; enough after sorting by price to cover all
+    # realistically relevant sub-7000 offers without turning this into a crawler.
+    max_extra_pages = int(cfg.get("max_extra_pages", 3))
+    extra = 0
+    while queue and extra < max_extra_pages:
+        page = queue.pop(0)
+        if page in visited:
             continue
+        visited.add(page)
+        extra += 1
+        print("PAGE", extra + 1, page)
+        if not load_page(driver, page, child_dobs):
+            continue
+        offers.extend(parse_current_page(driver, dep, cfg))
+        for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='str-']"):
+            href = a.get_attribute("href") or ""
+            if href and href not in visited and href not in queue and family in href:
+                queue.append(href)
 
-        # Encourage lazy-loaded cards without spending too long on each duration.
-        for _ in range(4):
-            try:
-                driver.execute_script("window.scrollBy(0, 1900);")
-                time.sleep(0.55)
-                more = driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'więcej ofert')]")
-                if more and more[0].is_displayed():
-                    driver.execute_script("arguments[0].click();", more[0])
-                    time.sleep(0.9)
-            except Exception:
-                pass
+    return offers
 
-        for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='/oferty/']"):
-            try:
-                item = parse_card(a)
-                if not item:
-                    continue
-                if item["departure"] != dep:
-                    continue
-                if not (cfg["min_nights"] <= item["nights"] <= cfg["max_nights"]):
-                    continue
-                if cfg["meal_contains"].lower() not in item["meal"].lower():
-                    continue
-                old = day_offers.get(item["href"])
-                if old is None or item["price"] < old["price"]:
-                    day_offers[item["href"]] = item
-            except Exception as e:
-                print("CARD_PARSE_ERROR", type(e).__name__, str(e)[:160])
-
-    offers = list(day_offers.values())
+def collect_day(driver, dep: date, cfg, family, child_dobs):
+    by_href = {}
+    for n in range(cfg["min_nights"], cfg["max_nights"] + 1):
+        for item in collect_for_search(driver, dep, n, cfg, family, child_dobs):
+            old = by_href.get(item["href"])
+            if old is None or item["price"] < old["price"]:
+                by_href[item["href"]] = item
+    offers = list(by_href.values())
     print("DAY_CANDIDATES", dep.isoformat(), len(offers))
     return offers
 
@@ -238,8 +367,7 @@ def with_family_token(href: str, family: str):
         return href
     if q:
         chunks = q.split("&", 1)
-        first = chunks[0]
-        first = first + "," + family
+        first = chunks[0] + "," + family
         q = first + ("&" + chunks[1] if len(chunks) > 1 else "")
     else:
         q = family
@@ -262,59 +390,78 @@ def parse_totals(text: str):
                 pass
     return sorted(set(vals))
 
+def page_stars(driver):
+    vals = []
+    for el in driver.find_elements(By.XPATH, "//*[@aria-label]"):
+        try:
+            aria = compact(el.get_attribute("aria-label"))
+            m = re.search(r"(\d)\s+gwiazdkow", aria, re.I)
+            if m:
+                vals.append(int(m.group(1)))
+        except Exception:
+            pass
+    return max(vals) if vals else None
+
 def verify_offer(driver, offer, cfg, family, child_dobs):
     href = with_family_token(offer["href"], family)
     print("VERIFY", offer["hotel"], offer["price"], href)
-    driver.get(href)
-    WebDriverWait(driver, 30).until(lambda d: d.execute_script("return document.readyState") == "complete")
-    time.sleep(4)
-    dismiss_cookies(driver)
-
-    if not ensure_family(driver, child_dobs):
-        return None, "family_not_confirmed"
+    if not load_page(driver, href, child_dobs):
+        return None, "family_not_confirmed", None
 
     body = driver.find_element(By.TAG_NAME, "body").text
     low = body.lower()
     if any(p in low for p in UNAVAILABLE_PHRASES):
-        return None, "unavailable_phrase"
+        return None, "unavailable_phrase", None
 
-    # Best-effort live price refresh. Failure to click is okay only if the page
-    # already shows a family total; we never alert from a two-person price.
+    # Confirm minimum hotel standard at detail level.
+    stars = offer.get("stars") or page_stars(driver)
+    if stars is None or stars < cfg.get("min_stars", 4):
+        return None, f"hotel_stars_{stars}", stars
+
+    # Confirm date and AI survived navigation.
+    if offer["departure"].strftime("%d.%m.%Y") not in body:
+        return None, "departure_not_confirmed", stars
+    if "all inclusive" not in low:
+        return None, "meal_not_confirmed", stars
+
     try:
         buttons = [
-            b for b in driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'sprawdź cenę')]")
+            b for b in driver.find_elements(
+                By.XPATH,
+                "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'sprawdź cenę')]"
+            )
             if b.is_displayed()
         ]
         if buttons:
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", buttons[0])
             driver.execute_script("arguments[0].click();", buttons[0])
-            time.sleep(6)
+            time.sleep(5)
             body = driver.find_element(By.TAG_NAME, "body").text
             low = body.lower()
             if any(p in low for p in UNAVAILABLE_PHRASES):
-                return None, "unavailable_after_price_check"
+                return None, "unavailable_after_price_check", stars
+            if not ("2 doros" in participant_value(driver).lower() and "2 dzieci" in participant_value(driver).lower()):
+                return None, "family_lost_after_price_check", stars
     except Exception as e:
         print("PRICE_CHECK_CLICK_WARN", type(e).__name__, str(e)[:120])
 
     totals = parse_totals(body)
-    if totals:
-        # Pick the total closest to the listing family total, which avoids
-        # deposits/per-person figures if several amounts are visible.
-        final_price = min(totals, key=lambda x: abs(x - offer["price"]))
-        return final_price, "live_family_total"
+    if not totals:
+        return None, "no_confirmed_family_total", stars
 
-    formatted = f"{offer['price']:,}".replace(",", " ")
-    if "2 dzieci" in participant_value(driver).lower() and formatted in compact(body) and "za wszystkich" in low:
-        return offer["price"], "family_page_total"
+    final_price = min(totals, key=lambda x: abs(x - offer["price"]))
+    return final_price, "live_family_total", stars
 
-    return None, "no_confirmed_family_total"
-
-def qualify(offer, cfg):
-    return (
-        offer["price"] <= cfg["max_total_price_pln"]
-        and (offer["rating"] or 0) >= cfg["min_rating"]
-        and (offer["reviews"] or 0) >= cfg["min_reviews"]
-    )
+def qualify_listing(offer, cfg):
+    if offer["price"] > cfg["max_total_price_pln"]:
+        return False
+    if (offer["rating"] or 0) < cfg["min_rating"]:
+        return False
+    if (offer["reviews"] or 0) < cfg["min_reviews"]:
+        return False
+    if offer.get("stars") is not None and offer["stars"] < cfg.get("min_stars", 4):
+        return False
+    return True
 
 def offer_key(offer):
     base = "|".join([
@@ -363,14 +510,15 @@ def create_alert(token, repo, cfg, offer, verification):
 
     radom = cfg["priority_airport_contains"].lower() in offer["airport"].lower()
     prefix = "🔥 RADOM" if radom else "✈️ WARSZAWA"
-    title = f"{prefix}: {offer['hotel']} — {offer['price']} zł 2+2 — {offer['departure'].strftime('%d.%m')}"
-
+    title = (
+        f"{prefix}: {offer['hotel']} — {offer['price']} zł 2+2 — "
+        f"{offer['departure'].strftime('%d.%m')}"
+    )
     body = f"""@{cfg['notify_github_user']}
 
 **{drop_note}**
 
-- **Hotel:** {offer['hotel']}
-- **Region:** {offer['region']}
+- **Hotel:** {offer['hotel']} ({offer.get('stars', '?')}★)
 - **Cena łączna 2+2:** **{offer['price']} zł**
 - **Dzieci:** {', '.join(str(x) for x in cfg['children_ages'])} lat
 - **Termin:** {offer['departure'].strftime('%d.%m.%Y')} – {offer['return'].strftime('%d.%m.%Y')} ({offer['nights']} nocy)
@@ -381,12 +529,17 @@ def create_alert(token, repo, cfg, offer, verification):
 - **Weryfikacja:** {verification}, {now_local().strftime('%d.%m.%Y %H:%M:%S')} Europe/Warsaw
 - **Oferta:** {offer['verified_href']}
 
-Watcher sprawdził konfigurację **2 dorosłych + 2 dzieci** i nie opiera alarmu na cenie dla dwóch osób.
+Watcher potwierdził konfigurację **2 dorosłych + 2 dzieci** oraz cenę rodzinną przed alarmem.
 
 <!-- watcher-offer-key:{key} -->
 <!-- watcher-price:{offer['price']} -->
 """
-    github_api("POST", "issues", token, repo, json={"title": title, "body": body})
+    payload = {
+        "title": title,
+        "body": body,
+        "assignees": [cfg["notify_github_user"]],
+    }
+    github_api("POST", "issues", token, repo, json=payload)
     print("ALERT_CREATED", title)
     return True
 
@@ -403,9 +556,12 @@ def run_watcher(cfg):
         all_offers = {}
         for dep in target_days:
             for offer in collect_day(driver, dep, cfg, family, child_dobs):
-                all_offers[offer["href"]] = offer
+                key = (urlsplit(offer["href"]).path, offer["departure"], offer["return"], offer["operator"])
+                old = all_offers.get(key)
+                if old is None or offer["price"] < old["price"]:
+                    all_offers[key] = offer
 
-        candidates = [x for x in all_offers.values() if qualify(x, cfg)]
+        candidates = [x for x in all_offers.values() if qualify_listing(x, cfg)]
         candidates.sort(key=lambda x: (
             0 if cfg["priority_airport_contains"].lower() in x["airport"].lower() else 1,
             -(x["rating"] or 0),
@@ -413,24 +569,27 @@ def run_watcher(cfg):
         ))
         print("STRICT_CANDIDATES", len(candidates))
         for x in candidates:
-            print("CANDIDATE", x["hotel"], x["price"], x["rating"], x["reviews"], x["airport"], x["href"])
+            print(
+                "CANDIDATE", x["hotel"], x["price"], x["rating"],
+                x["reviews"], x["stars"], x["airport"], x["href"]
+            )
 
         token = os.getenv("GITHUB_TOKEN", "")
         repo = os.getenv("GITHUB_REPOSITORY", "")
         alerts = 0
 
         for offer in candidates[:12]:
-            if cfg.get("second_check", True):
-                final_price, verification = verify_offer(driver, offer, cfg, family, child_dobs)
-                if final_price is None:
-                    print("REJECT_VERIFY", offer["hotel"], verification)
-                    continue
-                offer["price"] = final_price
-                if offer["price"] > cfg["max_total_price_pln"]:
-                    print("REJECT_PRICE_AFTER_VERIFY", offer["hotel"], offer["price"])
-                    continue
-            else:
-                verification = "listing_family_total"
+            final_price, verification, stars = verify_offer(
+                driver, offer, cfg, family, child_dobs
+            )
+            if final_price is None:
+                print("REJECT_VERIFY", offer["hotel"], verification)
+                continue
+            offer["price"] = final_price
+            offer["stars"] = stars
+            if offer["price"] > cfg["max_total_price_pln"]:
+                print("REJECT_PRICE_AFTER_VERIFY", offer["hotel"], offer["price"])
+                continue
 
             offer["verified_href"] = with_family_token(offer["href"], family)
             if token and repo:
