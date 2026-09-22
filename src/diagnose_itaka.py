@@ -120,6 +120,50 @@ def main():
             if any(k in lo for k in ["zł","cena","razem","łącznie","doros","dzieci","uczest"]):
                 print(line[:700])
 
+        print("DETAIL_ACTIONS")
+        actions=[]
+        for el in d.find_elements(By.XPATH,"//button|//a"):
+            try:
+                if not el.is_displayed():
+                    continue
+                txt=compact(el.text)
+                if not txt:
+                    continue
+                lo=txt.lower()
+                if any(k in lo for k in ["wybierz","sprawdź","rezerw","dalej","ofert","pokój","cena"]):
+                    item={"tag":el.tag_name,"text":txt[:260],"href":el.get_attribute("href")}
+                    actions.append((el,item))
+                    print(repr(item))
+            except Exception:
+                pass
+
+        clicked=False
+        safe_terms=["sprawdź cenę","wybierz ofertę","wybierz wariant","wybierz pokój","wybierz"]
+        for wanted in safe_terms:
+            if clicked:
+                break
+            for el,item in actions:
+                try:
+                    txt=item["text"].lower()
+                    if wanted in txt and "rezerw" not in txt:
+                        d.execute_script("arguments[0].scrollIntoView({block:'center'});",el)
+                        d.execute_script("arguments[0].click();",el)
+                        clicked=True
+                        print("DETAIL_ACTION_CLICKED",repr(item))
+                        time.sleep(6)
+                        break
+                except Exception as e:
+                    print("ACTION_CLICK_WARN",type(e).__name__,str(e)[:160])
+
+        if clicked:
+            print("AFTER_ACTION_URL",d.current_url)
+            body2=d.find_element(By.TAG_NAME,"body").text
+            print("AFTER_ACTION_PRICE_LINES")
+            for line in [x.strip() for x in body2.splitlines() if x.strip()]:
+                lo=line.lower()
+                if any(k in lo for k in ["zł","cena","razem","łącznie","doros","dzieci","uczest","do zapłaty"]):
+                    print(line[:700])
+
         d.save_screenshot("itaka-diagnostic.png")
     finally:
         d.quit()
