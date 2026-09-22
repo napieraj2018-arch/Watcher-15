@@ -11,7 +11,7 @@
       ],
       "max_total_price_pln": 7000,
       "min_rating": 8,
-      "min_reviews": 50,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
