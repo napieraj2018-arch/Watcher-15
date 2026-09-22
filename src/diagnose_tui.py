@@ -202,6 +202,17 @@ def main():
             lo=line.lower()
             if any(k in lo for k in ["uczest","doros","dzieci","wylot","pobyt","all inclusive","warszawa","radom"]):
                 print(line)
+        # TUI defaults to per-person prices. Force full family price mode.
+        try:
+            full_url=d.current_url.replace("fullPrice=false","fullPrice=true")
+            print("FULL_PRICE_URL",full_url)
+            d.get(full_url)
+            WebDriverWait(d,40).until(lambda x:x.execute_script("return document.readyState")=="complete")
+            time.sleep(5)
+            print("FULL_PRICE_FINAL_URL",d.current_url)
+        except Exception as e:
+            print("FULL_PRICE_ERROR",type(e).__name__,str(e)[:200])
+
         print("OFFER_TILES_AFTER_FAMILY")
         tiles=d.find_elements(By.CSS_SELECTOR,"[data-testid='offer-tile']")
         print("TILE_COUNT",len(tiles))
