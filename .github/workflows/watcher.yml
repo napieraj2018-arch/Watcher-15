@@ -3,7 +3,9 @@ name: Watcher 15
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/15 * * * *"
+    # Every 15 minutes, deliberately away from minute 00 where GitHub schedules
+    # are more likely to be delayed under load.
+    - cron: "7,22,37,52 * * * *"
   push:
     paths:
       - "src/watcher.py"
