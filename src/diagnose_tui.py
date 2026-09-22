@@ -224,6 +224,35 @@ def main():
                 }))
             except: pass
 
+        try:
+            tiles=d.find_elements(By.CSS_SELECTOR,"[data-testid='offer-tile']")
+            detail_link=None
+            for tile in tiles:
+                try:
+                    txt=compact(tile.text)
+                    if "All Inclusive" not in txt:
+                        continue
+                    a=tile.find_element(By.CSS_SELECTOR,"a[href*='/wypoczynek/']")
+                    detail_link=a.get_attribute("href")
+                    if detail_link:
+                        break
+                except Exception:
+                    pass
+            print("DETAIL_PAGE_URL",detail_link)
+            if detail_link:
+                d.get(detail_link)
+                WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete")
+                time.sleep(6)
+                print("DETAIL_FINAL_URL",d.current_url)
+                detail_body=d.find_element(By.TAG_NAME,"body").text
+                print("DETAIL_PRICE_LINES")
+                for line in [x.strip() for x in detail_body.splitlines() if x.strip()]:
+                    lo=line.lower()
+                    if any(k in lo for k in ["zł","cena","łącznie","razem","osoba","uczest","doros","dzieci"]):
+                        print(line[:500])
+        except Exception as e:
+            print("DETAIL_PAGE_ERROR",type(e).__name__,str(e)[:300])
+
         d.save_screenshot("tui-diagnostic.png")
     finally:
         d.quit()
