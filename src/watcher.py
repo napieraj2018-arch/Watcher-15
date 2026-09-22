@@ -984,6 +984,233 @@ def run_tui_watcher(cfg):
     finally:
         driver.quit()
 
+
+ITAKA_BASE_URL = "https://www.itaka.pl/last-minute/"
+
+def itaka_family_url(cfg, child_dobs):
+    from urllib.parse import urlencode
+    params = {
+        "adults[0]": str(cfg["adults"]),
+        "children[0]": ",".join(d.strftime("%d.%m.%Y") for d in child_dobs),
+    }
+    return ITAKA_BASE_URL + "?" + urlencode(params)
+
+def itaka_review_count(text):
+    vals=[]
+    for m in re.finditer(r"(?<![/\d])(\d{1,5})\s+opini", text, re.I):
+        try:
+            vals.append(int(m.group(1)))
+        except Exception:
+            pass
+    return max(vals) if vals else None
+
+def itaka_collect_candidates(driver, cfg, target_days, family_url):
+    driver.get(family_url)
+    WebDriverWait(driver, 45).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+    time.sleep(4)
+    dismiss_cookies(driver)
+
+    current=driver.current_url.lower()
+    if "children%5b0%5d" not in current and "children[0]" not in current:
+        raise RuntimeError("ITAKA lost child parameters")
+
+    # Load more tiles by scrolling.
+    last=-1
+    stable=0
+    for _ in range(14):
+        tiles=driver.find_elements(By.CSS_SELECTOR,"[data-testid='offer-list-item']")
+        n=len(tiles)
+        stable = stable+1 if n==last else 0
+        last=n
+        if stable>=2:
+            break
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(0.8)
+
+    targets={d.strftime("%d.%m") for d in target_days}
+    offers=[]
+    seen=set()
+    for tile in driver.find_elements(By.CSS_SELECTOR,"[data-testid='offer-list-item']"):
+        try:
+            txt=compact(tile.text)
+            if not any(t in txt for t in targets):
+                continue
+            if cfg["meal_contains"].lower() not in txt.lower():
+                continue
+            if not any(ap.lower() in txt.lower() for ap in ["Warszawa","Modlin","Radom"]):
+                continue
+
+            md=re.search(
+                r"(\d{2}\.\d{2})\s*-\s*(\d{1,2}\.\d{1,2}\.\d{4})\s*\((\d+)\s+dni",
+                txt, re.I
+            )
+            if not md:
+                continue
+            dep=datetime.strptime(md.group(1)+f".{now_local().year}","%d.%m.%Y").date()
+            ret=datetime.strptime(md.group(2),"%d.%m.%Y").date()
+            nights=max(1,int(md.group(3))-1)
+            if dep not in target_days:
+                continue
+            if not (cfg["min_nights"] <= nights <= cfg["max_nights"]):
+                continue
+
+            mr=re.search(r"(\d[.,]\d)\s*/\s*6\b",txt)
+            rating6=float(mr.group(1).replace(",",".")) if mr else None
+            rating10=(rating6/6*10) if rating6 is not None else None
+            reviews=itaka_review_count(txt)
+            if (rating10 or 0) < cfg["min_rating"] or (reviews or 0) < cfg["min_reviews"]:
+                continue
+
+            mp=re.search(r"([0-9][0-9 ]{2,})\s*zł\s*/\s*os",txt,re.I)
+            pp=int(mp.group(1).replace(" ","")) if mp else None
+            # A 7000 PLN family package is extremely unlikely above this /person
+            # level; keep generous headroom to avoid false negatives from child discounts.
+            if pp is not None and pp > cfg.get("max_listing_per_person_pln", 3200):
+                continue
+
+            a=tile.find_element(By.CSS_SELECTOR,"a[href*='/wczasy/']")
+            href=a.get_attribute("href") or ""
+            if not href or href in seen:
+                continue
+            seen.add(href)
+
+            # The whole tile starts with destination then hotel name. Prefer link metadata,
+            # fall back to URL slug without inventing a different property.
+            hotel=compact(a.get_attribute("title"))
+            if not hotel:
+                path=urlsplit(href).path.rstrip("/").split("/")[-1]
+                hotel=path.split(",")[0].replace("-"," ").title()
+
+            airport="Warszawa"
+            for ap in ["Warszawa-Radom","Warszawa-Modlin","Warszawa-Okęcie","Warszawa"]:
+                if ap.lower() in txt.lower():
+                    airport=ap
+                    break
+
+            offers.append({
+                "hotel":hotel or "Hotel ITAKA",
+                "stars":None,
+                "departure":dep,
+                "return":ret,
+                "nights":nights,
+                "price":None,
+                "listing_pp":pp,
+                "rating":rating10,
+                "reviews":reviews,
+                "airport":airport,
+                "meal":"All Inclusive",
+                "operator":"ITAKA",
+                "href":href,
+                "verified_href":href,
+                "text":txt,
+            })
+        except Exception as e:
+            print("ITAKA_TILE_WARN",type(e).__name__,str(e)[:180])
+
+    offers.sort(key=lambda x:(x["listing_pp"] or 999999,-(x["rating"] or 0),-(x["reviews"] or 0)))
+    print("ITAKA_CANDIDATES",len(offers))
+    for x in offers[:20]:
+        print("ITAKA_CANDIDATE",x["hotel"],x["departure"],x["nights"],x["listing_pp"],x["rating"],x["reviews"],x["href"])
+    return offers
+
+def itaka_parse_total(body):
+    cleaned=compact(body)
+    patterns=[
+        r"(?:Łącznie|Lacznie)\s*:\s*([0-9][0-9 ]{2,})\s*zł",
+        r"([0-9][0-9 ]{2,})\s*zł\s*(?:łącznie|lacznie)",
+    ]
+    vals=[]
+    for pat in patterns:
+        for m in re.finditer(pat,cleaned,re.I):
+            try:
+                v=int(m.group(1).replace(" ",""))
+                if 1500 <= v <= 40000:
+                    vals.append(v)
+            except Exception:
+                pass
+    return vals[0] if vals else None
+
+def itaka_verify_offer(driver, offer, cfg, child_dobs):
+    print("ITAKA_VERIFY",offer["hotel"],offer["href"])
+    driver.get(offer["href"])
+    WebDriverWait(driver,45).until(
+        lambda d:d.execute_script("return document.readyState")=="complete"
+    )
+    time.sleep(5)
+    dismiss_cookies(driver)
+
+    current=driver.current_url.lower()
+    if "children%5b0%5d" not in current and "children[0]" not in current:
+        return None,"itaka_family_parameters_lost",None
+
+    # Verify both synthetic child DOBs remain encoded in the live detail URL.
+    for dob in child_dobs:
+        raw=dob.strftime("%d.%m.%Y").lower()
+        enc=raw.replace(".","%2e")
+        if raw not in current and enc not in current:
+            # URL encoders usually keep dots, but fail closed if ITAKA changes this.
+            return None,"itaka_child_dob_lost",None
+
+    body=driver.find_element(By.TAG_NAME,"body").text
+    low=body.lower()
+    if any(p in low for p in UNAVAILABLE_PHRASES):
+        return None,"itaka_unavailable",None
+    if offer["departure"].strftime("%d.%m") not in body:
+        return None,"itaka_departure_not_confirmed",None
+    if "all inclusive" not in low:
+        return None,"itaka_meal_not_confirmed",None
+
+    total=itaka_parse_total(body)
+    if total is None:
+        return None,"itaka_no_family_total",None
+
+    stars=page_stars(driver)
+    # ITAKA sometimes renders category as graphics without accessible star labels.
+    if stars is not None and stars < cfg.get("min_stars",4):
+        return None,f"itaka_hotel_stars_{stars}",stars
+
+    return total,"itaka_detail_exact_2plus2_total",stars
+
+def run_itaka_watcher(cfg):
+    local_date=now_local().date()
+    child_dobs=[representative_dob(age,local_date) for age in cfg["children_ages"]]
+    target_days=[local_date+timedelta(days=d) for d in cfg["depart_in_days"]]
+    family_url=itaka_family_url(cfg,child_dobs)
+    print("ITAKA_TARGET_DAYS",[d.isoformat() for d in target_days])
+    print("ITAKA_FAMILY_URL",family_url)
+
+    driver=chrome()
+    try:
+        try:
+            candidates=itaka_collect_candidates(driver,cfg,target_days,family_url)
+        except Exception as e:
+            print("ITAKA_SOURCE_ERROR",type(e).__name__,str(e)[:300])
+            return
+
+        token=os.getenv("GITHUB_TOKEN","")
+        repo=os.getenv("GITHUB_REPOSITORY","")
+        alerts=0
+        for offer in candidates[:cfg.get("max_detail_checks",15)]:
+            total,verification,stars=itaka_verify_offer(driver,offer,cfg,child_dobs)
+            if total is None:
+                print("ITAKA_REJECT_VERIFY",offer["hotel"],verification)
+                continue
+            offer["price"]=total
+            offer["stars"]=stars
+            if total > cfg["max_total_price_pln"]:
+                print("ITAKA_REJECT_PRICE",offer["hotel"],total)
+                continue
+            if token and repo:
+                if create_alert(token,repo,cfg,offer,verification):
+                    alerts+=1
+            else:
+                print("ITAKA_DRY_ALERT",offer)
+        print("ITAKA_ALERTS_CREATED",alerts)
+    finally:
+        driver.quit()
+
 def main():
     data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     provider_filter = os.getenv("WATCHER_PROVIDER", "").strip()
