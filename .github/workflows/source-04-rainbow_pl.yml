@@ -2,6 +2,15 @@ name: Channel 04 — Rainbow
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "src/watcher.py"
+      - "src/channel_runner.py"
+      - "config/watchers.json"
+      - "config/channels.json"
+      - ".github/workflows/source-04-rainbow_pl.yml"
+  schedule:
+    - cron: "5,20,35,50 * * * *"
 
 permissions:
   contents: read
