@@ -84,13 +84,46 @@ def main():
             print("CHILDREN_AFTER_ADD",compact(portal.text))
             print("CHILDREN_PORTAL_HTML",portal.get_attribute("outerHTML")[:20000])
             print("CHILDREN_SELECTS")
-            for s in portal.find_elements(By.TAG_NAME,"select"):
-                if s.is_displayed():
-                    print(repr({
-                      "name":s.get_attribute("name"),
-                      "value":s.get_attribute("value"),
-                      "html":s.get_attribute("outerHTML")[:1600]
-                    }))
+            selects=portal.find_elements(By.TAG_NAME,"select")
+            for s in selects:
+                print(repr({
+                  "displayed":s.is_displayed(),
+                  "name":s.get_attribute("name"),
+                  "value":s.get_attribute("value"),
+                  "html":s.get_attribute("outerHTML")[:1600]
+                }))
+
+            # Set exact child ages using the underlying native selects.
+            for s,target in zip(selects,["5 lat","7 lat"]):
+                d.execute_script("""
+                    const sel=arguments[0], wanted=arguments[1];
+                    const opt=[...sel.options].find(o => o.text.trim()===wanted);
+                    if (!opt) throw new Error("age option missing: "+wanted);
+                    sel.value=opt.value;
+                    sel.dispatchEvent(new Event('input',{bubbles:true}));
+                    sel.dispatchEvent(new Event('change',{bubbles:true}));
+                """,s,target)
+                time.sleep(0.5)
+            print("AGES_SET",[s.get_attribute("value") for s in selects])
+
+            portal=d.find_element(By.CSS_SELECTOR,"[data-testid='portal-content']")
+            show=[b for b in portal.find_elements(By.TAG_NAME,"button") if compact(b.text)=="Pokaż oferty"]
+            if show:
+                d.execute_script("arguments[0].click();",show[0])
+                time.sleep(5)
+            print("AFTER_PARTY_URL",d.current_url)
+            try:
+                print("AFTER_PARTY_TEXT",compact(d.find_element(By.CSS_SELECTOR,"[data-testid='participants-filter-input']").text))
+            except: pass
+
+            print("ITAKA_IMMINENT_TILES")
+            for tile in d.find_elements(By.CSS_SELECTOR,"[data-testid='offer-list-item']"):
+                try:
+                    txt=compact(tile.text)
+                    if any(day in txt for day in ["24.09","25.09","26.09"]):
+                        a=tile.find_element(By.CSS_SELECTOR,"a[href*='/wczasy/']")
+                        print(repr({"text":txt[:1800],"href":a.get_attribute("href")}))
+                except: pass
             print("CHILDREN_INPUTS")
             for inp in portal.find_elements(By.TAG_NAME,"input"):
                 if inp.is_displayed():
