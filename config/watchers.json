@@ -28,7 +28,7 @@
       ],
       "priority_airport_contains": "Radom",
       "second_check": true,
-      "max_extra_pages": 2,
+      "max_extra_pages": 8,
       "significant_price_drop_pln": 250,
       "notify_github_user": "napieraj2018-arch"
     },
