@@ -42,4 +42,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHONUNBUFFERED: "1"
+          WATCHER_PROVIDER: wakacje_pl
         run: python src/watcher.py
