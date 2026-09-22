@@ -77,6 +77,20 @@ def main():
         print("CONFIRMED_PARTICIPANT_ARIA:", participant.get_attribute("aria-label"))
         print("URL_AFTER_CONFIRM:", driver.current_url)
 
+        print("SEARCH_INPUTS:")
+        for inp in driver.find_elements(By.TAG_NAME, "input"):
+            try:
+                if inp.is_displayed():
+                    print(repr({
+                        "name": inp.get_attribute("name"),
+                        "type": inp.get_attribute("type"),
+                        "placeholder": inp.get_attribute("placeholder"),
+                        "aria": inp.get_attribute("aria-label"),
+                        "value": inp.get_attribute("value"),
+                    }))
+            except Exception:
+                pass
+
         # Lazy-load more result cards.
         for _ in range(8):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
