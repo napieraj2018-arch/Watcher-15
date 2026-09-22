@@ -17,7 +17,7 @@
         2,
         3
       ],
-      "min_nights": 6,
+      "min_nights": 5,
       "max_nights": 8,
       "meal_contains": "All Inclusive",
       "airports": [
