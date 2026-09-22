@@ -7,7 +7,9 @@
     "alert_requires_live_availability": true,
     "no_per_person_price_as_total": true,
     "production_goal": 10,
-    "total_registered": 15
+    "total_registered": 15,
+    "alert_only_from_production": true,
+    "block_unverified_family_totals": true
   },
   "channels": [
     {
@@ -15,105 +17,165 @@
       "name": "Wakacje.pl",
       "url": "https://www.wakacje.pl/lastminute/",
       "status": "production",
-      "kind": "aggregator"
+      "kind": "aggregator",
+      "priority": 1,
+      "exact_party": true,
+      "final_total": true,
+      "note": "Verified 2+2 family pricing and detail recheck."
     },
     {
       "id": "tui_pl",
       "name": "TUI Poland",
       "url": "https://www.tui.pl/last-minute-z-warszawy",
       "status": "production",
-      "kind": "operator"
+      "kind": "operator",
+      "priority": 2,
+      "exact_party": true,
+      "final_total": true,
+      "note": "Verified 2+2 family parameters and Cena razem on detail page."
     },
     {
       "id": "itaka_pl",
       "name": "ITAKA",
       "url": "https://www.itaka.pl/last-minute/",
       "status": "diagnostic",
-      "kind": "operator"
+      "kind": "operator",
+      "priority": 3,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Participant/child-age controls are being mapped."
     },
     {
       "id": "rainbow_pl",
       "name": "Rainbow",
       "url": "https://r.pl/last-minute/z-warszawy",
       "status": "diagnostic",
-      "kind": "operator"
+      "kind": "operator",
+      "priority": 4,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Search accepts 4 people, but detail navigation currently drops child DOBs; do not alert yet."
     },
     {
       "id": "coraltravel_pl",
       "name": "Coral Travel",
       "url": "https://www.coraltravel.pl/",
       "status": "blocked_browser",
-      "kind": "operator"
+      "kind": "operator",
+      "priority": 12,
+      "exact_party": false,
+      "final_total": false,
+      "note": "HTTP works but headless page exposes no usable UI/content; alternative route needed."
     },
     {
       "id": "travelplanet_pl",
       "name": "Travelplanet",
       "url": "https://www.travelplanet.pl/wakacje/super-last-minute/",
       "status": "diagnostic",
-      "kind": "aggregator"
+      "kind": "aggregator",
+      "priority": 6,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Offer pages accessible; participant/final-total adapter pending."
     },
     {
       "id": "fly_pl",
       "name": "Fly.pl",
       "url": "https://fly.pl/last-minute/",
       "status": "diagnostic",
-      "kind": "aggregator"
+      "kind": "aggregator",
+      "priority": 7,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Offer pages accessible; exact party adapter pending."
     },
     {
       "id": "exim_pl",
       "name": "EXIM tours",
       "url": "https://www.exim.pl/last-minute",
       "status": "diagnostic",
-      "kind": "operator"
+      "kind": "operator",
+      "priority": 5,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Strong signals incl. Warsaw/Radom; needs exact 2+2 total verification."
     },
     {
       "id": "joinup_pl",
       "name": "Join UP! Polska",
       "url": "https://joinup.pl/",
       "status": "blocked_cloudflare",
-      "kind": "operator"
+      "kind": "operator",
+      "priority": 13,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Cloudflare challenge in GitHub browser."
     },
     {
       "id": "nekera_pl",
       "name": "Nekera",
       "url": "https://www.nekera.pl/",
       "status": "diagnostic",
-      "kind": "operator"
+      "kind": "operator",
+      "priority": 10,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Participant/price signals visible; adapter pending."
     },
     {
       "id": "grecos_pl",
       "name": "Grecos",
       "url": "https://www.grecos.pl/last-minute",
       "status": "diagnostic",
-      "kind": "operator"
+      "kind": "operator",
+      "priority": 8,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Participant and offer signals visible; exact total adapter pending."
     },
     {
       "id": "sunfun_pl",
       "name": "Sun & Fun",
       "url": "https://www.sunfun.pl/",
       "status": "diagnostic",
-      "kind": "operator"
+      "kind": "operator",
+      "priority": 9,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Participant controls visible; exact total adapter pending."
     },
     {
       "id": "esky_pl",
       "name": "eSky Wakacje",
       "url": "https://www.esky.pl/lot+hotel/2-wakacje",
       "status": "blocked_access",
-      "kind": "dynamic_package"
+      "kind": "dynamic_package",
+      "priority": 14,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Access Denied in GitHub browser."
     },
     {
       "id": "traveligo_pl",
       "name": "TraveliGo",
       "url": "https://www.traveligo.pl/last-minute",
       "status": "blocked_cloudflare",
-      "kind": "aggregator"
+      "kind": "aggregator",
+      "priority": 15,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Cloudflare challenge in GitHub browser."
     },
     {
       "id": "oasis_pl",
       "name": "Oasis Tours",
       "url": "https://oasis.pl/",
-      "status": "registered",
-      "kind": "operator"
+      "status": "diagnostic",
+      "kind": "operator",
+      "priority": 11,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Live search interface accessible; adapter pending."
     }
   ]
 }
