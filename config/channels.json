@@ -38,12 +38,12 @@
       "id": "itaka_pl",
       "name": "ITAKA",
       "url": "https://www.itaka.pl/last-minute/",
-      "status": "diagnostic",
+      "status": "production",
       "kind": "operator",
       "priority": 3,
-      "exact_party": false,
-      "final_total": false,
-      "note": "Participant/child-age controls are being mapped."
+      "exact_party": true,
+      "final_total": true,
+      "note": "Verified exact 2+2 family URL with child DOBs retained on detail page and live 'Łącznie' family total."
     },
     {
       "id": "rainbow_pl",
