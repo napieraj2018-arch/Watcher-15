@@ -49,12 +49,12 @@
       "id": "rainbow_pl",
       "name": "Rainbow",
       "url": "https://r.pl/last-minute/z-warszawy",
-      "status": "diagnostic",
+      "status": "production",
       "kind": "operator",
       "priority": 4,
-      "exact_party": false,
-      "final_total": false,
-      "note": "Search accepts 4 people, but detail navigation currently drops child DOBs; do not alert yet."
+      "exact_party": true,
+      "final_total": true,
+      "note": "Verified 4-person search, exact four 'wiek' parameters on detail page, and live 'Cena razem' family total."
     },
     {
       "id": "coraltravel_pl",
