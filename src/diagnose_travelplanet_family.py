@@ -36,19 +36,24 @@ def main():
                     if n>=120:break
             except:pass
 
-        # Click likely child increment twice.
+        # Locate the numeric spinner by its "Liczba dzieci" label and click
+        # the append/plus button twice.
         pluses=[]
-        for el in d.find_elements(By.TAG_NAME,"button"):
-            try:
-                if not el.is_displayed(): continue
-                s=" ".join(filter(None,[compact(el.text),el.get_attribute("aria-label"),el.get_attribute("data-testid"),el.get_attribute("class")])).lower()
-                if ("child" in s or "dzie" in s) and ("plus" in s or "add" in s or "increment" in s or "+"==compact(el.text)):
-                    pluses.append(el)
-            except:pass
+        try:
+            label=d.find_element(By.XPATH,"//label[.//*[contains(normalize-space(.),'Liczba dzieci')] or contains(normalize-space(.),'Liczba dzieci')]")
+            spinner=label.find_element(By.XPATH,"./ancestor::div[contains(@class,'i-textbox--numeric-spinner')][1]")
+            buttons=[b for b in spinner.find_elements(By.TAG_NAME,"button") if b.is_displayed()]
+            print("CHILD_SPINNER_HTML",spinner.get_attribute("outerHTML")[:4000])
+            print("CHILD_SPINNER_BUTTONS",[compact(b.text) for b in buttons])
+            if len(buttons)>=2:
+                pluses=[buttons[-1]]
+        except Exception as e:
+            print("CHILD_SPINNER_ERROR",type(e).__name__,str(e)[:240])
         print("CHILD_PLUS_COUNT",len(pluses))
         if pluses:
             for _ in range(2):
-                d.execute_script("arguments[0].click();",pluses[-1]);time.sleep(.4)
+                d.execute_script("arguments[0].click();",pluses[0]);time.sleep(.5)
+        print("CHILD_COUNT_AFTER",d.find_element(By.CSS_SELECTOR,"[data-testid='person-textbox-control-children']").get_attribute("value"))
 
         print("AFTER_CHILDREN_ELEMENTS")
         for el in d.find_elements(By.XPATH,"//select|//input|//button"):
