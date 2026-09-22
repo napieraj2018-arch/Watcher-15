@@ -2,6 +2,8 @@ name: Channel 03 — ITAKA
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "3,18,33,48 * * * *"
 
 permissions:
   contents: read
