@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
@@ -59,7 +60,10 @@ def chrome():
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--window-size=1440,2600")
     opts.add_argument("--lang=pl-PL")
-    return webdriver.Chrome(options=opts)
+    driver = webdriver.Chrome(options=opts)
+    driver.set_page_load_timeout(35)
+    driver.set_script_timeout(20)
+    return driver
 
 def dismiss_cookies(driver):
     for text in ["Nie zezwalaj", "Akceptuję", "Akceptuj", "Zgadzam się", "Zaakceptuj wszystkie", "Zezwól na wszystkie", "OK"]:
@@ -287,14 +291,34 @@ def parse_card(a):
     }
 
 def load_page(driver, url, child_dobs):
-    driver.get(url)
-    WebDriverWait(driver, 30).until(
-        lambda d: d.execute_script("return document.readyState") == "complete"
-    )
-    time.sleep(3.5)
+    try:
+        driver.get(url)
+    except TimeoutException:
+        print("PAGE_LOAD_TIMEOUT", url)
+        try:
+            driver.execute_script("window.stop();")
+        except Exception:
+            pass
+    except WebDriverException as e:
+        print("PAGE_LOAD_ERROR", type(e).__name__, str(e)[:180], url)
+        return False
+
+    try:
+        WebDriverWait(driver, 15).until(
+            lambda d: d.find_elements(By.TAG_NAME, "body")
+        )
+    except Exception:
+        print("PAGE_BODY_MISSING", url)
+        return False
+
+    time.sleep(1.5)
     dismiss_cookies(driver)
-    if not ensure_family(driver, child_dobs):
-        print("REJECT_PAGE family not confirmed:", participant_value(driver))
+    try:
+        if not ensure_family(driver, child_dobs):
+            print("REJECT_PAGE family not confirmed:", participant_value(driver))
+            return False
+    except WebDriverException as e:
+        print("FAMILY_CHECK_ERROR", type(e).__name__, str(e)[:160])
         return False
     return True
 
