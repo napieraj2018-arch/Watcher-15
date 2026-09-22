@@ -27,3 +27,22 @@ Watcher działa co 15 minut z przesunięciem względem pełnych kwadransów, prz
 ## Kolejne watchery
 
 Reguły są w `config/watchers.json`. Ten sam mechanizm może później służyć do monitorowania lotów, cen produktów, samochodów, nieruchomości i innych wyszukiwań.
+
+
+## Architektura wielu źródeł
+
+Watcher-15 ma rejestr **15 niezależnych kanałów** w `config/channels.json`.
+
+Statusy:
+- `production` — kanał może generować alarm dopiero po potwierdzeniu składu grupy i ceny końcowej.
+- `diagnostic` — źródło działa technicznie i jest w trakcie mapowania formularza/rezerwacji.
+- `registered` — kanał jest zarejestrowany i czeka na pełny adapter.
+- `blocked_*` — serwis blokuje zwykły automat; nie może być traktowany jako główne źródło.
+
+Reguła bezpieczeństwa: cena `/os.`, cena dla 2 dorosłych albo cena z listingu bez potwierdzenia składu grupy **nigdy nie może uruchomić alarmu**.
+
+### Aktualny zestaw 15 kanałów
+
+Wakacje.pl, TUI Poland, ITAKA, Rainbow, Coral Travel, Travelplanet, Fly.pl, EXIM tours, Join UP! Polska, Nekera, Grecos, Sun & Fun, eSky Wakacje, TraveliGo oraz Oasis Tours.
+
+Co godzinę działa lekki health-check wszystkich źródeł. Raz dziennie uruchamia się diagnostyka struktury formularzy dla kanałów nieprodukcyjnych. Produkcyjne adaptery ofertowe działają niezależnie i mogą być uruchamiane co 15 minut.
