@@ -1,0 +1,38 @@
+name: Channel 01 — Wakacje.pl
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0,15,30,45 * * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: source-channel-wakacje_pl
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Wakacje.pl channel
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHONUNBUFFERED: "1"
+          WATCHER_CHANNEL: wakacje_pl
+        run: python src/channel_runner.py
