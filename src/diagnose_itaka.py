@@ -45,6 +45,39 @@ def main():
         except Exception as e:
             print("FILTER_OPENED_ERROR",type(e).__name__,str(e)[:200])
 
+        try:
+            part=d.find_element(By.CSS_SELECTOR,"[data-testid='participants-filter-input']")
+            d.execute_script("arguments[0].click();",part)
+            time.sleep(1.0)
+            print("PARTICIPANTS_PANEL_OPENED",True)
+        except Exception as e:
+            print("PARTICIPANTS_PANEL_OPENED",False,type(e).__name__,str(e)[:180])
+
+        print("PARTICIPANT_TESTIDS")
+        seenp=set()
+        for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
+            try:
+                if not el.is_displayed():
+                    continue
+                tid=el.get_attribute("data-testid") or ""
+                txt=compact(el.text)
+                blob=(tid+" "+txt).lower()
+                if any(k in blob for k in ["adult","child","dziec","uczest","person","participant","room","wiek","age"]):
+                    item=(el.tag_name,tid,txt[:200])
+                    if item in seenp: continue
+                    seenp.add(item)
+                    print(repr({
+                      "tag":el.tag_name,
+                      "testid":tid,
+                      "text":txt[:350],
+                      "aria":el.get_attribute("aria-label"),
+                      "name":el.get_attribute("name"),
+                      "value":el.get_attribute("value"),
+                      "class":(el.get_attribute("class") or "")[:180],
+                      "html":el.get_attribute("outerHTML")[:1100]
+                    }))
+            except: pass
+
         print("VISIBLE_TESTIDS")
         seen=set()
         for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
