@@ -22,7 +22,6 @@ def main():
         WebDriverWait(driver, 35).until(lambda d: d.execute_script("return document.readyState") == "complete")
         time.sleep(4)
 
-        # Best-effort cookie dismissal.
         for text in ["Akceptuję", "Akceptuj", "Zgadzam się", "Zaakceptuj wszystkie", "OK"]:
             try:
                 els = driver.find_elements(By.XPATH, f"//button[contains(normalize-space(.), '{text}')]")
@@ -36,64 +35,96 @@ def main():
         print("TITLE:", driver.title)
         print("URL:", driver.current_url)
 
-        # Print only compact elements related to participant selection.
-        matches = []
-        xpath = (
-            "//*[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZĄĆĘŁŃÓŚŹŻ','abcdefghijklmnopqrstuvwxyząćęłńóśźż'),'ile osób') "
-            "or contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZĄĆĘŁŃÓŚŹŻ','abcdefghijklmnopqrstuvwxyząćęłńóśźż'),'uczest') "
-            "or contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZĄĆĘŁŃÓŚŹŻ','abcdefghijklmnopqrstuvwxyząćęłńóśźż'),'doros') "
-            "or contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZĄĆĘŁŃÓŚŹŻ','abcdefghijklmnopqrstuvwxyząćęłńóśźż'),'dziec')]"
-        )
-        for el in driver.find_elements(By.XPATH, xpath):
-            try:
-                txt = compact(el.text)
-                if txt and len(txt) < 260:
-                    matches.append((
-                        el.tag_name,
-                        el.get_attribute("role"),
-                        el.get_attribute("aria-label"),
-                        el.get_attribute("data-testid"),
-                        txt
-                    ))
-            except Exception:
-                pass
-
-        print("PARTICIPANT_RELATED_ELEMENTS:")
-        seen = set()
-        for item in matches[:150]:
-            if item not in seen:
-                seen.add(item)
-                print(repr(item))
-
-        # Try to open participant picker.
-        clicked = False
-        candidates = driver.find_elements(
-            By.XPATH,
-            "//*[contains(normalize-space(.),'Ile osób?') or contains(normalize-space(.),'Uczestnicy') or contains(normalize-space(.),'2 osoby')]"
-        )
-        for el in candidates:
-            try:
-                if el.is_displayed():
-                    driver.execute_script("arguments[0].click();", el)
-                    print("CLICKED:", el.tag_name, compact(el.get_attribute("aria-label")), compact(el.text)[:200])
-                    clicked = True
-                    time.sleep(2)
+        labels = driver.find_elements(By.XPATH, "//label[normalize-space(.)='Ile osób?']")
+        print("EXACT_LABEL_COUNT:", len(labels))
+        if labels:
+            label = labels[0]
+            print("LABEL_OUTER_HTML:", label.get_attribute("outerHTML"))
+            cur = label
+            for level in range(1, 6):
+                try:
+                    cur = cur.find_element(By.XPATH, "..")
+                    print(f"ANCESTOR_{level}_TAG:", cur.tag_name)
+                    print(f"ANCESTOR_{level}_TEXT:", compact(cur.text)[:700])
+                    html = cur.get_attribute("outerHTML") or ""
+                    print(f"ANCESTOR_{level}_HTML:", html[:7000])
+                except Exception:
                     break
+
+            # Inspect nearby interactive elements.
+            try:
+                block = label.find_element(By.XPATH, "../..")
             except Exception:
-                pass
-        print("PARTICIPANT_PICKER_CLICKED:", clicked)
+                block = label
+
+            print("NEARBY_INTERACTIVE:")
+            for el in block.find_elements(By.XPATH, ".//button | .//input | .//*[@role='button']"):
+                try:
+                    print(repr({
+                        "tag": el.tag_name,
+                        "type": el.get_attribute("type"),
+                        "role": el.get_attribute("role"),
+                        "aria": el.get_attribute("aria-label"),
+                        "testid": el.get_attribute("data-testid"),
+                        "class": el.get_attribute("class"),
+                        "text": compact(el.text)[:300],
+                    }))
+                except Exception:
+                    pass
+
+            # Prefer the nearest button/input after the label.
+            candidates = []
+            xpaths = [
+                "./following::button[1]",
+                "./following::input[1]",
+                "../following-sibling::*[1]//button[1]",
+                "../following-sibling::*[1]//*[@role='button'][1]",
+            ]
+            for xp in xpaths:
+                try:
+                    el = label.find_element(By.XPATH, xp)
+                    if el.is_displayed():
+                        candidates.append(el)
+                except Exception:
+                    pass
+
+            clicked = False
+            seen = set()
+            for el in candidates:
+                key = (el.tag_name, el.get_attribute("class"), compact(el.text))
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    print("CLICK_CANDIDATE:", repr({
+                        "tag": el.tag_name,
+                        "type": el.get_attribute("type"),
+                        "role": el.get_attribute("role"),
+                        "aria": el.get_attribute("aria-label"),
+                        "class": el.get_attribute("class"),
+                        "text": compact(el.text)[:300],
+                    }))
+                    driver.execute_script("arguments[0].click();", el)
+                    time.sleep(2)
+                    print("CLICKED_CANDIDATE:", key)
+                    clicked = True
+                    break
+                except Exception as e:
+                    print("CLICK_ERROR:", type(e).__name__, str(e)[:300])
+
+            print("PICKER_CLICKED:", clicked)
 
         body_text = driver.find_element(By.TAG_NAME, "body").text
         lines = [x.strip() for x in body_text.splitlines() if x.strip()]
         keys = ("doros", "dziec", "wiek", "uczest", "osób", "osoby", " lat")
-        print("VISIBLE_RELEVANT_TEXT:")
+        print("VISIBLE_RELEVANT_TEXT_AFTER_CLICK:")
         out = []
         for i, line in enumerate(lines):
             if any(k in line.lower() for k in keys):
-                lo = max(0, i - 2)
-                hi = min(len(lines), i + 5)
+                lo = max(0, i - 3)
+                hi = min(len(lines), i + 7)
                 out.extend(lines[lo:hi])
-        for line in out[:300]:
+        for line in out[:350]:
             print(line)
 
         driver.save_screenshot("wakacje-diagnostic.png")
