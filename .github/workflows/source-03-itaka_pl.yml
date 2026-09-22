@@ -2,6 +2,13 @@ name: Channel 03 — ITAKA
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "src/watcher.py"
+      - "src/channel_runner.py"
+      - "config/watchers.json"
+      - "config/channels.json"
+      - ".github/workflows/source-03-itaka_pl.yml"
   schedule:
     - cron: "3,18,33,48 * * * *"
 
