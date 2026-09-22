@@ -37,6 +37,7 @@ def main():
         # Click likely participant control.
         clicked=None
         needles=["uczest","osób","osoby","doros","podróż"]
+        stop=False
         for needle in needles:
             els=d.find_elements(By.XPATH,
                 "//*[self::button or @role='button' or self::div or self::span]"
@@ -49,10 +50,11 @@ def main():
                         d.execute_script("arguments[0].click();",el)
                         clicked={"needle":needle,"tag":el.tag_name,"text":txt,"aria":el.get_attribute("aria-label"),"testid":el.get_attribute("data-testid"),"class":el.get_attribute("class")}
                         time.sleep(1.2)
-                        raise StopIteration
-                except StopIteration: raise
-                except: pass
-            if clicked: break
+                        stop=True
+                        break
+                except Exception:
+                    pass
+            if stop: break
         print("PARTICIPANT_CLICK",repr(clicked))
 
         print("VISIBLE_INPUTS")
