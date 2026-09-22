@@ -44,6 +44,26 @@ def main():
                     print(repr({"tag":el.tag_name,"text":txt[:250],"name":el.get_attribute("name"),"id":el.get_attribute("id"),"value":el.get_attribute("value"),"aria":el.get_attribute("aria-label"),"html":el.get_attribute("outerHTML")[:1200]}))
             except: pass
 
+        print("SET_EXACT_CHILD_AGES")
+        try:
+            age_buttons=[b for b in d.find_elements(By.XPATH,"//button[.//div[contains(@class,'f_input-item-value')]]") if b.is_displayed() and ("lat" in compact(b.text).lower() or "poniżej" in compact(b.text).lower())]
+            print("AGE_BUTTONS_BEFORE",[compact(b.text) for b in age_buttons])
+            targets=["5 lat","7 lat"]
+            for idx,target in enumerate(targets):
+                age_buttons=[b for b in d.find_elements(By.XPATH,"//button[.//div[contains(@class,'f_input-item-value')]]") if b.is_displayed() and ("lat" in compact(b.text).lower() or "poniżej" in compact(b.text).lower())]
+                if idx>=len(age_buttons):
+                    raise RuntimeError(f"Missing child age button {idx}")
+                d.execute_script("arguments[0].click();",age_buttons[idx]);time.sleep(.5)
+                options=[b for b in d.find_elements(By.TAG_NAME,"button") if b.is_displayed() and compact(b.text).lower()==target]
+                if not options:
+                    print("AGE_OPTION_TEXTS",[compact(b.text) for b in d.find_elements(By.TAG_NAME,"button") if b.is_displayed() and ("lat" in compact(b.text).lower() or "rok" in compact(b.text).lower())][:80])
+                    raise RuntimeError(f"Age option not found: {target}")
+                d.execute_script("arguments[0].click();",options[-1]);time.sleep(.6)
+            age_buttons=[b for b in d.find_elements(By.XPATH,"//button[.//div[contains(@class,'f_input-item-value')]]") if b.is_displayed() and ("lat" in compact(b.text).lower() or "poniżej" in compact(b.text).lower())]
+            print("AGE_BUTTONS_AFTER",[compact(b.text) for b in age_buttons])
+        except Exception as e:
+            print("SET_AGES_ERROR",type(e).__name__,str(e)[:300])
+
         # Search/apply if a visible action exists.
         for text in ["WYSZUKAJ","SZUKAJ"]:
             if click_text(d,text):
