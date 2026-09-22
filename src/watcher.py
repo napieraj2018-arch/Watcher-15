@@ -79,7 +79,10 @@ def ensure_family(driver, child_dobs):
     if "2 dzieci" in value:
         return True
 
-    participant = driver.find_element(By.CSS_SELECTOR, "input[name='CalculatorPerson']")
+    try:
+        participant = driver.find_element(By.CSS_SELECTOR, "input[name='CalculatorPerson']")
+    except Exception:
+        return False
     wrapper = participant.find_element(By.XPATH, "./ancestor::div[contains(@class,'input-wrapper-clickable')][1]")
     driver.execute_script("arguments[0].scrollIntoView({block:'center'});", wrapper)
     driver.execute_script("arguments[0].click();", wrapper)
@@ -164,12 +167,15 @@ def parse_card(a):
         if idx + 1 < len(lines):
             operator = lines[idx + 1]
 
+    mnight = re.search(r"\(\s*\d+\s+dni\s*/\s*(\d+)\s+noc", text, re.I)
+    nights = int(mnight.group(1)) if mnight else (ret - dep).days
+
     return {
         "hotel": hotel,
         "region": region,
         "departure": dep,
         "return": ret,
-        "nights": (ret - dep).days,
+        "nights": nights,
         "price": int(mp.group(1).replace(" ", "")),
         "rating": float(mr.group(1).replace(",", ".")) if mr else None,
         "reviews": int(mn.group(1).replace(" ", "")) if mn else None,
