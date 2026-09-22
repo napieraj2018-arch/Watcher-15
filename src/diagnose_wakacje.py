@@ -77,6 +77,32 @@ def main():
         print("CONFIRMED_PARTICIPANT_ARIA:", participant.get_attribute("aria-label"))
         print("URL_AFTER_CONFIRM:", driver.current_url)
 
+        # Verify direct date-filter URL syntax for imminent departures.
+        family_token = "2dorosle-2dzieci-20210301-20190301"
+        test_day = (date.today() + timedelta(days=2)).isoformat()
+        date_url = (
+            f"https://www.wakacje.pl/lastminute/?od-{test_day},7-dni,all-inclusive,"
+            f"z-warszawy,z-warszawy-radom,{family_token}&src=fromSearch"
+        )
+        print("DATE_FILTER_TEST_URL:", date_url)
+        driver.get(date_url)
+        WebDriverWait(driver, 30).until(lambda d: d.execute_script("return document.readyState") == "complete")
+        time.sleep(5)
+        print("DATE_FILTER_FINAL_URL:", driver.current_url)
+        print("DATE_FILTER_RESULT_SAMPLE:")
+        count = 0
+        for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='/oferty/']"):
+            try:
+                txt = compact(a.text)
+                href = a.get_attribute("href") or ""
+                if txt and href:
+                    print(repr({"href": href, "text": txt[:1000]}))
+                    count += 1
+                    if count >= 12:
+                        break
+            except Exception:
+                pass
+
         print("SEARCH_INPUTS:")
         for inp in driver.find_elements(By.TAG_NAME, "input"):
             try:
