@@ -62,7 +62,7 @@ def chrome():
     return webdriver.Chrome(options=opts)
 
 def dismiss_cookies(driver):
-    for text in ["Akceptuję", "Akceptuj", "Zgadzam się", "Zaakceptuj wszystkie", "OK"]:
+    for text in ["Nie zezwalaj", "Akceptuję", "Akceptuj", "Zgadzam się", "Zaakceptuj wszystkie", "Zezwól na wszystkie", "OK"]:
         try:
             els = driver.find_elements(By.XPATH, f"//button[contains(normalize-space(.), '{text}')]")
             if els and els[0].is_displayed():
@@ -514,11 +514,12 @@ def create_alert(token, repo, cfg, offer, verification):
         f"{prefix}: {offer['hotel']} — {offer['price']} zł 2+2 — "
         f"{offer['departure'].strftime('%d.%m')}"
     )
+    stars_text = f"{offer.get('stars')}★" if offer.get("stars") else "kategoria hotelu nieodczytana"
     body = f"""@{cfg['notify_github_user']}
 
 **{drop_note}**
 
-- **Hotel:** {offer['hotel']} ({offer.get('stars', '?')}★)
+- **Hotel:** {offer['hotel']} ({stars_text})
 - **Cena łączna 2+2:** **{offer['price']} zł**
 - **Dzieci:** {', '.join(str(x) for x in cfg['children_ages'])} lat
 - **Termin:** {offer['departure'].strftime('%d.%m.%Y')} – {offer['return'].strftime('%d.%m.%Y')} ({offer['nights']} nocy)
@@ -601,13 +602,403 @@ def run_watcher(cfg):
     finally:
         driver.quit()
 
+
+TUI_BASE_URL = "https://www.tui.pl/last-minute-z-warszawy"
+
+def tui_pick_birth_date(driver, button_index: int, dob: date):
+    births = [
+        b for b in driver.find_elements(By.CSS_SELECTOR, "button[data-testid='birth-date-button']")
+        if b.is_displayed()
+    ]
+    if button_index >= len(births):
+        raise RuntimeError("TUI birth date button missing")
+    driver.execute_script("arguments[0].click();", births[button_index])
+    time.sleep(0.45)
+    cal = driver.find_element(By.CSS_SELECTOR, "div[data-testid='birth-date-calendar']")
+
+    for _ in range(5):
+        years = [
+            x for x in cal.find_elements(
+                By.CSS_SELECTOR, ".react-calendar__decade-view__years button"
+            ) if x.is_displayed()
+        ]
+        match = [x for x in years if compact(x.text) == str(dob.year)]
+        if match:
+            driver.execute_script("arguments[0].click();", match[0])
+            break
+
+        label = compact(
+            cal.find_element(By.CSS_SELECTOR, ".react-calendar__navigation__label").text
+        )
+        nums = [int(x) for x in re.findall(r"\d{4}", label)]
+        if nums and dob.year < min(nums):
+            btn = cal.find_element(
+                By.CSS_SELECTOR, ".react-calendar__navigation__prev-button"
+            )
+        else:
+            btn = cal.find_element(
+                By.CSS_SELECTOR, ".react-calendar__navigation__next-button"
+            )
+        if not btn.is_enabled():
+            raise RuntimeError(f"TUI cannot navigate to year {dob.year}")
+        driver.execute_script("arguments[0].click();", btn)
+        time.sleep(0.35)
+    else:
+        raise RuntimeError(f"TUI year not found: {dob.year}")
+
+    time.sleep(0.35)
+    months = [
+        x for x in cal.find_elements(
+            By.CSS_SELECTOR, ".react-calendar__year-view__months button"
+        ) if x.is_displayed()
+    ]
+    if len(months) < 12:
+        raise RuntimeError("TUI month picker incomplete")
+    driver.execute_script("arguments[0].click();", months[dob.month - 1])
+    time.sleep(0.35)
+
+    days = [
+        x for x in cal.find_elements(
+            By.CSS_SELECTOR, ".react-calendar__month-view__days button"
+        ) if x.is_displayed()
+    ]
+    target = None
+    for x in days:
+        txt = compact(x.text)
+        cls = x.get_attribute("class") or ""
+        aria = (x.get_attribute("aria-label") or "").lower()
+        if (
+            txt == str(dob.day)
+            and "neighboringMonth" not in cls
+            and (str(dob.year) in aria or not aria)
+        ):
+            target = x
+            break
+    if target is None:
+        raise RuntimeError(f"TUI day not found: {dob.isoformat()}")
+    driver.execute_script("arguments[0].click();", target)
+    time.sleep(0.55)
+
+def tui_configure_family(driver, cfg, child_dobs):
+    driver.get(TUI_BASE_URL)
+    WebDriverWait(driver, 40).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+    time.sleep(3.5)
+    dismiss_cookies(driver)
+
+    part = driver.find_element(
+        By.CSS_SELECTOR, "button[data-testid='dropdown-field--participants']"
+    )
+    driver.execute_script("arguments[0].click();", part)
+    time.sleep(0.5)
+
+    # Force exactly 2 adults.
+    for _ in range(5):
+        count = int(
+            driver.find_element(
+                By.CSS_SELECTOR, "span[data-testid='person-count-adults']"
+            ).text
+        )
+        if count == 2:
+            break
+        selector = (
+            "button[data-testid='person-count-decrement-adults']"
+            if count > 2
+            else "button[data-testid='person-count-increment-adults']"
+        )
+        driver.find_element(By.CSS_SELECTOR, selector).click()
+        time.sleep(0.15)
+    if int(driver.find_element(
+        By.CSS_SELECTOR, "span[data-testid='person-count-adults']"
+    ).text) != 2:
+        raise RuntimeError("TUI could not set 2 adults")
+
+    # Reset children to 0, then set exactly two.
+    for _ in range(6):
+        count = int(
+            driver.find_element(
+                By.CSS_SELECTOR, "span[data-testid='person-count-children']"
+            ).text
+        )
+        if count == 0:
+            break
+        driver.find_element(
+            By.CSS_SELECTOR, "button[data-testid='person-count-decrement-children']"
+        ).click()
+        time.sleep(0.15)
+
+    for _ in range(2):
+        driver.find_element(
+            By.CSS_SELECTOR, "button[data-testid='person-count-increment-children']"
+        ).click()
+        time.sleep(0.25)
+
+    if int(driver.find_element(
+        By.CSS_SELECTOR, "span[data-testid='person-count-children']"
+    ).text) != 2:
+        raise RuntimeError("TUI could not set 2 children")
+
+    tui_pick_birth_date(driver, 0, child_dobs[0])
+    tui_pick_birth_date(driver, 1, child_dobs[1])
+
+    submit = driver.find_element(
+        By.CSS_SELECTOR, "button[data-testid='dropdown-window-button-submit']"
+    )
+    driver.execute_script("arguments[0].click();", submit)
+    time.sleep(0.6)
+
+    participant_text = compact(
+        driver.find_element(
+            By.CSS_SELECTOR, "button[data-testid='dropdown-field--participants']"
+        ).text
+    ).lower()
+    if "2 doros" not in participant_text or "2 dzieci" not in participant_text:
+        raise RuntimeError(f"TUI family not confirmed: {participant_text}")
+
+    search = driver.find_element(
+        By.CSS_SELECTOR, "button[data-testid='global-search-button-submit']"
+    )
+    driver.execute_script("arguments[0].click();", search)
+    WebDriverWait(driver, 40).until(
+        lambda d: "birthDate" in d.current_url or "birthdate" in d.current_url.lower()
+    )
+    time.sleep(3.5)
+
+    # Narrow TUI duration from its default 6-14 to the configured 5-8 window.
+    url = driver.current_url
+    narrowed = re.sub(
+        r"%3AdF%3A\d+%3AdT%3A\d+",
+        f"%3AdF%3A{cfg['min_nights']}%3AdT%3A{cfg['max_nights']}",
+        url,
+        flags=re.I,
+    )
+    if narrowed != url:
+        driver.get(narrowed)
+        WebDriverWait(driver, 40).until(
+            lambda d: d.execute_script("return document.readyState") == "complete"
+        )
+        time.sleep(3.0)
+
+    return driver.current_url
+
+def tui_collect_tiles(driver, cfg, target_days):
+    # TUI is already price-ascending on this page. Scroll until the number
+    # of tiles stops increasing so imminent departures are not missed.
+    stable = 0
+    last = -1
+    for _ in range(12):
+        tiles = driver.find_elements(By.CSS_SELECTOR, "[data-testid='offer-tile']")
+        count = len(tiles)
+        if count == last:
+            stable += 1
+        else:
+            stable = 0
+            last = count
+        if stable >= 2:
+            break
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(0.8)
+
+    target_set = set(target_days)
+    offers = []
+    seen = set()
+    for tile in driver.find_elements(By.CSS_SELECTOR, "[data-testid='offer-tile']"):
+        try:
+            text = compact(tile.text)
+            if cfg["meal_contains"].lower() not in text.lower():
+                continue
+
+            date_el = tile.find_element(
+                By.CSS_SELECTOR, "[data-testid='offer-tile-departure-date']"
+            )
+            md = re.search(
+                r"(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4}).*?\((\d+)\s+noc",
+                compact(date_el.text),
+                re.I,
+            )
+            if not md:
+                continue
+            dep = datetime.strptime(md.group(1), "%d.%m.%Y").date()
+            ret = datetime.strptime(md.group(2), "%d.%m.%Y").date()
+            nights = int(md.group(3))
+            if dep not in target_set:
+                continue
+            if not (cfg["min_nights"] <= nights <= cfg["max_nights"]):
+                continue
+
+            mr = re.search(r"\b(\d[.,]\d)\s*/\s*5\b", text)
+            mn = re.search(r"([0-9][0-9 ]*)\s+opini", text, re.I)
+            rating5 = float(mr.group(1).replace(",", ".")) if mr else None
+            rating10 = rating5 * 2 if rating5 is not None else None
+            reviews = int(mn.group(1).replace(" ", "")) if mn else None
+            if (rating10 or 0) < cfg["min_rating"]:
+                continue
+            if (reviews or 0) < cfg["min_reviews"]:
+                continue
+
+            anchor = tile.find_element(By.CSS_SELECTOR, "a[href*='/wypoczynek/']")
+            href = anchor.get_attribute("href") or ""
+            if not href or href in seen:
+                continue
+            seen.add(href)
+            hotel = compact(anchor.get_attribute("hotelname")) or "Hotel TUI"
+            region = compact(anchor.get_attribute("destination"))
+            try:
+                airport = compact(
+                    tile.find_element(
+                        By.CSS_SELECTOR, "button[data-testid='dropdown-field--same-day-offers']"
+                    ).text
+                )
+                airport = re.sub(r"\s*\([^)]*\)\s*$", "", airport)
+            except Exception:
+                airport = "Warszawa-Chopina"
+
+            offers.append({
+                "hotel": hotel,
+                "stars": None,
+                "departure": dep,
+                "return": ret,
+                "nights": nights,
+                "price": None,
+                "rating": rating10,
+                "reviews": reviews,
+                "airport": airport,
+                "meal": "All Inclusive",
+                "operator": "TUI",
+                "href": href,
+                "verified_href": href,
+                "region": region,
+                "text": text,
+            })
+        except Exception as e:
+            print("TUI_TILE_PARSE_WARN", type(e).__name__, str(e)[:160])
+
+    offers.sort(key=lambda x: (-(x["rating"] or 0), -(x["reviews"] or 0)))
+    print("TUI_IMMINENT_CANDIDATES", len(offers))
+    for x in offers[:12]:
+        print(
+            "TUI_CANDIDATE", x["hotel"], x["departure"], x["nights"],
+            x["rating"], x["reviews"], x["airport"], x["href"]
+        )
+    return offers
+
+def tui_parse_family_total(body: str):
+    lines = [compact(x) for x in body.splitlines() if compact(x)]
+    for i, line in enumerate(lines):
+        if line.lower().rstrip(":") == "cena razem":
+            # On TUI the selected package total is the first money amount
+            # immediately after the label.
+            for nxt in lines[i + 1:i + 4]:
+                m = re.search(r"([0-9][0-9 ]{2,})\s*zł", nxt, re.I)
+                if not m:
+                    continue
+                value = int(m.group(1).replace(" ", ""))
+                if 1500 <= value <= 30000:
+                    return value
+    return None
+
+def tui_page_stars(driver):
+    stars = page_stars(driver)
+    if stars is not None:
+        return stars
+    try:
+        body = compact(driver.find_element(By.TAG_NAME, "body").text)
+        patterns = [
+            r"\b([1-5])\s*gwiazdek\b",
+            r"\b([1-5])\s*gwiazdki\b",
+            r"\bhotel\s+([1-5])\s*gwiazdk",
+        ]
+        for pat in patterns:
+            m = re.search(pat, body, re.I)
+            if m:
+                return int(m.group(1))
+    except Exception:
+        pass
+    return None
+
+def tui_verify_offer(driver, offer, cfg):
+    print("TUI_VERIFY", offer["hotel"], offer["href"])
+    driver.get(offer["href"])
+    WebDriverWait(driver, 45).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+    time.sleep(5.0)
+    dismiss_cookies(driver)
+
+    body = driver.find_element(By.TAG_NAME, "body").text
+    low = body.lower()
+    if any(p in low for p in UNAVAILABLE_PHRASES):
+        return None, "tui_unavailable", None
+    if not (
+        ("2 dorosłych + 2 dzieci" in low)
+        or ("2 dorosłych, 2 dzieci" in low)
+    ):
+        return None, "tui_family_not_confirmed", None
+    if offer["departure"].strftime("%d.%m.%Y") not in body:
+        return None, "tui_departure_not_confirmed", None
+    if "all inclusive" not in low:
+        return None, "tui_meal_not_confirmed", None
+
+    stars = tui_page_stars(driver)
+    if stars is not None and stars < cfg.get("min_stars", 4):
+        return None, f"tui_hotel_stars_{stars}", stars
+    if cfg.get("require_stars", False) and stars is None:
+        return None, "tui_stars_not_confirmed", None
+
+    total = tui_parse_family_total(body)
+    if total is None:
+        return None, "tui_no_family_total", stars
+    return total, "tui_detail_family_total", stars
+
+def run_tui_watcher(cfg):
+    local_date = now_local().date()
+    child_dobs = [representative_dob(age, local_date) for age in cfg["children_ages"]]
+    target_days = [local_date + timedelta(days=d) for d in cfg["depart_in_days"]]
+    print("TUI_WATCHER_DATE", local_date.isoformat())
+    print("TUI_TARGET_DAYS", [d.isoformat() for d in target_days])
+
+    driver = chrome()
+    try:
+        search_url = tui_configure_family(driver, cfg, child_dobs)
+        print("TUI_FAMILY_SEARCH_URL", search_url)
+        candidates = tui_collect_tiles(driver, cfg, target_days)
+
+        token = os.getenv("GITHUB_TOKEN", "")
+        repo = os.getenv("GITHUB_REPOSITORY", "")
+        alerts = 0
+        for offer in candidates[:15]:
+            total, verification, stars = tui_verify_offer(driver, offer, cfg)
+            if total is None:
+                print("TUI_REJECT_VERIFY", offer["hotel"], verification)
+                continue
+            offer["price"] = total
+            offer["stars"] = stars
+            if total > cfg["max_total_price_pln"]:
+                print("TUI_REJECT_PRICE", offer["hotel"], total)
+                continue
+
+            if token and repo:
+                if create_alert(token, repo, cfg, offer, verification):
+                    alerts += 1
+            else:
+                print("TUI_DRY_ALERT", offer)
+        print("TUI_ALERTS_CREATED", alerts)
+    finally:
+        driver.quit()
+
 def main():
     data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    provider_filter = os.getenv("WATCHER_PROVIDER", "").strip()
     for cfg in data.get("watchers", []):
         if not cfg.get("enabled", False):
             continue
+        if provider_filter and cfg.get("provider") != provider_filter:
+            continue
         if cfg.get("provider") == "wakacje_pl":
             run_watcher(cfg)
+        elif cfg.get("provider") == "tui_pl":
+            run_tui_watcher(cfg)
         else:
             print("UNSUPPORTED_PROVIDER", cfg.get("provider"))
 
