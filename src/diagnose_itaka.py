@@ -73,6 +73,49 @@ def main():
         except Exception as e:
             print("PORTAL_INSPECT_ERROR",type(e).__name__,str(e)[:180])
 
+        try:
+            label=d.find_element(By.XPATH,"//span[contains(normalize-space(.),'Dzieci (0-17 lat)')]")
+            row=label.find_element(By.XPATH,"./ancestor::div[contains(@class,'styles_wrapper')][1]")
+            child_buttons=[b for b in row.find_elements(By.TAG_NAME,"button") if b.is_displayed()]
+            if len(child_buttons)>=2:
+                d.execute_script("arguments[0].click();",child_buttons[-1]); time.sleep(0.35)
+                d.execute_script("arguments[0].click();",child_buttons[-1]); time.sleep(0.8)
+            portal=d.find_element(By.CSS_SELECTOR,"[data-testid='portal-content']")
+            print("CHILDREN_AFTER_ADD",compact(portal.text))
+            print("CHILDREN_PORTAL_HTML",portal.get_attribute("outerHTML")[:20000])
+            print("CHILDREN_SELECTS")
+            for s in portal.find_elements(By.TAG_NAME,"select"):
+                if s.is_displayed():
+                    print(repr({
+                      "name":s.get_attribute("name"),
+                      "value":s.get_attribute("value"),
+                      "html":s.get_attribute("outerHTML")[:1600]
+                    }))
+            print("CHILDREN_INPUTS")
+            for inp in portal.find_elements(By.TAG_NAME,"input"):
+                if inp.is_displayed():
+                    print(repr({
+                      "type":inp.get_attribute("type"),
+                      "name":inp.get_attribute("name"),
+                      "placeholder":inp.get_attribute("placeholder"),
+                      "value":inp.get_attribute("value"),
+                      "aria":inp.get_attribute("aria-label"),
+                      "html":inp.get_attribute("outerHTML")[:1200]
+                    }))
+            print("CHILDREN_BUTTONS")
+            for idx,b in enumerate(portal.find_elements(By.TAG_NAME,"button")):
+                if b.is_displayed():
+                    print(repr({
+                      "idx":idx,
+                      "text":compact(b.text)[:200],
+                      "title":b.get_attribute("title"),
+                      "aria":b.get_attribute("aria-label"),
+                      "class":(b.get_attribute("class") or "")[:220],
+                      "html":b.get_attribute("outerHTML")[:1000]
+                    }))
+        except Exception as e:
+            print("CHILDREN_ADD_ERROR",type(e).__name__,str(e)[:250])
+
         print("PARTICIPANT_TESTIDS")
         seenp=set()
         for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
