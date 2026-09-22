@@ -81,6 +81,26 @@ def main():
             body2=d.find_element(By.TAG_NAME,"body").text
             lines2=[x.strip() for x in body2.splitlines() if x.strip()]
             print("DETAIL_URL",d.current_url)
+
+            # Rainbow detail redirect currently keeps only adult 'wiek' params.
+            # Force exact 2+2 party directly in the detail URL and compare totals.
+            from urllib.parse import urlsplit, parse_qsl, urlencode, urlunsplit
+            parts=urlsplit(d.current_url)
+            pairs=parse_qsl(parts.query,keep_blank_values=True)
+            pairs=[p for p in pairs if p[0]!="wiek"]
+            pairs += [
+                ("wiek","1996-09-22"),("wiek","1996-09-22"),
+                ("wiek","2021-08-24"),("wiek","2019-08-24"),
+            ]
+            family_url=urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(pairs,doseq=True),parts.fragment))
+            print("DETAIL_FAMILY_URL",family_url)
+            d.get(family_url)
+            WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete")
+            time.sleep(5)
+            print("DETAIL_FAMILY_FINAL_URL",d.current_url)
+            body2=d.find_element(By.TAG_NAME,"body").text
+            lines2=[x.strip() for x in body2.splitlines() if x.strip()]
+
             print("DETAIL_RELEVANT_LINES")
             for line in lines2:
                 lo=line.lower()
