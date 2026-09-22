@@ -34,27 +34,24 @@ def main():
         print("TITLE",d.title)
         print("START_URL",d.current_url)
 
-        # Click likely participant control.
+        # Open the exact participant control for each provider.
         clicked=None
-        needles=["uczest","osób","osoby","doros","podróż"]
-        stop=False
-        for needle in needles:
-            els=d.find_elements(By.XPATH,
-                "//*[self::button or @role='button' or self::div or self::span]"
-                f"[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZĄĆĘŁŃÓŚŹŻ','abcdefghijklmnopqrstuvwxyząćęłńóśźż'),'{needle}')]")
-            for el in els:
-                try:
-                    if el.is_displayed() and el.size.get("width",0)>20 and el.size.get("height",0)>15:
-                        txt=compact(el.text)
-                        if len(txt)>180: continue
-                        d.execute_script("arguments[0].click();",el)
-                        clicked={"needle":needle,"tag":el.tag_name,"text":txt,"aria":el.get_attribute("aria-label"),"testid":el.get_attribute("data-testid"),"class":el.get_attribute("class")}
-                        time.sleep(1.2)
-                        stop=True
-                        break
-                except Exception:
-                    pass
-            if stop: break
+        try:
+            if cid=="travelplanet_pl":
+                box=d.find_element(By.CSS_SELECTOR,"[data-testid='sf-passengers-picker-textbox']")
+                d.execute_script("arguments[0].click();",box)
+                clicked={"provider":"travelplanet","selector":"sf-passengers-picker-textbox","text":compact(box.text)}
+            elif cid=="exim_pl":
+                btn=d.find_element(
+                    By.XPATH,
+                    "//button[.//*[normalize-space()='Liczba uczestników'] or contains(normalize-space(.),'Liczba uczestników')]"
+                )
+                d.execute_script("arguments[0].click();",btn)
+                clicked={"provider":"exim","selector":"participant button","text":compact(btn.text)}
+            time.sleep(1.5)
+        except Exception as e:
+            clicked={"error":f"{type(e).__name__}: {str(e)[:220]}"}
+
         print("PARTICIPANT_CLICK",repr(clicked))
 
         print("VISIBLE_INPUTS")
@@ -112,6 +109,28 @@ def main():
                 print(f"[{i}] {line[:600]}")
 
         # Inspect data attributes / test IDs.
+        print("COUNTER_AGE_CONTROLS")
+        n=0
+        for el in d.find_elements(By.XPATH,"//*"):
+            try:
+                if not el.is_displayed(): continue
+                txt=compact(el.text)
+                aria=compact(el.get_attribute("aria-label"))
+                tid=compact(el.get_attribute("data-testid"))
+                name=compact(el.get_attribute("name"))
+                cls=compact(el.get_attribute("class"))
+                val=compact(el.get_attribute("value"))
+                blob=" ".join([txt,aria,tid,name,cls]).lower()
+                if any(k in blob for k in ["adult","child","dziec","dzieci","doros","wiek","age","person","passenger","uczest"]) and len(txt)<260:
+                    print(repr({
+                      "tag":el.tag_name,"text":txt[:220],"aria":aria[:180],
+                      "testid":tid,"name":name,"value":val,"class":cls[:220],
+                      "html":el.get_attribute("outerHTML")[:1000]
+                    }))
+                    n+=1
+                    if n>=240: break
+            except: pass
+
         print("DATA_ATTR_ELEMENTS")
         n=0
         for el in d.find_elements(By.CSS_SELECTOR,"[data-testid],[data-test],[data-cy],[aria-label]"):
