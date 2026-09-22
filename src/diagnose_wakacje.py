@@ -9,6 +9,23 @@ URL = "https://www.wakacje.pl/lastminute/?samolotem,z-warszawy,z-warszawy-radom&
 def compact(s: str) -> str:
     return " ".join((s or "").split())
 
+def dump_element(el, prefix="EL"):
+    try:
+        print(prefix, repr({
+            "tag": el.tag_name,
+            "type": el.get_attribute("type"),
+            "role": el.get_attribute("role"),
+            "name": el.get_attribute("name"),
+            "value": el.get_attribute("value"),
+            "aria": el.get_attribute("aria-label"),
+            "aria_expanded": el.get_attribute("aria-expanded"),
+            "testid": el.get_attribute("data-testid"),
+            "class": el.get_attribute("class"),
+            "text": compact(el.text)[:400],
+        }))
+    except Exception as e:
+        print(prefix, "ERR", type(e).__name__, str(e)[:200])
+
 def main():
     opts = Options()
     opts.add_argument("--headless=new")
@@ -35,96 +52,54 @@ def main():
         print("TITLE:", driver.title)
         print("URL:", driver.current_url)
 
-        labels = driver.find_elements(By.XPATH, "//label[normalize-space(.)='Ile osób?']")
-        print("EXACT_LABEL_COUNT:", len(labels))
-        if labels:
-            label = labels[0]
-            print("LABEL_OUTER_HTML:", label.get_attribute("outerHTML"))
-            cur = label
-            for level in range(1, 6):
-                try:
-                    cur = cur.find_element(By.XPATH, "..")
-                    print(f"ANCESTOR_{level}_TAG:", cur.tag_name)
-                    print(f"ANCESTOR_{level}_TEXT:", compact(cur.text)[:700])
-                    html = cur.get_attribute("outerHTML") or ""
-                    print(f"ANCESTOR_{level}_HTML:", html[:7000])
-                except Exception:
-                    break
+        participant = driver.find_element(By.CSS_SELECTOR, "input[name='CalculatorPerson']")
+        dump_element(participant, "PARTICIPANT_INPUT_BEFORE")
+        driver.execute_script("arguments[0].click();", participant)
+        time.sleep(2)
+        dump_element(participant, "PARTICIPANT_INPUT_AFTER")
 
-            # Inspect nearby interactive elements.
+        # Print visible dialogs/popovers.
+        print("VISIBLE_DIALOGS:")
+        dialogs = driver.find_elements(By.XPATH, "//*[@role='dialog'] | //*[contains(@class,'modal')] | //*[contains(@class,'popover')]")
+        for i, el in enumerate(dialogs[:80]):
             try:
-                block = label.find_element(By.XPATH, "../..")
+                if el.is_displayed():
+                    txt = compact(el.text)
+                    print(f"DIALOG_{i}_TAG:", el.tag_name)
+                    print(f"DIALOG_{i}_TEXT:", txt[:3500])
+                    print(f"DIALOG_{i}_HTML:", (el.get_attribute("outerHTML") or "")[:12000])
             except Exception:
-                block = label
+                pass
 
-            print("NEARBY_INTERACTIVE:")
-            for el in block.find_elements(By.XPATH, ".//button | .//input | .//*[@role='button']"):
-                try:
-                    print(repr({
-                        "tag": el.tag_name,
-                        "type": el.get_attribute("type"),
-                        "role": el.get_attribute("role"),
-                        "aria": el.get_attribute("aria-label"),
-                        "testid": el.get_attribute("data-testid"),
-                        "class": el.get_attribute("class"),
-                        "text": compact(el.text)[:300],
-                    }))
-                except Exception:
-                    pass
-
-            # Prefer the nearest button/input after the label.
-            candidates = []
-            xpaths = [
-                "./following::button[1]",
-                "./following::input[1]",
-                "../following-sibling::*[1]//button[1]",
-                "../following-sibling::*[1]//*[@role='button'][1]",
-            ]
-            for xp in xpaths:
-                try:
-                    el = label.find_element(By.XPATH, xp)
-                    if el.is_displayed():
-                        candidates.append(el)
-                except Exception:
-                    pass
-
-            clicked = False
-            seen = set()
-            for el in candidates:
-                key = (el.tag_name, el.get_attribute("class"), compact(el.text))
-                if key in seen:
+        print("VISIBLE_RELEVANT_INTERACTIVE:")
+        interactives = driver.find_elements(By.XPATH, "//button | //input | //select | //*[@role='button'] | //*[@role='spinbutton']")
+        for el in interactives:
+            try:
+                if not el.is_displayed():
                     continue
-                seen.add(key)
-                try:
-                    print("CLICK_CANDIDATE:", repr({
-                        "tag": el.tag_name,
-                        "type": el.get_attribute("type"),
-                        "role": el.get_attribute("role"),
-                        "aria": el.get_attribute("aria-label"),
-                        "class": el.get_attribute("class"),
-                        "text": compact(el.text)[:300],
-                    }))
-                    driver.execute_script("arguments[0].click();", el)
-                    time.sleep(2)
-                    print("CLICKED_CANDIDATE:", key)
-                    clicked = True
-                    break
-                except Exception as e:
-                    print("CLICK_ERROR:", type(e).__name__, str(e)[:300])
-
-            print("PICKER_CLICKED:", clicked)
+                blob = " ".join([
+                    compact(el.text),
+                    compact(el.get_attribute("aria-label")),
+                    compact(el.get_attribute("name")),
+                    compact(el.get_attribute("value")),
+                    compact(el.get_attribute("data-testid")),
+                ]).lower()
+                if any(k in blob for k in ("doros", "dzie", "wiek", "osob", "lat", "plus", "minus", "dodaj", "usuń", "usun", "gotowe", "zastosuj")):
+                    dump_element(el, "INTERACTIVE")
+            except Exception:
+                pass
 
         body_text = driver.find_element(By.TAG_NAME, "body").text
         lines = [x.strip() for x in body_text.splitlines() if x.strip()]
-        keys = ("doros", "dziec", "wiek", "uczest", "osób", "osoby", " lat")
-        print("VISIBLE_RELEVANT_TEXT_AFTER_CLICK:")
+        keys = ("doros", "dziec", "wiek", "uczest", "osób", "osoby", " lat", "gotowe", "zastosuj")
+        print("VISIBLE_RELEVANT_TEXT:")
         out = []
         for i, line in enumerate(lines):
             if any(k in line.lower() for k in keys):
                 lo = max(0, i - 3)
-                hi = min(len(lines), i + 7)
+                hi = min(len(lines), i + 8)
                 out.extend(lines[lo:hi])
-        for line in out[:350]:
+        for line in out[:450]:
             print(line)
 
         driver.save_screenshot("wakacje-diagnostic.png")
