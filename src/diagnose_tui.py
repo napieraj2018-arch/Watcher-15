@@ -51,6 +51,17 @@ def main():
         except Exception as e:
             print("PARTICIPANT_MODAL_OPENED", False, type(e).__name__, str(e)[:120])
 
+        # Add two children and inspect the newly rendered age controls.
+        try:
+            inc=d.find_element(By.CSS_SELECTOR,"button[data-testid='person-count-increment-children']")
+            d.execute_script("arguments[0].click();",inc)
+            time.sleep(0.4)
+            d.execute_script("arguments[0].click();",inc)
+            time.sleep(0.8)
+            print("CHILDREN_AFTER_INCREMENT", d.find_element(By.CSS_SELECTOR,"span[data-testid='person-count-children']").text)
+        except Exception as e:
+            print("CHILDREN_AFTER_INCREMENT_ERROR", type(e).__name__, str(e)[:160])
+
         print("MODAL_INPUTS_AFTER_OPEN")
         for el in d.find_elements(By.TAG_NAME,"input"):
             try:
@@ -91,6 +102,15 @@ def main():
                         n+=1
                         if n>=160: break
             except: pass
+        print("AGE_CONTROLS_AFTER_CHILDREN")
+        for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
+            try:
+                if el.is_displayed():
+                    tid=(el.get_attribute("data-testid") or "")
+                    if any(k in tid.lower() for k in ["age","child","children"]):
+                        print(repr({"tag":el.tag_name,"testid":tid,"text":compact(el.text)[:250],"value":el.get_attribute("value"),"html":el.get_attribute("outerHTML")[:1200]}))
+            except: pass
+
         print("SELECTS")
         for el in d.find_elements(By.TAG_NAME,"select"):
             try:
