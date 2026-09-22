@@ -145,17 +145,36 @@ def ensure_family(driver, child_dobs):
     time.sleep(1.5)
     return "2 doros" in participant_value(driver).lower() and "2 dzieci" in participant_value(driver).lower()
 
-def search_url(dep: date, family: str, nights: int):
+def search_url(dep: date, family: str):
     filters = [
         f"od-{dep.isoformat()}",
         f"do-{dep.isoformat()}",
-        f"{nights}-dni",
         "all-inclusive",
         "z-warszawy",
         "z-warszawy-radom",
         family,
     ]
     return "https://www.wakacje.pl/lastminute/?" + ",".join(filters) + "&src=fromSearch"
+
+def apply_max_price_filter(driver, max_price: int):
+    try:
+        inp = driver.find_element(
+            By.CSS_SELECTOR,
+            "input[aria-label='Cena maksymalna w złotych polskich']"
+        )
+        current = (inp.get_attribute("value") or "").replace(" ", "")
+        if current == str(max_price):
+            return True
+        inp.click()
+        inp.send_keys(Keys.CONTROL, "a")
+        inp.send_keys(str(max_price))
+        inp.send_keys(Keys.TAB)
+        time.sleep(2.5)
+        print("PRICE_FILTER", max_price, driver.current_url)
+        return True
+    except Exception as e:
+        print("PRICE_FILTER_WARN", type(e).__name__, str(e)[:140])
+        return False
 
 def try_sort_cheapest(driver):
     # Wakacje.pl currently exposes a sort control; use it when available.
@@ -310,12 +329,13 @@ def parse_current_page(driver, requested_dep: date, cfg):
         )
     return found
 
-def collect_for_search(driver, dep: date, nights_token: int, cfg, family, child_dobs):
-    url = search_url(dep, family, nights_token)
-    print("SEARCH", dep.isoformat(), nights_token, url)
+def collect_for_search(driver, dep: date, cfg, family, child_dobs):
+    url = search_url(dep, family)
+    print("SEARCH", dep.isoformat(), url)
     if not load_page(driver, url, child_dobs):
         return []
 
+    apply_max_price_filter(driver, cfg["max_total_price_pln"])
     try_sort_cheapest(driver)
 
     offers = []
@@ -342,6 +362,7 @@ def collect_for_search(driver, dep: date, nights_token: int, cfg, family, child_
         print("PAGE", extra + 1, page)
         if not load_page(driver, page, child_dobs):
             continue
+        apply_max_price_filter(driver, cfg["max_total_price_pln"])
         offers.extend(parse_current_page(driver, dep, cfg))
         for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='str-']"):
             href = a.get_attribute("href") or ""
@@ -352,11 +373,10 @@ def collect_for_search(driver, dep: date, nights_token: int, cfg, family, child_
 
 def collect_day(driver, dep: date, cfg, family, child_dobs):
     by_href = {}
-    for n in range(cfg["min_nights"], cfg["max_nights"] + 1):
-        for item in collect_for_search(driver, dep, n, cfg, family, child_dobs):
-            old = by_href.get(item["href"])
-            if old is None or item["price"] < old["price"]:
-                by_href[item["href"]] = item
+    for item in collect_for_search(driver, dep, cfg, family, child_dobs):
+        old = by_href.get(item["href"])
+        if old is None or item["price"] < old["price"]:
+            by_href[item["href"]] = item
     offers = list(by_href.values())
     print("DAY_CANDIDATES", dep.isoformat(), len(offers))
     return offers
