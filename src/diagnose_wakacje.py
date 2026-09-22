@@ -89,6 +89,29 @@ def main():
         WebDriverWait(driver, 30).until(lambda d: d.execute_script("return document.readyState") == "complete")
         time.sleep(5)
         print("DATE_FILTER_FINAL_URL:", driver.current_url)
+        print("SORT_CONTROLS:")
+        for el in driver.find_elements(By.XPATH, "//select | //*[@role='combobox'] | //button[contains(@aria-label,'Sort') or contains(normalize-space(.),'Najpopularniejszych') or contains(normalize-space(.),'Najtańszych')]"):
+            try:
+                if el.is_displayed():
+                    print(repr({
+                        "tag": el.tag_name,
+                        "text": compact(el.text)[:500],
+                        "aria": el.get_attribute("aria-label"),
+                        "name": el.get_attribute("name"),
+                        "value": el.get_attribute("value"),
+                        "html": (el.get_attribute("outerHTML") or "")[:5000],
+                    }))
+            except Exception:
+                pass
+
+        print("PAGINATION_LINKS:")
+        for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='str-']"):
+            try:
+                if a.is_displayed():
+                    print(repr({"text": compact(a.text), "href": a.get_attribute("href"), "html": (a.get_attribute("outerHTML") or "")[:1800]}))
+            except Exception:
+                pass
+
         print("DATE_FILTER_RESULT_SAMPLE:")
         count = 0
         for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='/oferty/']"):
