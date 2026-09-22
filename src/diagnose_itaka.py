@@ -70,6 +70,19 @@ def main():
                           "html":b.get_attribute("outerHTML")[:900]
                         }))
                 except: pass
+
+            print("ITAKA_DETAIL_URL",detail_candidate)
+            if detail_candidate:
+                d.get(detail_candidate)
+                WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete")
+                time.sleep(6)
+                print("ITAKA_DETAIL_FINAL_URL",d.current_url)
+                detail_body=d.find_element(By.TAG_NAME,"body").text
+                print("ITAKA_DETAIL_PRICE_LINES")
+                for line in [x.strip() for x in detail_body.splitlines() if x.strip()]:
+                    lo=line.lower()
+                    if any(k in lo for k in ["zł","cena","razem","łącznie","doros","dzieci","uczest"]):
+                        print(line[:600])
         except Exception as e:
             print("PORTAL_INSPECT_ERROR",type(e).__name__,str(e)[:180])
 
@@ -117,12 +130,16 @@ def main():
             except: pass
 
             print("ITAKA_IMMINENT_TILES")
+            detail_candidate=None
             for tile in d.find_elements(By.CSS_SELECTOR,"[data-testid='offer-list-item']"):
                 try:
                     txt=compact(tile.text)
                     if any(day in txt for day in ["24.09","25.09","26.09"]):
                         a=tile.find_element(By.CSS_SELECTOR,"a[href*='/wczasy/']")
-                        print(repr({"text":txt[:1800],"href":a.get_attribute("href")}))
+                        href=a.get_attribute("href")
+                        print(repr({"text":txt[:1800],"href":href}))
+                        if detail_candidate is None and "Warszawa" in txt and "All inclusive" in txt:
+                            detail_candidate=href
                 except: pass
             print("CHILDREN_INPUTS")
             for inp in portal.find_elements(By.TAG_NAME,"input"):
