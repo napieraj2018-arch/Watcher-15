@@ -94,6 +94,39 @@
       "notify_github_user": "napieraj2018-arch",
       "max_listing_per_person_pln": 3200,
       "max_detail_checks": 15
+    },
+    {
+      "id": "rainbow-last-minute-2plus2",
+      "enabled": true,
+      "provider": "rainbow_pl",
+      "adults": 2,
+      "children_ages": [
+        5,
+        7
+      ],
+      "max_total_price_pln": 7000,
+      "min_stars": 4,
+      "min_rating": 8,
+      "min_reviews": 30,
+      "depart_in_days": [
+        1,
+        2,
+        3
+      ],
+      "min_nights": 5,
+      "max_nights": 8,
+      "meal_contains": "All Inclusive",
+      "airports": [
+        "Warszawa Radom",
+        "Warszawa Modlin",
+        "Warszawa Chopin",
+        "Warszawa"
+      ],
+      "priority_airport_contains": "Radom",
+      "significant_price_drop_pln": 250,
+      "notify_github_user": "napieraj2018-arch",
+      "max_listing_per_person_pln": 3000,
+      "max_detail_checks": 15
     }
   ]
 }
