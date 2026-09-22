@@ -1,0 +1,51 @@
+name: Channel diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/diagnose_channel.py"
+      - ".github/workflows/channel-diagnostics.yml"
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        channel:
+          - itaka_pl
+          - rainbow_pl
+          - coraltravel_pl
+          - travelplanet_pl
+          - fly_pl
+          - exim_pl
+          - joinup_pl
+          - nekera_pl
+          - grecos_pl
+          - anex_pl
+          - sunfun_pl
+          - esky_pl
+          - traveligo_pl
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Diagnose source
+        env:
+          CHANNEL_ID: ${{ matrix.channel }}
+        run: python src/diagnose_channel.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-${{ matrix.channel }}
+          path: |
+            diagnostic-${{ matrix.channel }}.json
+            diagnostic-${{ matrix.channel }}.png
+          if-no-files-found: ignore
+          retention-days: 3
