@@ -1,4 +1,6 @@
+import re
 import time
+from datetime import date, datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -6,13 +8,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.keys import Keys
 
 URL = "https://www.wakacje.pl/lastminute/?samolotem,z-warszawy,z-warszawy-radom&src=fromSearch"
-
-# Representative dates that keep the children unambiguously 5 and 7 years old
-# during the monitored late-September 2026 departures.
 CHILD_DOBS = ["2021-03-01", "2019-03-01"]
 
 def compact(s: str) -> str:
     return " ".join((s or "").split())
+
+def parse_pl_date(s):
+    return datetime.strptime(s, "%d.%m.%Y").date()
 
 def main():
     opts = Options()
@@ -22,12 +24,9 @@ def main():
     opts.add_argument("--window-size=1440,2800")
     opts.add_argument("--lang=pl-PL")
     driver = webdriver.Chrome(options=opts)
-
     try:
         driver.get(URL)
-        WebDriverWait(driver, 35).until(
-            lambda d: d.execute_script("return document.readyState") == "complete"
-        )
+        WebDriverWait(driver, 35).until(lambda d: d.execute_script("return document.readyState") == "complete")
         time.sleep(4)
 
         for text in ["Akceptuję", "Akceptuj", "Zgadzam się", "Zaakceptuj wszystkie", "OK"]:
@@ -41,92 +40,126 @@ def main():
                 pass
 
         participant = driver.find_element(By.CSS_SELECTOR, "input[name='CalculatorPerson']")
-        wrapper = participant.find_element(
-            By.XPATH, "./ancestor::div[contains(@class,'input-wrapper-clickable')][1]"
-        )
+        wrapper = participant.find_element(By.XPATH, "./ancestor::div[contains(@class,'input-wrapper-clickable')][1]")
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", wrapper)
-        time.sleep(0.6)
+        time.sleep(0.5)
         wrapper.click()
-        time.sleep(0.7)
+        time.sleep(0.6)
 
         for _ in range(2):
             driver.find_element(By.XPATH, "//button[@aria-label='Dodaj jedno dziecko']").click()
-            time.sleep(0.4)
+            time.sleep(0.35)
 
-        dob_inputs = driver.find_elements(By.CSS_SELECTOR, "input[placeholder='RRRR-MM-DD']")
-        visible_dobs = [x for x in dob_inputs if x.is_displayed()]
-        print("DOB_INPUT_COUNT:", len(visible_dobs))
+        dob_inputs = [x for x in driver.find_elements(By.CSS_SELECTOR, "input[placeholder='RRRR-MM-DD']") if x.is_displayed()]
+        if len(dob_inputs) != 2:
+            raise RuntimeError(f"Expected 2 DOB inputs, got {len(dob_inputs)}")
 
-        if len(visible_dobs) != 2:
-            raise RuntimeError(f"Expected 2 visible child DOB fields, got {len(visible_dobs)}")
-
-        for inp, dob in zip(visible_dobs, CHILD_DOBS):
+        for inp, dob in zip(dob_inputs, CHILD_DOBS):
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", inp)
             inp.click()
             inp.send_keys(Keys.CONTROL, "a")
             inp.send_keys(dob)
             inp.send_keys(Keys.TAB)
-            time.sleep(0.8)
+            time.sleep(0.5)
             print("DOB_SET:", dob, "=>", inp.get_attribute("value"))
 
-        print("PARTICIPANT_VALUE_IN_MODAL:", participant.get_attribute("value"))
-        print("PARTICIPANT_ARIA_IN_MODAL:", participant.get_attribute("aria-label"))
+        choose = driver.find_element(By.XPATH, "//button[normalize-space(.)='Wybierz' and @aria-label='Wybierz']")
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", choose)
+        choose.click()
 
-        # Enumerate visible modal buttons so we can find the exact confirmation action.
-        print("VISIBLE_BUTTONS_AFTER_DOBS:")
-        for b in driver.find_elements(By.TAG_NAME, "button"):
-            try:
-                if b.is_displayed():
-                    txt = compact(b.text)
-                    aria = compact(b.get_attribute("aria-label"))
-                    if txt or aria:
-                        print(repr({
-                            "text": txt[:250],
-                            "aria": aria[:250],
-                            "type": b.get_attribute("type"),
-                            "class": b.get_attribute("class"),
-                            "testid": b.get_attribute("data-testid"),
-                        }))
-            except Exception:
-                pass
+        WebDriverWait(driver, 20).until(
+            lambda d: "dzie" in (d.find_element(By.CSS_SELECTOR, "input[name='CalculatorPerson']").get_attribute("value") or "").lower()
+        )
+        time.sleep(5)
 
-        # Close the picker using Escape first; if state is persistent this should preserve it.
-        driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
-        time.sleep(2)
+        participant = driver.find_element(By.CSS_SELECTOR, "input[name='CalculatorPerson']")
+        print("CONFIRMED_PARTICIPANT_VALUE:", participant.get_attribute("value"))
+        print("CONFIRMED_PARTICIPANT_ARIA:", participant.get_attribute("aria-label"))
+        print("URL_AFTER_CONFIRM:", driver.current_url)
 
-        print("AFTER_ESCAPE_PARTICIPANT_VALUE:", participant.get_attribute("value"))
-        print("AFTER_ESCAPE_PARTICIPANT_ARIA:", participant.get_attribute("aria-label"))
-        print("CURRENT_URL_AFTER_ESCAPE:", driver.current_url)
+        # Lazy-load more result cards.
+        for _ in range(8):
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(1.1)
 
-        # Inspect likely result cards/links after participant state change.
-        print("RESULT_LINKS_SAMPLE:")
+        today = date.today()
+        start_min = today + timedelta(days=1)
+        start_max = today + timedelta(days=4)
+        print("RUN_DATE:", today.isoformat())
+        print("TARGET_START_WINDOW:", start_min.isoformat(), start_max.isoformat())
+
         seen = set()
-        for a in driver.find_elements(By.TAG_NAME, "a"):
+        parsed = []
+        for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='/oferty/']"):
             try:
-                if not a.is_displayed():
-                    continue
                 href = a.get_attribute("href") or ""
                 txt = compact(a.text)
-                if not href or not txt:
+                if not href or not txt or href in seen:
                     continue
-                blob = (href + " " + txt).lower()
-                if any(k in blob for k in ["/wczasy/", "/hotel/", "all inclusive", "za wszystkich", "zł"]):
-                    key = (href, txt[:500])
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    print(repr({"href": href, "text": txt[:900]}))
-                    if len(seen) >= 20:
-                        break
-            except Exception:
-                pass
+                seen.add(href)
 
-        body = driver.find_element(By.TAG_NAME, "body").text
-        print("BODY_PRICE_LINES:")
-        for line in [x.strip() for x in body.splitlines() if x.strip()]:
-            low = line.lower()
-            if "zł" in low or "za wszystkich" in low or "all inclusive" in low:
-                print(line)
+                md = re.search(r"(\d{2}\.\d{2}\.\d{4})-\s*(\d{2}\.\d{2}\.\d{4})", txt)
+                mp = re.search(r"(?:od\s+)?([0-9][0-9 ]{2,})\s*zł\s+za wszystkich", txt, re.I)
+                mr = re.search(r"\b(\d[\.,]\d)\s+(?:Bardzo dobry|Dobry|Średni|Znakomity|Fantastyczny|Doskonały)", txt, re.I)
+                mn = re.search(r"(\d+)\s+opini", txt, re.I)
+                if not md or not mp:
+                    continue
+
+                dep = parse_pl_date(md.group(1))
+                ret = parse_pl_date(md.group(2))
+                price = int(mp.group(1).replace(" ", ""))
+                rating = float(mr.group(1).replace(",", ".")) if mr else None
+                reviews = int(mn.group(1)) if mn else None
+                nights = (ret - dep).days
+
+                parsed.append({
+                    "departure": dep,
+                    "return": ret,
+                    "nights": nights,
+                    "price": price,
+                    "rating": rating,
+                    "reviews": reviews,
+                    "all_inclusive": "all inclusive" in txt.lower(),
+                    "radom": "radom" in txt.lower(),
+                    "href": href,
+                    "text": txt,
+                })
+            except Exception as e:
+                print("PARSE_ERR:", type(e).__name__, str(e)[:200])
+
+        print("PARSED_COUNT:", len(parsed))
+
+        # Broad diagnostic window around the imminent departure dates.
+        imminent = [
+            x for x in parsed
+            if start_min <= x["departure"] <= start_max
+            and x["all_inclusive"]
+            and 5 <= x["nights"] <= 9
+        ]
+        imminent.sort(key=lambda x: (x["price"], -(x["rating"] or 0)))
+        print("IMMINENT_2PLUS2_CANDIDATES:")
+        for x in imminent[:40]:
+            print(repr({
+                "departure": x["departure"].isoformat(),
+                "return": x["return"].isoformat(),
+                "nights": x["nights"],
+                "price": x["price"],
+                "rating": x["rating"],
+                "reviews": x["reviews"],
+                "radom": x["radom"],
+                "href": x["href"],
+                "text": x["text"][:1100],
+            }))
+
+        strict = [
+            x for x in imminent
+            if x["price"] <= 7000
+            and (x["rating"] or 0) >= 8.0
+            and (x["reviews"] or 0) >= 30
+        ]
+        print("STRICT_MATCHES:", len(strict))
+        for x in strict[:20]:
+            print("STRICT:", repr(x))
 
         driver.save_screenshot("wakacje-diagnostic.png")
         with open("wakacje-diagnostic.html", "w", encoding="utf-8") as f:
