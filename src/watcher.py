@@ -5,7 +5,7 @@ import re
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import requests
@@ -700,108 +700,57 @@ def tui_pick_birth_date(driver, button_index: int, dob: date):
     driver.execute_script("arguments[0].click();", target)
     time.sleep(0.55)
 
+def tui_build_search_url(cfg, child_dobs):
+    dob1 = child_dobs[0].strftime("%d.%m.%Y")
+    dob2 = child_dobs[1].strftime("%d.%m.%Y")
+    q = (
+        ":price:byPlane:T"
+        ":additionalType:GT03%23TUZ-LAST25"
+        ":a:WAW"
+        f":dF:{cfg['min_nights']}"
+        f":dT:{cfg['max_nights']}"
+        ":ctAdult:2"
+        ":ctChild:2"
+        f":birthDate:{dob1}"
+        f":birthDate:{dob2}"
+        f":room:2-{dob1}-{dob2}"
+        ":minHotelCategory:defaultHotelCategory"
+        ":tripAdvisorRating:defaultTripAdvisorRating"
+        ":beach_distance:defaultBeachDistance"
+        ":flightDuration:defaultFlightDuration"
+        ":tripType:WS"
+    )
+    return f"{TUI_BASE_URL}?q={quote(q, safe='')}&fullPrice=false"
+
 def tui_configure_family(driver, cfg, child_dobs):
-    driver.get(TUI_BASE_URL)
-    WebDriverWait(driver, 40).until(
+    url = tui_build_search_url(cfg, child_dobs)
+    driver.get(url)
+    WebDriverWait(driver, 45).until(
         lambda d: d.execute_script("return document.readyState") == "complete"
     )
-    time.sleep(3.5)
+    time.sleep(4.0)
     dismiss_cookies(driver)
 
-    part = driver.find_element(
-        By.CSS_SELECTOR, "button[data-testid='dropdown-field--participants']"
-    )
-    driver.execute_script("arguments[0].click();", part)
-    time.sleep(0.5)
-
-    # Force exactly 2 adults.
-    for _ in range(5):
-        count = int(
+    # Verify TUI actually accepted the encoded family parameters.
+    participant_text = ""
+    try:
+        participant_text = compact(
             driver.find_element(
-                By.CSS_SELECTOR, "span[data-testid='person-count-adults']"
+                By.CSS_SELECTOR, "button[data-testid='dropdown-field--participants']"
             ).text
-        )
-        if count == 2:
-            break
-        selector = (
-            "button[data-testid='person-count-decrement-adults']"
-            if count > 2
-            else "button[data-testid='person-count-increment-adults']"
-        )
-        driver.find_element(By.CSS_SELECTOR, selector).click()
-        time.sleep(0.15)
-    if int(driver.find_element(
-        By.CSS_SELECTOR, "span[data-testid='person-count-adults']"
-    ).text) != 2:
-        raise RuntimeError("TUI could not set 2 adults")
+        ).lower()
+    except Exception:
+        pass
 
-    # Reset children to 0, then set exactly two.
-    for _ in range(6):
-        count = int(
-            driver.find_element(
-                By.CSS_SELECTOR, "span[data-testid='person-count-children']"
-            ).text
-        )
-        if count == 0:
-            break
-        driver.find_element(
-            By.CSS_SELECTOR, "button[data-testid='person-count-decrement-children']"
-        ).click()
-        time.sleep(0.15)
-
-    for _ in range(2):
-        driver.find_element(
-            By.CSS_SELECTOR, "button[data-testid='person-count-increment-children']"
-        ).click()
-        time.sleep(0.25)
-
-    if int(driver.find_element(
-        By.CSS_SELECTOR, "span[data-testid='person-count-children']"
-    ).text) != 2:
-        raise RuntimeError("TUI could not set 2 children")
-
-    tui_pick_birth_date(driver, 0, child_dobs[0])
-    tui_pick_birth_date(driver, 1, child_dobs[1])
-
-    submit = driver.find_element(
-        By.CSS_SELECTOR, "button[data-testid='dropdown-window-button-submit']"
-    )
-    driver.execute_script("arguments[0].click();", submit)
-    time.sleep(0.6)
-
-    participant_text = compact(
-        driver.find_element(
-            By.CSS_SELECTOR, "button[data-testid='dropdown-field--participants']"
-        ).text
-    ).lower()
-    if "2 doros" not in participant_text or "2 dzieci" not in participant_text:
+    current = driver.current_url
+    if "birthdate" not in current.lower():
+        raise RuntimeError("TUI direct family URL lost birthDate parameters")
+    if participant_text and (
+        "2 doros" not in participant_text or "2 dzieci" not in participant_text
+    ):
         raise RuntimeError(f"TUI family not confirmed: {participant_text}")
 
-    search = driver.find_element(
-        By.CSS_SELECTOR, "button[data-testid='global-search-button-submit']"
-    )
-    driver.execute_script("arguments[0].click();", search)
-    WebDriverWait(driver, 40).until(
-        lambda d: "birthDate" in d.current_url or "birthdate" in d.current_url.lower()
-    )
-    time.sleep(3.5)
-
-    # Narrow TUI duration from its default 6-14 to the configured 5-8 window.
-    url = driver.current_url
-    narrowed = re.sub(
-        r"%3AdF%3A\d+%3AdT%3A\d+",
-        f"%3AdF%3A{cfg['min_nights']}%3AdT%3A{cfg['max_nights']}",
-        url,
-        flags=re.I,
-    )
-    if narrowed != url:
-        driver.get(narrowed)
-        WebDriverWait(driver, 40).until(
-            lambda d: d.execute_script("return document.readyState") == "complete"
-        )
-        time.sleep(3.0)
-
-    return driver.current_url
+    return current
 
 def tui_collect_tiles(driver, cfg, target_days):
     # TUI is already price-ascending on this page. Scroll until the number
@@ -981,7 +930,11 @@ def run_tui_watcher(cfg):
 
     driver = chrome()
     try:
-        search_url = tui_configure_family(driver, cfg, child_dobs)
+        try:
+            search_url = tui_configure_family(driver, cfg, child_dobs)
+        except Exception as e:
+            print("TUI_SOURCE_ERROR", type(e).__name__, str(e)[:300])
+            return
         print("TUI_FAMILY_SEARCH_URL", search_url)
         candidates = tui_collect_tiles(driver, cfg, target_days)
 
