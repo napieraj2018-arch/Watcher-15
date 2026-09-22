@@ -148,6 +148,7 @@ def ensure_family(driver, child_dobs):
 def search_url(dep: date, family: str, nights: int):
     filters = [
         f"od-{dep.isoformat()}",
+        f"do-{dep.isoformat()}",
         f"{nights}-dni",
         "all-inclusive",
         "z-warszawy",
