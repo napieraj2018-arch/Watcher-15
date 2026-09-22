@@ -123,13 +123,11 @@ def ensure_family(driver, child_dobs):
     time.sleep(2)
     return "2 dzieci" in participant_value(driver).lower()
 
-def search_url(dep: date, family: str):
+def search_url(dep: date, family: str, nights: int):
     # Wakacje.pl uses comma-separated filters in the query component.
-    # We request a concrete departure date and 7-night AI offers; the parser still
-    # enforces the configured night range and exact departure date.
     filters = [
         f"od-{dep.isoformat()}",
-        "7-dni",
+        f"{nights}-dni",
         "all-inclusive",
         "z-warszawy",
         "z-warszawy-radom",
@@ -187,47 +185,49 @@ def parse_card(a):
     }
 
 def collect_day(driver, dep: date, cfg, family, child_dobs):
-    url = search_url(dep, family)
-    print("SEARCH", dep.isoformat(), url)
-    driver.get(url)
-    WebDriverWait(driver, 30).until(lambda d: d.execute_script("return document.readyState") == "complete")
-    time.sleep(4)
-    dismiss_cookies(driver)
+    day_offers = {}
+    for requested_nights in range(cfg["min_nights"], cfg["max_nights"] + 1):
+        url = search_url(dep, family, requested_nights)
+        print("SEARCH", dep.isoformat(), requested_nights, "nights", url)
+        driver.get(url)
+        WebDriverWait(driver, 30).until(lambda d: d.execute_script("return document.readyState") == "complete")
+        time.sleep(3.2)
+        dismiss_cookies(driver)
 
-    if not ensure_family(driver, child_dobs):
-        print("REJECT_PAGE family not confirmed:", participant_value(driver))
-        return []
+        if not ensure_family(driver, child_dobs):
+            print("REJECT_PAGE family not confirmed:", participant_value(driver))
+            continue
 
-    # Encourage lazy-loaded cards.
-    for _ in range(7):
-        try:
-            driver.execute_script("window.scrollBy(0, 1800);")
-            time.sleep(0.7)
-            more = driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'więcej ofert')]")
-            if more and more[0].is_displayed():
-                driver.execute_script("arguments[0].click();", more[0])
-                time.sleep(1.2)
-        except Exception:
-            pass
+        # Encourage lazy-loaded cards without spending too long on each duration.
+        for _ in range(4):
+            try:
+                driver.execute_script("window.scrollBy(0, 1900);")
+                time.sleep(0.55)
+                more = driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'więcej ofert')]")
+                if more and more[0].is_displayed():
+                    driver.execute_script("arguments[0].click();", more[0])
+                    time.sleep(0.9)
+            except Exception:
+                pass
 
-    seen = set()
-    offers = []
-    for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='/oferty/']"):
-        try:
-            item = parse_card(a)
-            if not item or item["href"] in seen:
-                continue
-            seen.add(item["href"])
-            if item["departure"] != dep:
-                continue
-            if not (cfg["min_nights"] <= item["nights"] <= cfg["max_nights"]):
-                continue
-            if cfg["meal_contains"].lower() not in item["meal"].lower():
-                continue
-            offers.append(item)
-        except Exception as e:
-            print("CARD_PARSE_ERROR", type(e).__name__, str(e)[:160])
+        for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='/oferty/']"):
+            try:
+                item = parse_card(a)
+                if not item:
+                    continue
+                if item["departure"] != dep:
+                    continue
+                if not (cfg["min_nights"] <= item["nights"] <= cfg["max_nights"]):
+                    continue
+                if cfg["meal_contains"].lower() not in item["meal"].lower():
+                    continue
+                old = day_offers.get(item["href"])
+                if old is None or item["price"] < old["price"]:
+                    day_offers[item["href"]] = item
+            except Exception as e:
+                print("CARD_PARSE_ERROR", type(e).__name__, str(e)[:160])
 
+    offers = list(day_offers.values())
     print("DAY_CANDIDATES", dep.isoformat(), len(offers))
     return offers
 
