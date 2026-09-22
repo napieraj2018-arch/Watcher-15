@@ -9,6 +9,53 @@ URL="https://www.tui.pl/last-minute-z-warszawy"
 def compact(s):
     return " ".join((s or "").split())
 
+def pick_birth_date(d, button_index, year, month, day):
+    births=[b for b in d.find_elements(By.CSS_SELECTOR,"button[data-testid='birth-date-button']") if b.is_displayed()]
+    d.execute_script("arguments[0].click();", births[button_index])
+    time.sleep(0.5)
+    cal=d.find_element(By.CSS_SELECTOR,"div[data-testid='birth-date-calendar']")
+
+    # Navigate decade view until target year is present.
+    for _ in range(4):
+        years=[x for x in cal.find_elements(By.CSS_SELECTOR,".react-calendar__decade-view__years button") if x.is_displayed()]
+        match=[x for x in years if compact(x.text)==str(year)]
+        if match:
+            d.execute_script("arguments[0].click();",match[0]); break
+        label=compact(cal.find_element(By.CSS_SELECTOR,".react-calendar__navigation__label").text)
+        nums=[int(x) for x in __import__("re").findall(r"\d{4}",label)]
+        if nums and year < min(nums):
+            prev=cal.find_element(By.CSS_SELECTOR,".react-calendar__navigation__prev-button")
+            d.execute_script("arguments[0].click();",prev)
+        else:
+            nxt=cal.find_element(By.CSS_SELECTOR,".react-calendar__navigation__next-button")
+            if nxt.is_enabled(): d.execute_script("arguments[0].click();",nxt)
+        time.sleep(0.4)
+    else:
+        raise RuntimeError(f"Cannot select year {year}")
+
+    time.sleep(0.4)
+    months=[x for x in cal.find_elements(By.CSS_SELECTOR,".react-calendar__year-view__months button") if x.is_displayed()]
+    if len(months)<12:
+        raise RuntimeError(f"Expected 12 months, got {len(months)}")
+    d.execute_script("arguments[0].click();",months[month-1])
+    time.sleep(0.4)
+
+    days=[x for x in cal.find_elements(By.CSS_SELECTOR,".react-calendar__month-view__days button") if x.is_displayed()]
+    target=None
+    for x in days:
+        aria=(x.get_attribute("aria-label") or "").lower()
+        txt=compact(x.text)
+        if txt==str(day) and str(year) in aria:
+            target=x; break
+    if target is None:
+        # Fallback: pick the enabled in-month day with exact visible number.
+        candidates=[x for x in days if compact(x.text)==str(day) and "neighboringMonth" not in (x.get_attribute("class") or "")]
+        if candidates: target=candidates[0]
+    if target is None:
+        raise RuntimeError(f"Cannot select day {day}")
+    d.execute_script("arguments[0].click();",target)
+    time.sleep(0.7)
+
 def main():
     opts=Options()
     opts.add_argument("--headless=new")
@@ -105,12 +152,19 @@ def main():
         try:
             births=[b for b in d.find_elements(By.CSS_SELECTOR,"button[data-testid='birth-date-button']") if b.is_displayed()]
             print("BIRTH_BUTTON_COUNT",len(births))
-            if births:
-                d.execute_script("arguments[0].click();",births[0])
-                time.sleep(1.0)
-                print("BIRTH_PICKER_OPENED",True)
+            pick_birth_date(d,0,2021,8,24)
+            pick_birth_date(d,1,2019,8,24)
+            print("BIRTH_VALUES",[compact(x.text) for x in d.find_elements(By.CSS_SELECTOR,"button[data-testid='birth-date-button']") if x.is_displayed()])
+            submit=d.find_element(By.CSS_SELECTOR,"button[data-testid='dropdown-window-button-submit']")
+            d.execute_script("arguments[0].click();",submit)
+            time.sleep(1.0)
+            print("PARTICIPANTS_CONFIRMED",compact(d.find_element(By.CSS_SELECTOR,"button[data-testid='dropdown-field--participants']").text))
+            search=d.find_element(By.CSS_SELECTOR,"button[data-testid='global-search-button-submit']")
+            d.execute_script("arguments[0].click();",search)
+            time.sleep(6)
+            print("SEARCHED_URL",d.current_url)
         except Exception as e:
-            print("BIRTH_PICKER_OPENED",False,type(e).__name__,str(e)[:160])
+            print("SET_FAMILY_ERROR",type(e).__name__,str(e)[:300])
 
         print("BIRTH_PICKER_TESTIDS")
         for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
@@ -148,6 +202,17 @@ def main():
             lo=line.lower()
             if any(k in lo for k in ["uczest","doros","dzieci","wylot","pobyt","all inclusive","warszawa","radom"]):
                 print(line)
+        print("OFFER_TILES_AFTER_FAMILY")
+        tiles=d.find_elements(By.CSS_SELECTOR,"[data-testid='offer-tile']")
+        print("TILE_COUNT",len(tiles))
+        for tile in tiles[:12]:
+            try:
+                print(repr({
+                  "text":compact(tile.text)[:1800],
+                  "html":tile.get_attribute("outerHTML")[:2500],
+                }))
+            except: pass
+
         d.save_screenshot("tui-diagnostic.png")
     finally:
         d.quit()
