@@ -1,44 +1,24 @@
-name: Watcher 15
+name: Legacy Wakacje watcher (manual only)
 
 on:
   workflow_dispatch:
-  schedule:
-    # Every 15 minutes, deliberately away from minute 00 where GitHub schedules
-    # are more likely to be delayed under load.
-    - cron: "7,22,37,52 * * * *"
-  push:
-    paths:
-      - "src/watcher.py"
-      - "config/watchers.json"
-      - ".github/workflows/watcher.yml"
 
 permissions:
   contents: read
   issues: write
 
-concurrency:
-  group: watcher-15
-  cancel-in-progress: false
-
 jobs:
   watcher:
     runs-on: ubuntu-latest
     timeout-minutes: 12
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run Watcher-15
+      - run: pip install -r requirements.txt
+      - name: Run legacy Wakacje watcher
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHONUNBUFFERED: "1"

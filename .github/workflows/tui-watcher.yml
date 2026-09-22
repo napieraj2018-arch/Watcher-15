@@ -1,41 +1,24 @@
-name: TUI Watcher 15
+name: Legacy TUI watcher (manual only)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "14,29,44,59 * * * *"
-  push:
-    paths:
-      - "src/watcher.py"
-      - "config/watchers.json"
-      - ".github/workflows/tui-watcher.yml"
 
 permissions:
   contents: read
   issues: write
-
-concurrency:
-  group: tui-watcher-15
-  cancel-in-progress: false
 
 jobs:
   watcher:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run TUI Watcher-15
+      - run: pip install -r requirements.txt
+      - name: Run legacy TUI watcher
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHONUNBUFFERED: "1"
