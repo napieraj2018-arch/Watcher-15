@@ -1,20 +1,27 @@
 name: Watcher 15
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: "*/15 * * * *"
+  push:
+    paths:
+      - "src/watcher.py"
+      - "config/watchers.json"
+      - ".github/workflows/watcher.yml"
 
 permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: watcher-15
+  cancel-in-progress: false
+
 jobs:
   watcher:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
 
     steps:
       - name: Checkout
@@ -29,16 +36,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Diagnostic — Wakacje.pl participant picker
-        run: python src/diagnose_wakacje.py
-
-      - name: Upload diagnostic artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: wakacje-diagnostic
-          path: |
-            wakacje-diagnostic.png
-            wakacje-diagnostic.html
-          if-no-files-found: ignore
-          retention-days: 2
+      - name: Run Watcher-15
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHONUNBUFFERED: "1"
+        run: python src/watcher.py
