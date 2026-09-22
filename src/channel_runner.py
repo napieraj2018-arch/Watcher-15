@@ -6,7 +6,7 @@ from pathlib import Path
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
-from watcher import chrome, dismiss_cookies, run_tui_watcher, run_watcher
+from watcher import chrome, dismiss_cookies, run_itaka_watcher, run_tui_watcher, run_watcher
 
 CHANNELS_PATH = Path("config/channels.json")
 WATCHERS_PATH = Path("config/watchers.json")
@@ -58,6 +58,8 @@ def main():
             run_watcher(cfg)
         elif channel_id == "tui_pl":
             run_tui_watcher(cfg)
+        elif channel_id == "itaka_pl":
+            run_itaka_watcher(cfg)
         else:
             raise RuntimeError(f"Production adapter missing for {channel_id}")
         return
