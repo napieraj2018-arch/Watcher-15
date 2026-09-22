@@ -53,6 +53,26 @@ def main():
         except Exception as e:
             print("PARTICIPANTS_PANEL_OPENED",False,type(e).__name__,str(e)[:180])
 
+        try:
+            portal=d.find_element(By.CSS_SELECTOR,"[data-testid='portal-content']")
+            print("PORTAL_HTML",portal.get_attribute("outerHTML")[:18000])
+            print("PORTAL_BUTTONS")
+            for idx,b in enumerate(portal.find_elements(By.TAG_NAME,"button")):
+                try:
+                    if b.is_displayed():
+                        print(repr({
+                          "idx":idx,
+                          "text":compact(b.text),
+                          "title":b.get_attribute("title"),
+                          "aria":b.get_attribute("aria-label"),
+                          "area":b.get_attribute("area-label"),
+                          "class":(b.get_attribute("class") or "")[:240],
+                          "html":b.get_attribute("outerHTML")[:900]
+                        }))
+                except: pass
+        except Exception as e:
+            print("PORTAL_INSPECT_ERROR",type(e).__name__,str(e)[:180])
+
         print("PARTICIPANT_TESTIDS")
         seenp=set()
         for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
