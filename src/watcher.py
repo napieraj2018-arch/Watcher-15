@@ -335,8 +335,8 @@ def collect_for_search(driver, dep: date, cfg, family, child_dobs):
     if not load_page(driver, url, child_dobs):
         return []
 
-    apply_max_price_filter(driver, cfg["max_total_price_pln"])
-    try_sort_cheapest(driver)
+    sorted_ok = try_sort_cheapest(driver)
+    print("SORT_CHEAPEST", dep.isoformat(), sorted_ok)
 
     offers = []
     visited = {driver.current_url}
@@ -362,7 +362,6 @@ def collect_for_search(driver, dep: date, cfg, family, child_dobs):
         print("PAGE", extra + 1, page)
         if not load_page(driver, page, child_dobs):
             continue
-        apply_max_price_filter(driver, cfg["max_total_price_pln"])
         offers.extend(parse_current_page(driver, dep, cfg))
         for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='str-']"):
             href = a.get_attribute("href") or ""
