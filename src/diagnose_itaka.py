@@ -30,6 +30,45 @@ def main():
 
         print("TITLE",d.title)
         print("URL",d.current_url)
+        # Open filters/search panel to expose party and departure controls.
+        try:
+            candidates=[
+                b for b in d.find_elements(By.TAG_NAME,"button")
+                if b.is_displayed() and "Filtry" in compact(b.text)
+            ]
+            if candidates:
+                d.execute_script("arguments[0].click();",candidates[0])
+                time.sleep(1.5)
+                print("FILTER_OPENED",True)
+            else:
+                print("FILTER_OPENED",False)
+        except Exception as e:
+            print("FILTER_OPENED_ERROR",type(e).__name__,str(e)[:200])
+
+        print("VISIBLE_TESTIDS")
+        seen=set()
+        for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
+            try:
+                if not el.is_displayed():
+                    continue
+                tid=el.get_attribute("data-testid") or ""
+                txt=compact(el.text)
+                item=(el.tag_name,tid,txt[:200])
+                if item in seen: continue
+                seen.add(item)
+                if any(k in (tid+" "+txt).lower() for k in [
+                    "adult","child","dziec","uczest","person","room","airport","date","price","meal","board","filter"
+                ]):
+                    print(repr({
+                      "tag":el.tag_name,
+                      "testid":tid,
+                      "text":txt[:350],
+                      "aria":el.get_attribute("aria-label"),
+                      "value":el.get_attribute("value"),
+                      "html":el.get_attribute("outerHTML")[:1000]
+                    }))
+            except: pass
+
         print("INPUTS")
         for el in d.find_elements(By.TAG_NAME,"input"):
             try:
