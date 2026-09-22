@@ -1211,6 +1211,233 @@ def run_itaka_watcher(cfg):
     finally:
         driver.quit()
 
+
+RAINBOW_BASE_URL = "https://r.pl/wyloty-z-warszawy"
+
+def rainbow_adult_dobs(local_date):
+    # Stable synthetic adult DOBs; only child completed ages matter to discounts.
+    return [date(1990,1,15), date(1990,1,15)]
+
+def rainbow_search_url(cfg, dep, adult_dobs, child_dobs):
+    from urllib.parse import urlencode
+    pairs=[
+        ("dlugoscPobytu",f"{cfg['min_nights']}-{cfg['max_nights']}"),
+        ("dlugoscPobytu.od",str(cfg["min_nights"])),
+        ("dlugoscPobytu.do",str(cfg["max_nights"])),
+        ("cena","avg"),("cena.od",""),("cena.do",""),
+        ("ocenaKlientow","*-*"),("odlegloscLotnisko","*-*"),
+        ("dlugoscPobytu.od.force","t"),("dlugoscPobytu.do.force","t"),
+        ("cena.od.force","t"),("cena.do.force","t"),
+        ("wybraneSkad","WAW"),("wybraneSkad","WMI"),("wybraneSkad","RDO"),
+        ("typTransportu","AIR"),
+        ("data",dep.isoformat()),("dataWylotu",dep.isoformat()),
+    ]
+    for dob in adult_dobs:
+        pairs.append(("dorosli",dob.isoformat()))
+    for dob in child_dobs:
+        pairs.append(("dzieci",dob.isoformat()))
+    pairs += [
+        ("liczbaPokoi","1"),("dowolnaLiczbaPokoi","nie"),
+        ("hotelUrl",""),("produktUrl",""),("sortowanie","cena-asc"),
+    ]
+    return RAINBOW_BASE_URL+"?"+urlencode(pairs,doseq=True)
+
+def rainbow_collect_day(driver,cfg,dep,adult_dobs,child_dobs):
+    url=rainbow_search_url(cfg,dep,adult_dobs,child_dobs)
+    print("RAINBOW_SEARCH",dep.isoformat(),url)
+    driver.get(url)
+    WebDriverWait(driver,45).until(
+        lambda d:d.execute_script("return document.readyState")=="complete"
+    )
+    time.sleep(4)
+    dismiss_cookies(driver)
+
+    body=driver.find_element(By.TAG_NAME,"body").text
+    if "4 osoby" not in body:
+        print("RAINBOW_REJECT_PAGE party_not_4")
+        return []
+
+    offers=[]
+    seen=set()
+    for a in driver.find_elements(By.TAG_NAME,"a"):
+        try:
+            href=a.get_attribute("href") or ""
+            txt=compact(a.text)
+            if not href or not txt or "SZCZEGÓŁY" not in txt:
+                continue
+            if href in seen:
+                continue
+            if cfg["meal_contains"].lower() not in txt.lower():
+                continue
+            if "objazd" in txt.lower():
+                continue
+            if dep.strftime("%d.%m.%Y") not in txt:
+                continue
+
+            md=re.search(r"(\d{2}\.\d{2}\.\d{4})\s*\((\d+)\s+dni\s*/\s*(\d+)\s+noc",txt,re.I)
+            if not md:
+                continue
+            nights=int(md.group(3))
+            if not (cfg["min_nights"] <= nights <= cfg["max_nights"]):
+                continue
+
+            mr=re.search(r"(\d[.,]\d)\s*/\s*6\s*\((\d+)\s+opini",txt,re.I)
+            if not mr:
+                continue
+            rating6=float(mr.group(1).replace(",","."))
+            rating10=rating6/6*10
+            reviews=int(mr.group(2))
+            if rating10 < cfg["min_rating"] or reviews < cfg["min_reviews"]:
+                continue
+
+            mp=re.search(r"([0-9][0-9 ]{2,})\s*zł\s*/\s*os",txt,re.I)
+            pp=int(mp.group(1).replace(" ","")) if mp else None
+            if pp is not None and pp > cfg.get("max_listing_per_person_pln",3000):
+                continue
+
+            path=urlsplit(href).path.rstrip("/").split("/")[-1]
+            hotel=path.replace("-"," ").title()
+            airport="Warszawa"
+            for ap in ["Warszawa Radom","Warszawa Modlin","Warszawa Chopin","Warszawa"]:
+                if ap.lower() in txt.lower():
+                    airport=ap.replace(" ","-",1) if ap!="Warszawa" else ap
+                    break
+            ret=dep+timedelta(days=nights)
+
+            seen.add(href)
+            offers.append({
+                "hotel":hotel,
+                "stars":None,
+                "departure":dep,
+                "return":ret,
+                "nights":nights,
+                "price":None,
+                "listing_pp":pp,
+                "rating":rating10,
+                "reviews":reviews,
+                "airport":airport,
+                "meal":"All Inclusive",
+                "operator":"Rainbow",
+                "href":href,
+                "verified_href":href,
+                "text":txt,
+            })
+        except Exception as e:
+            print("RAINBOW_TILE_WARN",type(e).__name__,str(e)[:180])
+
+    offers.sort(key=lambda x:(x["listing_pp"] or 999999,-(x["rating"] or 0),-(x["reviews"] or 0)))
+    print("RAINBOW_DAY_CANDIDATES",dep.isoformat(),len(offers))
+    return offers
+
+def rainbow_force_family_url(detail_url,adult_dobs,child_dobs):
+    from urllib.parse import parse_qsl, urlencode
+    parts=urlsplit(detail_url)
+    pairs=parse_qsl(parts.query,keep_blank_values=True)
+    pairs=[p for p in pairs if p[0]!="wiek"]
+    for dob in adult_dobs+child_dobs:
+        pairs.append(("wiek",dob.isoformat()))
+    if not any(k=="liczbaPokoi" for k,v in pairs):
+        pairs.append(("liczbaPokoi","1"))
+    return urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(pairs,doseq=True),parts.fragment))
+
+def rainbow_parse_total(body):
+    m=re.search(r"Cena\s+razem\s*:\s*([0-9][0-9 ]{2,})\s*zł",compact(body),re.I)
+    if not m:
+        return None
+    v=int(m.group(1).replace(" ",""))
+    return v if 1500 <= v <= 40000 else None
+
+def rainbow_stars(body):
+    for pat in [r"hotel(?:u)?\s+([1-5])\s*\*",r"\b([1-5])\s*\*\s*,"]:
+        m=re.search(pat,body,re.I)
+        if m:
+            return int(m.group(1))
+    return None
+
+def rainbow_verify_offer(driver,offer,cfg,adult_dobs,child_dobs):
+    print("RAINBOW_VERIFY",offer["hotel"],offer["href"])
+    driver.get(offer["href"])
+    WebDriverWait(driver,45).until(
+        lambda d:d.execute_script("return document.readyState")=="complete"
+    )
+    time.sleep(4)
+    dismiss_cookies(driver)
+
+    family_url=rainbow_force_family_url(driver.current_url,adult_dobs,child_dobs)
+    driver.get(family_url)
+    WebDriverWait(driver,45).until(
+        lambda d:d.execute_script("return document.readyState")=="complete"
+    )
+    time.sleep(4)
+
+    current=driver.current_url
+    for dob in adult_dobs+child_dobs:
+        if dob.isoformat() not in current:
+            return None,"rainbow_party_parameter_lost",None,None
+
+    body=driver.find_element(By.TAG_NAME,"body").text
+    low=body.lower()
+    if any(p in low for p in UNAVAILABLE_PHRASES):
+        return None,"rainbow_unavailable",None,None
+    if offer["departure"].strftime("%d.%m.%Y") not in body:
+        return None,"rainbow_departure_not_confirmed",None,None
+    if "all inclusive" not in low:
+        return None,"rainbow_meal_not_confirmed",None,None
+
+    total=rainbow_parse_total(body)
+    if total is None:
+        return None,"rainbow_no_family_total",None,None
+    stars=rainbow_stars(body) or page_stars(driver)
+    if stars is not None and stars < cfg.get("min_stars",4):
+        return None,f"rainbow_hotel_stars_{stars}",stars,None
+    return total,"rainbow_detail_exact_2plus2_total",stars,current
+
+def run_rainbow_watcher(cfg):
+    local_date=now_local().date()
+    adult_dobs=rainbow_adult_dobs(local_date)
+    child_dobs=[representative_dob(age,local_date) for age in cfg["children_ages"]]
+    target_days=[local_date+timedelta(days=d) for d in cfg["depart_in_days"]]
+    driver=chrome()
+    try:
+        offers=[]
+        for dep in target_days:
+            offers.extend(rainbow_collect_day(driver,cfg,dep,adult_dobs,child_dobs))
+        # Deduplicate same hotel/date.
+        unique={}
+        for x in offers:
+            key=(x["hotel"],x["departure"])
+            old=unique.get(key)
+            if old is None or (x["listing_pp"] or 999999)<(old["listing_pp"] or 999999):
+                unique[key]=x
+        candidates=list(unique.values())
+        candidates.sort(key=lambda x:(x["listing_pp"] or 999999,-(x["rating"] or 0)))
+        print("RAINBOW_CANDIDATES",len(candidates))
+
+        token=os.getenv("GITHUB_TOKEN","")
+        repo=os.getenv("GITHUB_REPOSITORY","")
+        alerts=0
+        for offer in candidates[:cfg.get("max_detail_checks",15)]:
+            total,verification,stars,verified_url=rainbow_verify_offer(
+                driver,offer,cfg,adult_dobs,child_dobs
+            )
+            if total is None:
+                print("RAINBOW_REJECT_VERIFY",offer["hotel"],verification)
+                continue
+            offer["price"]=total
+            offer["stars"]=stars
+            offer["verified_href"]=verified_url or offer["href"]
+            if total > cfg["max_total_price_pln"]:
+                print("RAINBOW_REJECT_PRICE",offer["hotel"],total)
+                continue
+            if token and repo:
+                if create_alert(token,repo,cfg,offer,verification):
+                    alerts+=1
+            else:
+                print("RAINBOW_DRY_ALERT",offer)
+        print("RAINBOW_ALERTS_CREATED",alerts)
+    finally:
+        driver.quit()
+
 def main():
     data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     provider_filter = os.getenv("WATCHER_PROVIDER", "").strip()
