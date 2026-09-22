@@ -102,6 +102,25 @@ def main():
                         n+=1
                         if n>=160: break
             except: pass
+        try:
+            births=[b for b in d.find_elements(By.CSS_SELECTOR,"button[data-testid='birth-date-button']") if b.is_displayed()]
+            print("BIRTH_BUTTON_COUNT",len(births))
+            if births:
+                d.execute_script("arguments[0].click();",births[0])
+                time.sleep(1.0)
+                print("BIRTH_PICKER_OPENED",True)
+        except Exception as e:
+            print("BIRTH_PICKER_OPENED",False,type(e).__name__,str(e)[:160])
+
+        print("BIRTH_PICKER_TESTIDS")
+        for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
+            try:
+                if el.is_displayed():
+                    tid=(el.get_attribute("data-testid") or "")
+                    if any(k in tid.lower() for k in ["birth","date","calendar","year","month","day"]):
+                        print(repr({"tag":el.tag_name,"testid":tid,"text":compact(el.text)[:250],"value":el.get_attribute("value"),"html":el.get_attribute("outerHTML")[:1200]}))
+            except: pass
+
         print("AGE_CONTROLS_AFTER_CHILDREN")
         for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
             try:
