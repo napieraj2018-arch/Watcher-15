@@ -51,6 +51,35 @@ def main():
         except Exception as e:
             print("PARTICIPANT_MODAL_OPENED", False, type(e).__name__, str(e)[:120])
 
+        print("MODAL_INPUTS_AFTER_OPEN")
+        for el in d.find_elements(By.TAG_NAME,"input"):
+            try:
+                if el.is_displayed():
+                    print(repr({
+                      "name":el.get_attribute("name"),
+                      "type":el.get_attribute("type"),
+                      "placeholder":el.get_attribute("placeholder"),
+                      "aria":el.get_attribute("aria-label"),
+                      "value":el.get_attribute("value"),
+                      "testid":el.get_attribute("data-testid"),
+                      "class":el.get_attribute("class"),
+                    }))
+            except: pass
+
+        print("MODAL_TESTIDS")
+        seen=set()
+        for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
+            try:
+                if el.is_displayed():
+                    tid=el.get_attribute("data-testid")
+                    txt=compact(el.text)
+                    item=(tid,txt[:180],el.tag_name)
+                    if item in seen: continue
+                    seen.add(item)
+                    if "participant" in (tid or "").lower() or "room" in (tid or "").lower() or "child" in (tid or "").lower() or "adult" in (tid or "").lower():
+                        print(repr({"tag":el.tag_name,"testid":tid,"text":txt[:300],"html":el.get_attribute("outerHTML")[:900]}))
+            except: pass
+
         print("BUTTONS")
         n=0
         for el in d.find_elements(By.TAG_NAME,"button"):
