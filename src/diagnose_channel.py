@@ -100,6 +100,17 @@ def main():
             except Exception:
                 pass
 
+        interesting_buttons=[
+            x for x in buttons
+            if any(k in ((x.get("text") or "")+" "+(x.get("aria") or "")).lower()
+                   for k in ["doros","dzie","uczest","osób","osoby","szuk","filtr","wylot","data","cena","pokój","pokoje","dalej","wybierz"])
+        ][:40]
+        interesting_inputs=[
+            x for x in inputs
+            if any(k in (" ".join(str(v or "") for v in x.values())).lower()
+                   for k in ["adult","child","dzie","doros","person","participant","date","wiek","age","price","cena","room","pok"])
+        ][:40]
+
         report.update({
             "title":d.title,
             "final_url":d.current_url,
@@ -130,6 +141,13 @@ def main():
         "final_url":report.get("final_url"),"signals":report.get("signals"),
         "inputs":len(report.get("inputs",[])),"buttons":len(report.get("buttons",[])),
         "links":len(report.get("links",[])),"error":report.get("error")
+    },ensure_ascii=False))
+    print("CHANNEL_DIAGNOSTIC_DETAIL",json.dumps({
+        "id":cid,
+        "opened":report.get("opened",[]),
+        "inputs":interesting_inputs if report.get("ok") else [],
+        "buttons":interesting_buttons if report.get("ok") else [],
+        "sample_links":report.get("links",[])[:12] if report.get("ok") else [],
     },ensure_ascii=False))
 
 if __name__=="__main__":
