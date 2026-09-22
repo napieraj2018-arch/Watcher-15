@@ -1,0 +1,26 @@
+name: EXIM family diagnostic
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/diagnose_exim_family.py"
+      - ".github/workflows/exim-family.yml"
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python src/diagnose_exim_family.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exim-family
+          path: exim-family.png
+          if-no-files-found: ignore
+          retention-days: 2
