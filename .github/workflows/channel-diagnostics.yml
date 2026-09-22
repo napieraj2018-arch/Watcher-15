@@ -2,6 +2,8 @@ name: Channel diagnostics
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "23 4 * * *"
   push:
     paths:
       - "src/diagnose_channel.py"
@@ -23,7 +25,7 @@ jobs:
           - joinup_pl
           - nekera_pl
           - grecos_pl
-          - anex_pl
+          - oasis_pl
           - sunfun_pl
           - esky_pl
           - traveligo_pl
