@@ -67,13 +67,27 @@ def main():
 
         print("SET_AGES_5_7")
         try:
-            Select(d.find_element(By.CSS_SELECTOR,"select[name='child-1']")).select_by_value("5")
-            time.sleep(.3)
-            Select(d.find_element(By.CSS_SELECTOR,"select[name='child-2']")).select_by_value("7")
+            s1=d.find_element(By.CSS_SELECTOR,"select[name='child-1']")
+            s2=d.find_element(By.CSS_SELECTOR,"select[name='child-2']")
+            Select(s1).select_by_value("5")
+            d.execute_script("arguments[0].dispatchEvent(new Event('input',{bubbles:true}));arguments[0].dispatchEvent(new Event('change',{bubbles:true}));",s1)
             time.sleep(.5)
+            Select(s2).select_by_value("7")
+            d.execute_script("arguments[0].dispatchEvent(new Event('input',{bubbles:true}));arguments[0].dispatchEvent(new Event('change',{bubbles:true}));",s2)
+            time.sleep(.8)
             print("AGES_AFTER",
                   d.find_element(By.CSS_SELECTOR,"select[name='child-1']").get_attribute("value"),
                   d.find_element(By.CSS_SELECTOR,"select[name='child-2']").get_attribute("value"))
+            print("HIDDEN_AFTER_AGES")
+            for h in d.find_elements(By.CSS_SELECTOR,"input[type='hidden']"):
+                try:
+                    name=h.get_attribute("name") or ""
+                    val=h.get_attribute("value") or ""
+                    blob=(name+" "+val).lower()
+                    if any(k in blob for k in ["child","occup","adult","room","person","age","wiek","dzie"]):
+                        print(repr({"name":name,"value":val,"id":h.get_attribute("id"),"html":h.get_attribute("outerHTML")[:900]}))
+                except Exception:
+                    pass
         except Exception as e:
             print("SET_AGES_ERROR",type(e).__name__,str(e)[:240])
 
