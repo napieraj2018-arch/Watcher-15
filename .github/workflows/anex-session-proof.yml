@@ -1,0 +1,51 @@
+name: ANEX same-package price proof
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/probe_anex_session_compare.py"
+      - ".github/workflows/anex-session-proof.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: anex-session-price-proof
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run ANEX session proof
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          timeout 260s python src/probe_anex_session_compare.py > anex-session.log 2>&1
+          rc=$?
+          {
+            echo "# ANEX same-package 2+2 vs 2+0 proof"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            grep -E "^ANEXSESS_" anex-session.log | tail -n 320 || true
+            echo '~~~'
+          } > report.md
+          gh issue edit 17 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat report.md
+          exit "$rc"
