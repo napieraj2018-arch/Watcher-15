@@ -18,6 +18,18 @@ def main():
         body=d.find_element(By.TAG_NAME,"body").text
         for s in ["Dorośli","Dzieci","Last Minute","All inclusive","Lotnisko"]:
             print("ECCO_SIGNAL",s,s.lower() in body.lower())
+        children=d.find_elements(By.ID,"searchWindow_main_children")
+        if children:
+            d.execute_script("arguments[0].click()",children[0]);time.sleep(1)
+            print("ECCO_CHILD_PICKER_OPEN",True)
+            for el in d.find_elements(By.XPATH,"//input|//select|//button|//*[@role='button']"):
+                try:
+                    if not el.is_displayed():continue
+                    txt=compact(el.text)
+                    blob=" ".join(filter(None,[txt,el.get_attribute("name"),el.get_attribute("id"),el.get_attribute("value"),el.get_attribute("placeholder"),el.get_attribute("aria-label"),el.get_attribute("class")]))
+                    if any(k in blob.lower() for k in ["dzie","child","wiek","age","urodz","birth"]) or txt in ["+","-","−"]:
+                        print("ECCO_PICKER_CTRL",json.dumps({"tag":el.tag_name,"text":txt[:220],"name":el.get_attribute("name"),"id":el.get_attribute("id"),"value":el.get_attribute("value"),"placeholder":el.get_attribute("placeholder"),"aria":el.get_attribute("aria-label"),"class":el.get_attribute("class"),"html":(el.get_attribute("outerHTML") or "")[:2800]},ensure_ascii=False))
+                except:pass
         for e in d.find_elements(By.XPATH,"//input|//select|//button"):
             try:
                 txt=compact(e.text);blob=" ".join(filter(None,[txt,e.get_attribute("name"),e.get_attribute("id"),e.get_attribute("value"),e.get_attribute("placeholder"),e.get_attribute("aria-label"),e.get_attribute("class")]))
