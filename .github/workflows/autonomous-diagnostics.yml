@@ -84,9 +84,9 @@ jobs:
           publish
           run_diag "Grecos exact API" python src/probe_grecos_exact_api.py
           run_diag "Grecos strict adapter dry run" python run_grecos_diagnostic.py
-          run_diag "EXIM exact family" python src/validate_exim_exact.py\n          run_diag "Grecos exact API" python src/validate_grecos_exact.py
+          run_diag "EXIM exact family" python src/validate_exim_exact.py
+          run_diag "Grecos exact browser" python src/validate_grecos_exact.py
           run_diag "Grecos family" python src/diagnose_grecos_family.py
-          run_diag "Grecos exact family" python src/validate_grecos_exact.py
           run_diag "Travelplanet family" python src/diagnose_travelplanet_family.py
           run_diag "Travelplanet state/network" python src/diagnose_travelplanet_state.py
           run_diag "Travelplanet frontend serialization" python src/inspect_travelplanet_js.py
