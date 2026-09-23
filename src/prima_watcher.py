@@ -75,7 +75,7 @@ def _calc(t,ages,label):
         trip={"tripid":int(t["id"]),"departureid":int(t["departureid"]),"arrivalid":int(t["arrivalid"])}
     except:return None
     v={"persons":[{"person":[{"age":int(a)} for a in ages]}],"trips":[trip]}
-    data=_gql(Q_CALC,v,label)
+    data=_gql(Q_CALC,v,"C")
     rows=(((data.get("data") or {}).get("bluevendoFastCalculation") or {}).get("trips") or [])
     if isinstance(rows,dict):rows=[rows]
     return next((x for x in rows if str(x.get("tripId"))==str(t.get("id"))),rows[0] if rows else None)
