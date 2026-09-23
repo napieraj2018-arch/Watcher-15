@@ -162,11 +162,47 @@ def main():
         time.sleep(8)
         print("NEKERA_FINAL_URL",d.current_url)
         print("NEKERA_FINAL_QUERY",json.dumps(parse_qs(urlsplit(d.current_url).query),ensure_ascii=False,sort_keys=True))
+        # Prefer Nekera's explicit "za wszystkich" view; never derive a
+        # family total by multiplying a /os. price.
+        total_toggle=None
+        candidates=d.find_elements(By.XPATH,"//*[self::button or self::label or @role='button'][contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZĄĆĘŁŃÓŚŹŻ','abcdefghijklmnopqrstuvwxyząćęłńóśźż'),'za wszystkich')]")
+        candidates=[x for x in candidates if x.is_displayed()]
+        candidates.sort(key=lambda x:len(compact(x.text)))
+        if candidates:
+            total_toggle=candidates[0]
+            print("NEKERA_TOTAL_TOGGLE",(total_toggle.get_attribute("outerHTML") or "")[:3000])
+            try:
+                d.execute_script("arguments[0].click()",total_toggle);time.sleep(5)
+            except Exception as e: print("NEKERA_TOTAL_TOGGLE_ERR",type(e).__name__,str(e)[:180])
+        print("NEKERA_TOTAL_VIEW_CLICKED",bool(total_toggle))
+
         body2=d.find_element(By.TAG_NAME,"body").text
         for line in [x.strip() for x in body2.splitlines() if x.strip()]:
             lo=line.lower()
             if any(k in lo for k in ["doros","dzieci","2021","2019","5 lat","7 lat","zł","all inclusive"]):
                 print("NEKERA_RESULT_SIGNAL",line[:1000])
+
+        # Capture listing blocks only after exact family serialization and
+        # the explicit all-participants price view have been applied.
+        total_cards=[]
+        for a in d.find_elements(By.XPATH,"//a[contains(normalize-space(.),'Szczegóły') or contains(@href,'/hotel') or contains(@href,'/offer')]"):
+            try:
+                href=a.get_attribute("href") or ""
+                anc=a
+                chosen=None
+                for _ in range(8):
+                    anc=anc.find_element(By.XPATH,"..")
+                    txt=compact(anc.text)
+                    if "zł" in txt and len(txt)<5000:
+                        chosen=txt
+                        if "za wszystkich" in txt.lower() or "/os" not in txt.lower():
+                            break
+                if chosen:
+                    rec={"href":href,"text":chosen[:2200]}
+                    if rec not in total_cards: total_cards.append(rec)
+            except: pass
+        print("NEKERA_TOTAL_CARD_COUNT",len(total_cards))
+        for rec in total_cards[:20]: print("NEKERA_TOTAL_CARD",repr(rec))
 
         seen=set()
         for row in d.get_log("performance"):
