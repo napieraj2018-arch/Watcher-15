@@ -6,10 +6,11 @@
     "alert_requires_final_total": true,
     "alert_requires_live_availability": true,
     "no_per_person_price_as_total": true,
-    "production_goal": 10,
-    "total_registered": 20,
+    "production_goal": 15,
+    "total_registered": 22,
     "alert_only_from_production": true,
-    "block_unverified_family_totals": true
+    "block_unverified_family_totals": true,
+    "minimum_production_channels": 10
   },
   "channels": [
     {
@@ -240,6 +241,30 @@
       "final_total": false,
       "live_availability": false,
       "note": "New candidate: public search surface exposes 2 adults + 2 children composition, child-age controls, All Inclusive, 4★+, rating/review count and a whole-offer 'Kup za ... zł' presentation. Exact ages 5/7, live availability and party-sensitive final total still require repository diagnostics."
+    },
+    {
+      "id": "dertour_pl",
+      "name": "DERTOUR Polska",
+      "url": "https://www.dertour.pl/",
+      "status": "diagnostic",
+      "kind": "operator",
+      "priority": 20,
+      "exact_party": false,
+      "final_total": false,
+      "live_availability": false,
+      "note": "Active Polish flight-holiday search has participant controls including children 0-17 and date-of-birth input. Added as independent candidate; exact 2+2 ages 5/7, live package availability and party-sensitive final total require repository proof."
+    },
+    {
+      "id": "eccoholiday_pl",
+      "name": "Ecco Holiday",
+      "url": "https://www.eccoholiday.com/",
+      "status": "diagnostic",
+      "kind": "operator",
+      "priority": 21,
+      "exact_party": false,
+      "final_total": false,
+      "live_availability": false,
+      "note": "Active operator search exposes adults, children, flight departure, Last Minute and All Inclusive controls. Added as independent candidate; exact 5/7 child-age serialization, live availability and final family total require proof."
     }
   ]
 }
