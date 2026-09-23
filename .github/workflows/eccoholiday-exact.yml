@@ -7,6 +7,7 @@ on:
       - "src/validate_eccoholiday_exact.py"
       - "src/inspect_eccoholiday_schema.py"
       - "src/probe_eccoholiday_total_control.py"
+      - "src/probe_eccoholiday_session_control.py"
       - "src/probe_eccoholiday_pair_browser.py"
       - ".github/workflows/eccoholiday-exact.yml"
 
@@ -38,6 +39,8 @@ jobs:
           rc=$?
           python src/probe_eccoholiday_total_control.py > ecco-control.log 2>&1
           rcc=$?
+          python src/probe_eccoholiday_session_control.py > ecco-session.log 2>&1
+          rcsess=$?
           python src/probe_eccoholiday_pair_browser.py > ecco-pair.log 2>&1
           rcp=$?
           {
@@ -55,6 +58,9 @@ jobs:
             echo
             echo "## Browser 2+2 vs 2+0 control"
             grep -E '^ECCOPAIR_' ecco-pair.log | tail -n 420 || true
+            echo
+            echo "## Session-aware 2+2 vs 2+0 control"
+            grep -E '^ECCOSESS_' ecco-session.log | tail -n 420 || true
             echo
             echo "## JS/search schema"
             grep -E '^ECCOSCHEMA_' ecco-schema.log | tail -n 420 || true
