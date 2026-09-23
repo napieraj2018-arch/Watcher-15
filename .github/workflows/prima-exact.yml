@@ -6,6 +6,7 @@ on:
     paths:
       - "src/validate_prima_exact.py"
       - "src/probe_prima_graphql.py"
+      - "src/inspect_prima_graphql_schema.py"
       - ".github/workflows/prima-exact.yml"
 
 permissions:
@@ -38,6 +39,8 @@ jobs:
           rc=$?
           python src/probe_prima_graphql.py > prima-gql.log 2>&1
           rc2=$?
+          python src/inspect_prima_graphql_schema.py > prima-schema.log 2>&1
+          rc3=$?
           {
             echo "# Prima Holiday exact-family diagnostic"
             echo
@@ -50,9 +53,13 @@ jobs:
             echo
             echo "## Bluevendo GraphQL exact-party control"
             grep -E "^PRIMAGQL_" prima-gql.log | tail -n 320 || true
+            echo
+            echo "## GraphQL/search schema"
+            grep -E "^PRIMASCHEMA_" prima-schema.log | tail -n 320 || true
             echo '~~~'
           } > report.md
           gh issue edit 19 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-          exit "$rc2"
+          if [ "$rc2" -ne 0 ]; then exit "$rc2"; fi
+          exit "$rc3"
