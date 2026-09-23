@@ -41,10 +41,22 @@ def _stars(value):
 
 def _departure(value):
     text = str(value or "")
-    m = re.search(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", text)
-    if not m:
+    full = re.search(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", text)
+    if full:
+        return datetime(int(full.group(3)), int(full.group(2)), int(full.group(1))).date()
+    short = re.search(r"(\d{1,2})\.(\d{1,2})", text)
+    if not short:
         return None
-    return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).date()
+    today = datetime.now(TZ).date()
+    day, month = int(short.group(1)), int(short.group(2))
+    candidates = []
+    for year in (today.year, today.year + 1):
+        try:
+            candidates.append(datetime(year, month, day).date())
+        except ValueError:
+            pass
+    future = [d for d in candidates if d >= today]
+    return min(future) if future else None
 
 
 def _quality(row):
@@ -88,8 +100,8 @@ def _params(cfg):
     start = today + timedelta(days=deltas[0])
     end = today + timedelta(days=deltas[-1])
     # Jan 1 keeps the requested ages stable for the whole short departure window.
-    child1 = f"{start.year - 5}0101"
-    child2 = f"{start.year - 7}0101"
+    child1 = f"{end.year - 5}0101"
+    child2 = f"{end.year - 7}0101"
     params = {
         "Adults": "2",
         "Children": "2",
