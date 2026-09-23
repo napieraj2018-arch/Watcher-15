@@ -1,5 +1,5 @@
 import re,time
-from urllib.parse import urlencode, urlsplit, parse_qsl, urlunsplit
+from urllib.parse import urlencode, urlsplit, parse_qsl, urlunsplit, parse_qs
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -7,6 +7,14 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 BASE="https://www.exim.pl/wyszukanie"
 def compact(s): return " ".join((s or "").split())
+
+def party_params(url):
+    q={k.upper():v[-1] for k,v in parse_qs(urlsplit(url).query,keep_blank_values=True).items()}
+    return {k:q.get(k) for k in ["AC1","KC1","KA1","IC1"]}
+
+def exact_party_in_url(url):
+    p=party_params(url)
+    return p.get("AC1")=="2" and p.get("KC1")=="2" and p.get("KA1") in ("5|7","5%7C7")
 
 def main():
     q=[
@@ -20,6 +28,11 @@ def main():
     try:
       d.get(url);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(6)
       print("SEARCH_URL",d.current_url)
+      print("SEARCH_PARTY_PARAMS",party_params(d.current_url),"EXACT",exact_party_in_url(d.current_url))
+      body0=d.find_element(By.TAG_NAME,"body").text
+      for line in [x.strip() for x in body0.splitlines() if x.strip()]:
+        lo=line.lower()
+        if any(k in lo for k in ["2 doros","2 dzieci","5 lat","7 lat","uczestnik"]): print("SEARCH_PARTY_LINE",line[:600])
       cards=[]
       for a in d.find_elements(By.TAG_NAME,"a"):
         try:
@@ -35,7 +48,6 @@ def main():
           if "Warszawa" not in t and "Radom" not in t: continue
           md=re.search(r"(\d{1,2}\.\d{1,2}\.\d{4}).*?(\d+)\s+nocy",t)
           if not md: continue
-          
           mr=re.search(r"(?:trustYouRating\s*)?(\d[,.]\d)\s+(?:Bardzo dobra|Znakomita|Dobra)",t,re.I)
           rating=float(mr.group(1).replace(",",".")) if mr else None
           if rating is not None and rating<8.0: continue
@@ -43,10 +55,8 @@ def main():
           if key not in cards: cards.append(key)
         except Exception: pass
       print("CANDIDATE_COUNT",len(cards))
-      for href,t in cards[:15]:
-        print("CARD",repr({"text":t[:1200],"href":href[:2200]}))
-      if not cards:
-        return
+      for href,t in cards[:15]: print("CARD",repr({"text":t[:1200],"href":href[:2200]}))
+      if not cards: return
       href,t=cards[0]
       p=urlsplit(href); params=dict(parse_qsl(p.query,keep_blank_values=True))
       params["AC1"]="2";params["KC1"]="2";params["KA1"]="5|7";params["IC1"]="0"
@@ -54,13 +64,16 @@ def main():
       print("DETAIL_EXACT",exact)
       d.get(exact);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(7)
       print("DETAIL_FINAL",d.current_url)
+      print("DETAIL_PARTY_PARAMS",party_params(d.current_url),"EXACT",exact_party_in_url(d.current_url))
       body=d.find_element(By.TAG_NAME,"body").text
-      print("DETAIL_RELEVANT")
-      for line in [x.strip() for x in body.splitlines() if x.strip()]:
+      lines=[x.strip() for x in body.splitlines() if x.strip()]
+      for line in lines:
         lo=line.lower()
-        if any(k in lo for k in ["doros","dzieci","wiek","cena łącznie","cena razem","zł","all inclusive","24.09","25.09","26.09"]):
-          print(line[:800])
+        if any(k in lo for k in ["doros","dzieci","wiek","cena łącznie","cena razem","zł","all inclusive","24.09","25.09","26.09"]): print("DETAIL_LINE",line[:800])
+      totals=[]
+      for pat in [r"Cena\s*(?:łącznie|razem|całkowita)\s*[: ]\s*([0-9][0-9 .]*)\s*zł",r"Razem\s*[: ]\s*([0-9][0-9 .]*)\s*zł"]:
+        totals.extend(int(re.sub(r"\D","",m)) for m in re.findall(pat,body,re.I) if re.sub(r"\D","",m))
+      print("EXIM_EXPLICIT_TOTALS",totals[:30])
+      print("EXIM_EXACT_FAMILY_TOTAL_VERIFIED",bool(totals) and exact_party_in_url(d.current_url))
     finally:d.quit()
 if __name__=="__main__":main()
-
-# validation-wide-range-v2
