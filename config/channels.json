@@ -7,7 +7,7 @@
     "alert_requires_live_availability": true,
     "no_per_person_price_as_total": true,
     "production_goal": 10,
-    "total_registered": 15,
+    "total_registered": 16,
     "alert_only_from_production": true,
     "block_unverified_family_totals": true
   },
@@ -181,6 +181,17 @@
       "exact_party": false,
       "final_total": false,
       "note": "BlueVendo backend identified: POST /api-bv/search-search with explicit adults=2. Child payload schema is being extracted from Next.js bundles; current UI test still submits adults-only, so family pricing is not trusted."
+    },
+    {
+      "id": "regobis_pl",
+      "name": "Rego-Bis",
+      "url": "https://www.rego-bis.pl/rodzina2plus2",
+      "status": "diagnostic",
+      "kind": "aggregator",
+      "priority": 12,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Added as an independent candidate because its dedicated family 2+2 flow requires child birth dates and rechecks price/availability for the selected party. Exact 5/7 serialization and live final total still require connector proof."
     }
   ]
 }
