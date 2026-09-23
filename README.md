@@ -48,12 +48,12 @@ Co godzinę działa lekki health-check wszystkich źródeł. Raz dziennie urucha
 
 ## Diagnostyka 2026-09-23
 
-Stan produkcyjny pozostaje celowo konserwatywny: **4 kanały produkcyjne** — Wakacje.pl, TUI Poland, ITAKA i Rainbow. Kanał jest promowany dopiero po zachowaniu dokładnego składu 2+2, potwierdzeniu dostępności i odczytaniu końcowej ceny całej rodziny.
+Stan produkcyjny pozostaje celowo konserwatywny: **4 kanały produkcyjne** — Wakacje.pl, TUI Poland, ITAKA i Rainbow. Kanał jest promowany dopiero po zachowaniu dokładnego składu 2+2, potwierdzeniu dostępności, odczytaniu końcowej ceny całej rodziny oraz możliwości bezpiecznego zastosowania aktywnych filtrów jakościowych.
 
 Najważniejsze ustalenia:
-- **EXIM tours** — rozpoznano parametry dokładnej rodziny: `ac1=2`, `kc1=2`, `ka1=5|7`. Rozpoznano też identyfikatory lotnisk: Warszawa `3850`, Warszawa-Modlin `4380`, Warszawa-Radom `4381`. Aktualne zapytanie 2+2 dla tych lotnisk nie zwraca jeszcze rekordu wycieczki z możliwą do potwierdzenia ceną końcową, więc kanał pozostaje diagnostyczny.
+- **EXIM tours** — bezpośrednio potwierdzono stan wyszukiwania `AC1=2`, `KC1=2`, `KA1=5|7`; strona pokazuje „2 dorosłych 2 dzieci”, „5 lat” i „7 lat”. Skład 2+2 jest więc wiarygodnie zachowany. Nadal brakuje karty/rezerwacji z jawną ceną końcową całej rodziny, dlatego kanał nie został sztucznie awansowany.
 - **Travelplanet** — interfejs przyjmuje 2 dorosłych i dzieci 5/7, ale podczas przejścia do wyników obecny przepływ automatyczny gubi dzieci i serializuje wyszukiwanie jak dla samych dorosłych. Taki wynik jest blokowany jako niebezpieczny dla alarmów.
-- **Sun & Fun** — zmapowano strukturę formularza: `rooms[0].adults=2`, a dzieci mają jawne pola `rooms[0].children[n].age`. Automat potrafi już utworzyć dwoje dzieci; trwa walidacja ustawienia wieku 5/7, wylotu i końcowej ceny rodziny.
-- **Grecos** — ciężka diagnostyka DOM potrafi zawisnąć; kolejny adapter powinien używać lżejszej ścieżki formularza/API zamiast skanowania całej strony.
+- **Sun & Fun** — wykonano pełny test żywego wyszukiwania `room1=2,5,7`. Strona potwierdziła „2 dorosłych 2 dzieci” i dla dokładnego wylotu 24.09.2026 zwróciła jawną **„Cena całkowita 8 304 zł”**. Dodano też twardą kontrolę daty, ponieważ zapytania na 25/26.09 były automatycznie przesuwane przez serwis na 27.09; takie przesunięte wyniki są teraz odrzucane. Kanał pozostaje diagnostyczny tylko dlatego, że trzeba jeszcze niezawodnie przypisać do konkretnej karty hotelu liczbę gwiazdek, ocenę i liczbę opinii wymagane przez aktywny watcher.
+- **Grecos** — znaleziono bezpośredni JSON API ofert: `/api/sitecore/OffersList/LoadMoreOffers`. Bieżące wywołanie zawiera m.in. `Adults=2`, daty, długość pobytu i typ oferty. Zidentyfikowano też kontrolkę pasażerów „Dorośli 2 / Dzieci 0”. Następny krok to wydobycie parametrów liczby/wieku dzieci i przejście na lekki adapter API zamiast ciężkiego skanowania DOM.
 - **Fly.pl, Nekera, Oasis Tours** — strony są dostępne, lecz potrzebują dedykowanych selektorów uczestników; ogólne heurystyki nie są wystarczająco wiarygodne do awansu na produkcję.
 - **Coral Travel, Join UP!, eSky, TraveliGo** — nadal wymagają alternatywnej drogi dostępu z powodu blokad lub braku użytecznej treści w środowisku headless.
