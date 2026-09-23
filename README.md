@@ -130,3 +130,7 @@ W obu profilach obowiązuje exact 2 dorosłych + dzieci 5 i 7 lat, All Inclusive
 Każdy alarm musi zawierać link zachowujący możliwie dokładny stan pakietu. Jeżeli źródło nie daje stabilnego deep-linku do pojedynczego pakietu, link prowadzi do dokładnie przefiltrowanego wyniku exact 2+2; nie wolno podmieniać go na luźną stronę hotelu ani ofertę 2+0.
 
 ITAKA ma dodatkową bramkę: zachowanie konkretnego tokenu `id[0]`, obu dat urodzenia dzieci, terminu w page state oraz końcowego `Łącznie`. Wylot czwartkowy wymaga dodatkowo potwierdzonej godziny.
+
+### Tryb poszukiwania 24–26.09.2026 — dwa progi
+
+Aktywny search id: `family-2026-09-24-evening-26`. Każdy kanał production uruchamia dwa niezależne profile: **OKAZJA ≤7K** (0–7000 PLN, min. 4★, 8.0/10, 30 opinii) oraz **SUPER ≤11K** (7001–11000 PLN, min. 4★, 8.8/10, 100 opinii). Oba wymagają exact 2+2 z dziećmi 5/7, 5–8 nocy, All Inclusive, końcowego family total i świeżej dostępności. Wyloty: czwartek 24.09 wyłącznie po 17:00, piątek 25.09 cały dzień, sobota 26.09 cały dzień. Jeżeli kanał nie potrafi potwierdzić godziny czwartkowego wylotu, czwartkowa oferta jest fail-closed i nie może alarmować. Link do oferty/wyszukiwania exact-family jest obowiązkowy w każdym alercie.
