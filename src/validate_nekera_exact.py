@@ -79,9 +79,17 @@ def main():
     try:
         d.get(URL);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(5);dismiss(d)
         print("NEKERA_START",d.current_url)
-        opener=click_visible(d,"//input[contains(@placeholder,'Ile osób')]|//*[contains(normalize-space(.),'Ile osób?')]","people")
+        opener=click_visible(d,"//input[@id='searchbar-passengers']|//*[@id='searchbar-passengers']","people")
         print("NEKERA_PEOPLE_OPENED",bool(opener))
 
+        # The passenger modal is anchored by the readonly searchbar input.
+        # Dump its nearby DOM before manipulating anything.
+        try:
+            p=d.find_element(By.ID,"searchbar-passengers")
+            anc=p
+            for _ in range(5): anc=anc.find_element(By.XPATH,"..")
+            print("NEKERA_PASSENGER_DOM",(anc.get_attribute("outerHTML") or "")[:18000])
+        except Exception as e: print("NEKERA_PASSENGER_DOM_ERR",type(e).__name__,str(e)[:160])
         a,ab,ai=counter_section(d,"Dorośli")
         c,cb,ci=counter_section(d,"Dzieci")
         print("NEKERA_COUNTERS_FOUND",bool(a),bool(c))
