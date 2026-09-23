@@ -43,6 +43,41 @@ def main():
             blob=(" ".join(str(x.get(k) or "") for k in ["text","cls","role","aria","type","name","placeholder"])).lower()
             if any(k in blob for k in ["doros","dzie","wiek","lat","child","adult","age","plus","minus","confirm","counter"]) or x["tag"] in ["INPUT","BUTTON","SELECT"]:
                 print("OASIS_FOCUS_NODE",json.dumps(x,ensure_ascii=False))
+        # Target the exact "Dzieci" row discovered above. This avoids
+        # ancestor heuristics that previously matched unrelated controls.
+        child_row=None
+        for row in p.find_elements(By.CSS_SELECTOR,".inputWrapper"):
+            try:
+                title=row.find_element(By.CSS_SELECTOR,".title")
+                if compact(title.text)=="Dzieci":
+                    child_row=row;break
+            except: pass
+        print("OASIS_FOCUS_CHILD_ROW_FOUND",child_row is not None)
+        if child_row is not None:
+            buttons=child_row.find_elements(By.CSS_SELECTOR,"button.inputButton")
+            print("OASIS_FOCUS_CHILD_BUTTONS",len(buttons))
+            if len(buttons)>=2:
+                for i in range(2):
+                    d.execute_script("arguments[0].click()",buttons[-1]);time.sleep(.8)
+                    rows2=[x for x in p.find_elements(By.CSS_SELECTOR,".inputWrapper")]
+                    value=None
+                    for rr in rows2:
+                        try:
+                            if compact(rr.find_element(By.CSS_SELECTOR,".title").text)=="Dzieci":
+                                value=compact(rr.find_element(By.CSS_SELECTOR,".inputValue").text)
+                        except: pass
+                    print("OASIS_FOCUS_CHILD_PLUS",i+1,value)
+        time.sleep(1)
+        p=[x for x in d.find_elements(By.CSS_SELECTOR,".participants") if x.is_displayed()][0]
+        print("OASIS_FOCUS_AFTER_CHILDREN_HTML",compact(p.get_attribute("outerHTML"))[:30000])
+        ages=[x for x in p.find_elements(By.XPATH,".//input") if x.is_displayed()]
+        print("OASIS_FOCUS_AGE_INPUTS",len(ages))
+        for i,e in enumerate(ages):
+            print("OASIS_FOCUS_AGE_INPUT",i,json.dumps({
+              "class":e.get_attribute("class"),"type":e.get_attribute("type"),
+              "name":e.get_attribute("name"),"placeholder":e.get_attribute("placeholder"),
+              "value":e.get_attribute("value")
+            },ensure_ascii=False))
         # Print compact network search payloads emitted by initial page state.
         for row in d.get_log("performance"):
             try:
