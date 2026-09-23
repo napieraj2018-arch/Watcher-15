@@ -132,7 +132,7 @@
       "priority": 8,
       "exact_party": true,
       "final_total": true,
-      "note": "Production proof hardened: live Grecos API preserves exact Adults=2, Children=2 with Child1/Child2 DOBs for ages 5/7 and exposes Merlin_FullPriceParsed. Same-package 2+2 vs 2+0 comparisons prove the field is party-sensitive; when the adults-only package is absent, the adapter still rejects any total that could equal only two adult unit prices. Current live smoke returned exact 2+2 Warsaw offers (15,020 and 15,232 PLN), correctly labeled Warszawa rather than Radom. Fresh API recheck and all quality filters remain fail-closed.",
+      "note": "Production adapter is fail-closed: exact 2+2 ages 5/7, live API availability, party-sensitive Merlin_FullPriceParsed, departure/night/AI/airport filters, second API recheck. Hotel quality is also fail-closed; if rating/review count is absent the offer cannot alert.",
       "live_availability": true
     },
     {
