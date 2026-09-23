@@ -9,6 +9,7 @@ on:
       - "src/inspect_fly_schema.py"
       - "src/inspect_fly_person_js.py"
       - "src/probe_fly_ajax.py"
+      - "src/probe_fly_total_mode.py"
       - ".github/workflows/fly-exact.yml"
 
 permissions:
@@ -43,9 +44,8 @@ jobs:
         run: |
           set +e
           python src/inspect_fly_person_js.py > fly-js.log 2>&1
-          js_rc=$?
           python src/probe_fly_ajax.py > fly-ajax.log 2>&1
-          ajax_rc=$?
+          python src/probe_fly_total_mode.py > fly-total.log 2>&1
           python src/validate_fly_exact.py > fly.log 2>&1
           rc=$?
           {
@@ -57,23 +57,25 @@ jobs:
             echo
             echo "## Child serializer"
             echo '```text'
-            tail -n 260 fly-js.log
+            tail -n 220 fly-js.log
             echo '```'
             echo
             echo "## Exact-family AJAX comparison"
             echo '```text'
-            tail -n 280 fly-ajax.log
+            tail -n 240 fly-ajax.log
             echo '```'
             echo
-            echo "## Exact family UI"
-            echo "## Child schema"
-            echo
+            echo "## All-person total-mode control"
             echo '```text'
-            tail -n 260 fly-schema.log
+            tail -n 160 fly-total.log
+            echo '```'
+            echo
+            echo "## Child schema"
+            echo '```text'
+            tail -n 220 fly-schema.log
             echo '```'
             echo
             echo "## Exact-family UI"
-            echo
             echo '```text'
             tail -n 300 fly.log
             echo '```'
