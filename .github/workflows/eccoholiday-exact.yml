@@ -7,6 +7,7 @@ on:
       - "src/validate_eccoholiday_exact.py"
       - "src/inspect_eccoholiday_schema.py"
       - "src/probe_eccoholiday_total_control.py"
+      - "src/probe_eccoholiday_pair_browser.py"
       - ".github/workflows/eccoholiday-exact.yml"
 
 permissions:
@@ -37,6 +38,8 @@ jobs:
           rc=$?
           python src/probe_eccoholiday_total_control.py > ecco-control.log 2>&1
           rcc=$?
+          python src/probe_eccoholiday_pair_browser.py > ecco-pair.log 2>&1
+          rcp=$?
           {
             echo "# Ecco Holiday exact-family diagnostic"
             echo
@@ -50,6 +53,9 @@ jobs:
             echo "## Total-price control"
             grep -E '^ECCOCTRL_' ecco-control.log | tail -n 420 || true
             echo
+            echo "## Browser 2+2 vs 2+0 control"
+            grep -E '^ECCOPAIR_' ecco-pair.log | tail -n 420 || true
+            echo
             echo "## JS/search schema"
             grep -E '^ECCOSCHEMA_' ecco-schema.log | tail -n 420 || true
             echo '~~~'
@@ -57,5 +63,5 @@ jobs:
           gh issue edit 28 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
           if [ "$rcs" -ne 0 ]; then exit "$rcs"; fi
-          if [ "$rcc" -ne 0 ]; then exit "$rcc"; fi
+          if [ "$rcp" -ne 0 ]; then exit "$rcp"; fi
           exit "$rc"
