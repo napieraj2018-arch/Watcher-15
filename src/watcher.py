@@ -1293,6 +1293,23 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
         print("ITAKA_CANDIDATE",x["hotel"],x["departure"],x["departure_time"],x["nights"],x["listing_pp"],x["rating"],x["reviews"],x["stars"],x["href"])
     return offers
 
+def itaka_exact_child_ages_in_url(url, departure, expected_ages):
+    vals=(parse_qs(urlsplit(url).query).get("children[0]") or [])
+    if not vals:
+        return False
+    raw=vals[0]
+    parts=[x.strip() for x in raw.split(",") if x.strip()]
+    ages=[]
+    for item in parts:
+        try:
+            dob=datetime.strptime(item,"%d.%m.%Y").date()
+            age=departure.year-dob.year-((departure.month,departure.day)<(dob.month,dob.day))
+            ages.append(age)
+        except Exception:
+            return False
+    return sorted(ages)==sorted(int(x) for x in expected_ages)
+
+
 def itaka_parse_total(body):
     cleaned=compact(body)
     patterns=[
@@ -1323,13 +1340,11 @@ def itaka_verify_offer(driver, offer, cfg, child_dobs):
     if "children%5b0%5d" not in current and "children[0]" not in current:
         return None,"itaka_family_parameters_lost",None
 
-    # Verify both synthetic child DOBs remain encoded in the live detail URL.
-    for dob in child_dobs:
-        raw=dob.strftime("%d.%m.%Y").lower()
-        enc=raw.replace(".","%2e")
-        if raw not in current and enc not in current:
-            # URL encoders usually keep dots, but fail closed if ITAKA changes this.
-            return None,"itaka_child_dob_lost",None
+    # ITAKA sometimes normalizes representative DOBs (e.g. to 01.01 of
+    # the same birth year). Validate completed ages at departure, not byte-for-
+    # byte DOB equality, while still requiring exactly two child values.
+    if not itaka_exact_child_ages_in_url(driver.current_url, offer["departure"], cfg["children_ages"]):
+        return None,"itaka_child_age_composition_lost",None
 
     body=driver.find_element(By.TAG_NAME,"body").text
     source=driver.page_source
