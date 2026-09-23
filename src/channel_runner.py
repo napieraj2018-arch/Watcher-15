@@ -12,6 +12,7 @@ from grecos_watcher import run_grecos_watcher
 from travelplanet_watcher import run_travelplanet_watcher
 from oasis_watcher import run_oasis_watcher
 from prima_watcher import run_prima_watcher
+from tanietravel_watcher import run_tanietravel_watcher
 from watcher import chrome, dismiss_cookies, run_itaka_watcher, run_rainbow_watcher, run_tui_watcher, run_watcher
 
 CHANNELS_PATH = Path("config/channels.json")
@@ -80,6 +81,8 @@ def main():
             run_oasis_watcher(cfg)
         elif channel_id == "prima_holiday_pl":
             run_prima_watcher(cfg)
+        elif channel_id == "tanietravel_pl":
+            run_tanietravel_watcher(cfg)
         else:
             raise RuntimeError(f"Production adapter missing for {channel_id}")
         return
