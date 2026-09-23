@@ -5,7 +5,7 @@ import re
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, parse_qs, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import requests
@@ -1136,11 +1136,16 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
                 hotel=path.split(",")[0].replace("-"," ").title()
 
             airport="Warszawa"
+            departure_time=None
             for ap in ["Warszawa-Radom","Warszawa-Modlin","Warszawa-Okęcie","Warszawa"]:
                 if ap.lower() in txt.lower():
                     airport=ap
+                    tm=re.search(re.escape(ap)+r"[^\d]{0,80}([0-2]?\d:[0-5]\d)",txt,re.I)
+                    if tm:
+                        departure_time=tm.group(1)
                     break
 
+            offer_token=(parse_qs(urlsplit(href).query).get("id[0]") or [None])[0]
             offers.append({
                 "hotel":hotel or "Hotel ITAKA",
                 "stars":None,
@@ -1154,6 +1159,8 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
                 "airport":airport,
                 "meal":"All Inclusive",
                 "operator":"ITAKA",
+                "departure_time":departure_time,
+                "offer_token":offer_token,
                 "href":href,
                 "verified_href":href,
                 "text":txt,
@@ -1206,11 +1213,38 @@ def itaka_verify_offer(driver, offer, cfg, child_dobs):
             return None,"itaka_child_dob_lost",None
 
     body=driver.find_element(By.TAG_NAME,"body").text
+    source=driver.page_source
     low=body.lower()
     if any(p in low for p in UNAVAILABLE_PHRASES):
         return None,"itaka_unavailable",None
-    if offer["departure"].strftime("%d.%m") not in body:
+
+    # The result-card URL carries ITAKA's concrete offer token. Require that
+    # exact token to survive navigation, then confirm the departure date in
+    # either visible text or embedded page state. This avoids falsely rejecting
+    # offers when the date is rendered only inside hydrated JSON.
+    current_token=(parse_qs(urlsplit(driver.current_url).query).get("id[0]") or [None])[0]
+    if offer.get("offer_token") and current_token != offer.get("offer_token"):
+        return None,"itaka_offer_token_changed",None
+    dep_markers=[
+        offer["departure"].strftime("%d.%m"),
+        offer["departure"].strftime("%d.%m.%Y"),
+        offer["departure"].isoformat(),
+    ]
+    if not any(m in body or m in source for m in dep_markers):
         return None,"itaka_departure_not_confirmed",None
+
+    # Capture the departure clock when ITAKA exposes it. Thursday offers are
+    # not eligible until the clock is known and satisfies the configured
+    # evening threshold; Friday/Saturday need no time restriction.
+    if not offer.get("departure_time"):
+        esc=re.escape(offer["departure"].strftime("%d.%m"))
+        for hay in (body,compact(re.sub(r"<[^>]+>"," ",source))):
+            mt=re.search(esc+r".{0,500}?([0-2]?\d:[0-5]\d)",hay,re.I)
+            if mt:
+                offer["departure_time"]=mt.group(1)
+                print("ITAKA_DEPARTURE_TIME",offer["hotel"],offer["departure_time"])
+                break
+
     if "all inclusive" not in low:
         return None,"itaka_meal_not_confirmed",None
 
