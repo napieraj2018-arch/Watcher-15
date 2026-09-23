@@ -1,0 +1,51 @@
+name: Prima raw BlueVendo search
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/probe_prima_raw_search.py"
+      - ".github/workflows/prima-raw-search.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prima-raw-bluevendo-search
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Probe raw BlueVendo state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          timeout 120s python src/probe_prima_raw_search.py > prima-raw.log 2>&1
+          rc=$?
+          {
+            echo "# Prima raw BlueVendo search"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            grep -E "^PRIMARAW_" prima-raw.log | tail -n 500 || true
+            echo '~~~'
+          } > report.md
+          gh issue edit 22 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat report.md
+          exit "$rc"
