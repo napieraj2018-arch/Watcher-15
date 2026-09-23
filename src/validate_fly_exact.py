@@ -199,6 +199,7 @@ def main():
         # exact DOBs there and mirror them into the visible readonly date inputs.
         dep=(datetime.now(TZ).date()+timedelta(days=1))
         dobs=[datetime(dep.year-5,1,1).strftime("%d-%m-%Y"),datetime(dep.year-7,1,1).strftime("%d-%m-%Y")]
+        ages=["5","7"]
         for idx,dob in enumerate(dobs,1):
             hs=root.find_elements(By.CSS_SELECTOR,f"input[name='filter[childAge][{idx}]']")
             vs=root.find_elements(By.CSS_SELECTOR,f"input[data-birthdate='{idx}']")
@@ -208,7 +209,7 @@ def main():
                   e.value=v;
                   e.dispatchEvent(new Event('input',{bubbles:true}));
                   e.dispatchEvent(new Event('change',{bubbles:true}));
-                """,hs[0],dob)
+                """,hs[0],ages[idx-1])
             if vs:
                 d.execute_script("""
                   const e=arguments[0],v=arguments[1];
@@ -218,7 +219,7 @@ def main():
                   e.dispatchEvent(new Event('change',{bubbles:true}));
                   e.dispatchEvent(new Event('blur',{bubbles:true}));
                 """,vs[0],dob)
-            summary["age_fields"].append({"index":idx,"dob":dob,
+            summary["age_fields"].append({"index":idx,"dob":dob,"age":ages[idx-1],
                 "hidden":hs[0].get_attribute("value") if hs else None,
                 "visible":vs[0].get_attribute("value") if vs else None})
             print("FLY_CHILD_DOB_SET",summary["age_fields"][-1])
@@ -294,7 +295,7 @@ def main():
         # form. This avoids relying on a fragile dropdown close/apply event.
         direct_params=[
             ("filter[person]","2"),("filter[child]","2"),
-            ("filter[childAge][1]",dobs[0]),("filter[childAge][2]",dobs[1]),
+            ("filter[childAge][1]","5"),("filter[childAge][2]","7"),
             ("filter[addTransport]","F"),("filter[forceFilter]","1")
         ]
         direct=URL+"?"+urlencode(direct_params)
@@ -320,7 +321,7 @@ def main():
                 print("FLY_DIRECT_SIGNAL",line[:1000])
         exact_direct=(
             vals.get("person")=="2" and vals.get("child")=="2"
-            and vals.get("age1")==dobs[0] and vals.get("age2")==dobs[1]
+            and vals.get("age1")=="5" and vals.get("age2")=="7"
         )
         print("FLY_DIRECT_EXACT_2PLUS2",exact_direct)
 
