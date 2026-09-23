@@ -4,11 +4,13 @@ on:
   push:
     paths:
       - "src/diagnose_grecos_family.py"
+      - "src/grecos_watcher.py"
+      - "config/watchers.json"
       - ".github/workflows/grecos-family.yml"
 jobs:
   diagnostic:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 9
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,7 +18,18 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python src/diagnose_grecos_family.py
+      - name: Existing Grecos family UI diagnostic
+        run: python src/diagnose_grecos_family.py
+      - name: Strict exact-family adapter dry run
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python - <<'PY'
+          import json
+          from src.grecos_watcher import run_grecos_watcher
+          cfg = next(x for x in json.load(open('config/watchers.json', encoding='utf-8'))['watchers'] if x.get('provider') == 'grecos_pl')
+          run_grecos_watcher(cfg)
+          PY
       - if: always()
         uses: actions/upload-artifact@v4
         with:
