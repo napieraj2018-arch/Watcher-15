@@ -82,6 +82,33 @@ def deal_profiles(base_cfg):
     return out
 
 
+def strict_runtime_cfg(base_cfg):
+    """Apply the active monitoring request without stale fixed-date overrides."""
+    cfg = dict(base_cfg)
+    cfg["departure_dates"] = []
+    cfg["depart_in_days"] = [2, 3]
+    cfg["max_total_price_pln"] = 7000
+    profiles = cfg.get("deal_profiles") or []
+    strict_profiles = [
+        dict(p) for p in profiles
+        if int(p.get("max_total_price_pln", 10**9)) <= 7000
+    ]
+    if strict_profiles:
+        cfg["deal_profiles"] = strict_profiles
+    else:
+        cfg["deal_profiles"] = [{
+            "id": "okazja_7k",
+            "label": "OKAZJA ≤7K",
+            "min_total_price_pln": 0,
+            "max_total_price_pln": 7000,
+            "min_rating": max(8, float(cfg.get("min_rating", 8))),
+            "min_reviews": max(30, int(cfg.get("min_reviews", 30))),
+            "min_stars": max(4, int(cfg.get("min_stars", 4))),
+            "require_stars": True,
+        }]
+    return cfg
+
+
 def main():
     channel_id = os.getenv("WATCHER_CHANNEL", "").strip()
     if not channel_id:
@@ -103,7 +130,9 @@ def main():
         base_cfg = next((x for x in watchers if x.get("provider") == channel_id and x.get("enabled")), None)
         if base_cfg is None:
             raise RuntimeError(f"No enabled watcher config for production channel {channel_id}")
+        base_cfg = strict_runtime_cfg(base_cfg)
         profiles = base_cfg.get("deal_profiles") or []
+        print("RUNTIME_CONSTRAINTS", {"depart_in_days": base_cfg["depart_in_days"], "max_total_price_pln": base_cfg["max_total_price_pln"], "family": "2+2 ages 5,7"})
         print("DEAL_PROFILES", [
             {
                 "id": p.get("id"),
@@ -116,7 +145,7 @@ def main():
             for p in profiles
         ])
         # Fetch each production source once. The final alert gate assigns the
-        # verified offer to the appropriate bargain/premium profile.
+        # verified offer to the appropriate strict profile.
         run_production_adapter(channel_id, base_cfg)
         return
 
