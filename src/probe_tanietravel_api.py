@@ -144,5 +144,23 @@ def main():
     print("TANIEAPI_PARTY_SENSITIVE",len(proofs))
     for p in proofs[:25]:print("TANIEAPI_PROOF",json.dumps(p,ensure_ascii=False))
     print("TANIEAPI_FAMILY_TOTAL_VERIFIED",bool(proofs))
+    # A production source must survive a second fresh family request. The same
+    # provider/hotel/date/room package must still exist with the identical
+    # exact-family total; disappearance or repricing fails closed.
+    recheck_obj=fetch("FAMILY_RECHECK",payload(True,used))
+    rerecs={}
+    for path,s,rec in signals(recheck_obj):
+        if isinstance(rec,dict):
+            pk,pv=price_from(rec);k=key_from(rec)
+            if pv and sum(bool(x) for x in k)>=6:
+                rerecs[k]=(path,rec,pk,pv)
+    live=[]
+    for p in proofs:
+        row=rerecs.get(tuple(p["key"]))
+        if row and row[3]==p["family_total"]:
+            q=dict(p);q["recheck_path"]=row[0];live.append(q)
+    print("TANIEAPI_RECHECK_MATCHES",len(live))
+    for p in live[:20]:print("TANIEAPI_LIVE_PROOF",json.dumps(p,ensure_ascii=False))
+    print("TANIEAPI_LIVE_FAMILY_VERIFIED",bool(live))
 
 if __name__=="__main__":main()
