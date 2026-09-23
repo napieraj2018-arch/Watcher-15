@@ -72,7 +72,27 @@ def main():
             if click_text(d,t,"cookies"):break
         print("OASIS_START",d.current_url)
         opened=click_text(d,"2 dorosłych","party")
-        print("OASIS_PARTY_OPENED",opened);time.sleep(1)
+        time.sleep(.8)
+        # The outer .participants div is not the React click target. If the
+        # dropdown did not materialize, click the inner .mainInput directly.
+        has_children=any(e.is_displayed() for e in d.find_elements(By.XPATH,"//*[contains(normalize-space(.),'Dzieci')]"))
+        if not has_children:
+            mains=[e for e in d.find_elements(By.CSS_SELECTOR,".participants .mainInput") if e.is_displayed()]
+            for e in mains[:3]:
+                try:
+                    print("OASIS_PARTY_MAININPUT",(e.get_attribute("outerHTML") or "")[:2500])
+                    e.click();time.sleep(1)
+                    has_children=any(x.is_displayed() for x in d.find_elements(By.XPATH,"//*[contains(normalize-space(.),'Dzieci')]"))
+                    if has_children: break
+                except Exception as ex:
+                    print("OASIS_PARTY_MAININPUT_ERR",type(ex).__name__,str(ex)[:180])
+                    try:
+                        d.execute_script("arguments[0].click()",e);time.sleep(1)
+                        has_children=any(x.is_displayed() for x in d.find_elements(By.XPATH,"//*[contains(normalize-space(.),'Dzieci')]"))
+                        if has_children: break
+                    except: pass
+        opened=bool(opened and has_children)
+        print("OASIS_PARTY_OPENED",opened,"HAS_CHILDREN_UI",has_children);time.sleep(1)
         family_controls(d,"OASIS_CONTROLS_OPEN")
         # React renders the participant stepper mostly as styled divs, so
         # inspect the shortest visible DOM blocks around the family labels,
