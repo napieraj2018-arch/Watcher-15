@@ -2,8 +2,8 @@ import re,requests
 from urllib.parse import quote
 BASE="https://www.eccoholiday.com"
 H={"User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/153 Safari/537.36","Accept-Language":"pl-PL,pl;q=0.9"}
-FAMILY="/l,,,2026-09-24,,,,2,5;7,,,samolot,,,,,1,,,,,,,,,,,,,,,,,,samolotem"
-ADULTS="/l,,,2026-09-24,,,,2,,,,samolot,,,,,1,,,,,,,,,,,,,,,,,,samolotem"
+FAMILY=None
+ADULTS=None
 def norm(s):return " ".join(re.sub(r"<[^>]+>"," ",s or "").replace("&nbsp;"," ").split())
 def fetch(label,path):
  r=requests.get(BASE+path,headers=H,timeout=45)
@@ -33,11 +33,19 @@ def main():
  def canon(label,children):
   p={"resultsPerPage":"","resultsPageNumber":"","adults":"2","transport":["samolot"],"length":["5","6","7","8"],"departureDateFrom":"2026-09-24","departureDateTo":"2026-09-26","countryRegion":[],"departureFrom":[],"extraType":"samolotem","returnDateTo":"","dateDepFromRetTo":["",""],"category":["4","5"],"children":children,"feeding":["all inclusive"],"price":[],"attributes":[],"tourOperator":[],"offerType":[],"offerCatalog":"","priceTotal":"1"}
   u=BASE+"/index.php?module=bp/search/searchParamsToUrl&mode=ajax&linkType=getSearchLink&searchParams="+quote(json.dumps(p,separators=(",",":")))
-  r=s.get(u,timeout=30);print("ECCOCTRL_CANON",label,r.status_code,r.text[:3000])
-  return r
- canon("FAMILY",["5","7"]);canon("ADULTS",[])
- fr,ft=fetch("FAMILY",FAMILY)
- ar,at=fetch("ADULTS",ADULTS)
+  r=s.get(u,timeout=30)
+  path=(r.text or "").strip()
+  print("ECCOCTRL_CANON",label,r.status_code,path[:3000])
+  if not path:
+   return None
+  return "/"+path.lstrip("/")
+ family_path=canon("FAMILY",["5","7"])
+ adults_path=canon("ADULTS",[])
+ if not family_path or not adults_path:
+  print("ECCOCTRL_CANON_FAIL")
+  return
+ fr,ft=fetch("FAMILY",family_path)
+ ar,at=fetch("ADULTS",adults_path)
  # This probe deliberately does not certify unless stable same-offer identifiers can be paired.
  print("ECCOCTRL_FAMILY_TOTAL_SURFACE",bool(fr))
  print("ECCOCTRL_ADULT_TOTAL_SURFACE",bool(ar))
