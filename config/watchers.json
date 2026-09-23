@@ -48,7 +48,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
@@ -107,7 +107,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
@@ -169,7 +169,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
@@ -231,7 +231,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
@@ -289,7 +289,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
@@ -349,7 +349,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
@@ -412,7 +412,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
@@ -472,7 +472,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
@@ -534,7 +534,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
@@ -595,7 +595,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
@@ -661,7 +661,7 @@
           "label": "SUPER ≤11K",
           "min_total_price_pln": 7001,
           "max_total_price_pln": 11000,
-          "min_rating": 8.8,
+          "min_rating": 8.5,
           "min_reviews": 100,
           "min_stars": 4,
           "require_stars": true
