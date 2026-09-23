@@ -119,9 +119,9 @@
       "status": "diagnostic",
       "kind": "operator",
       "priority": 10,
-      "exact_party": false,
+      "exact_party": true,
       "final_total": false,
-      "note": "Exact family result and final total not yet mapped."
+      "note": "Exact party now verified: Nekera serializes adults=2 plus two repeated child DOB parameters (2021-01-01 and 2019-01-01), preserving 2+2 ages 5/7 in the result URL. Explicit all-participants total and live availability recheck are still being validated; remains diagnostic."
     },
     {
       "id": "grecos_pl",
