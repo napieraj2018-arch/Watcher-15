@@ -41,7 +41,7 @@ def signal(x,path="",depth=0,out=None):
 def term(t,birthdates,label):
  cfg={"roomid":str(t["roomid"]),"persons":[{"birthdate":d} for d in birthdates],"optionalComponentIds":[]}
  v={"tripid":str(t["id"]),"departureid":str(t["departureid"]),"arrivalid":str(t["arrivalid"]),"configuration":cfg}
- d=gql(QT,v,label)
+ d=gql(QT,v,"T")
  row=(d.get("data") or {}).get("bluevendoTermPrice")
  print("PRIMATERM_ROW",label,json.dumps(row,ensure_ascii=False)[:30000])
  fr=val((row or {}).get("fullResponse")) if isinstance(row,dict) else None
