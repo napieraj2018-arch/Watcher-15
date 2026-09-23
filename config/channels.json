@@ -76,7 +76,7 @@
       "priority": 6,
       "exact_party": false,
       "final_total": false,
-      "note": "Offer pages accessible; participant/final-total adapter pending."
+      "note": "UI can hold 2 adults + 2 children aged 5 and 7, but current automated submission serializes only adults / drops children. Unsafe for alerts until result state preserves exact party."
     },
     {
       "id": "fly_pl",
@@ -87,7 +87,7 @@
       "priority": 7,
       "exact_party": false,
       "final_total": false,
-      "note": "Offer pages accessible; exact party adapter pending."
+      "note": "Offer pages accessible; generic participant heuristic was not reliable, so a targeted exact-family adapter is still required."
     },
     {
       "id": "exim_pl",
@@ -98,7 +98,7 @@
       "priority": 5,
       "exact_party": false,
       "final_total": false,
-      "note": "Strong signals incl. Warsaw/Radom; needs exact 2+2 total verification."
+      "note": "Exact family parameters mapped: ac1=2, kc1=2, ka1=5|7. Departure IDs mapped: Warszawa=3850, Modlin=4380, Warszawa-Radom=4381. Current exact 2+2 API query returns no tour payload, so live final family total is not yet verified."
     },
     {
       "id": "joinup_pl",
@@ -120,7 +120,7 @@
       "priority": 10,
       "exact_party": false,
       "final_total": false,
-      "note": "Participant/price signals visible; adapter pending."
+      "note": "Search and participant signals are accessible, but custom participant state is not yet mapped to an exact 2+2 result and final total."
     },
     {
       "id": "grecos_pl",
@@ -131,7 +131,7 @@
       "priority": 8,
       "exact_party": false,
       "final_total": false,
-      "note": "Participant and offer signals visible; exact total adapter pending."
+      "note": "Current DOM-heavy family diagnostics time out/hang on the source. Needs a lighter targeted search/API route before exact-family verification."
     },
     {
       "id": "sunfun_pl",
@@ -142,7 +142,7 @@
       "priority": 9,
       "exact_party": false,
       "final_total": false,
-      "note": "Participant controls visible; exact total adapter pending."
+      "note": "Family form internals mapped: rooms[0].adults=2 and explicit child fields rooms[0].children[n].age; two children can be generated and ages 5/7 are being submitted in live-search diagnostics. Final family total still must be verified before production."
     },
     {
       "id": "esky_pl",
@@ -175,7 +175,7 @@
       "priority": 11,
       "exact_party": false,
       "final_total": false,
-      "note": "Live search interface accessible; adapter pending."
+      "note": "Live search interface is accessible, but generic diagnostics clicked a participation-terms control instead of the passenger picker. Needs a targeted exact-family adapter."
     }
   ]
 }
