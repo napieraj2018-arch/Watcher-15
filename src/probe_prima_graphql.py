@@ -74,11 +74,26 @@ def main():
             f,a=fam[tid],ad[tid]
             # totalPrice is explicit Bluevendo party total; require a positive
             # difference from the same trip priced for two adults.
-            ft=f["personTotals"][0] if len(f["personTotals"])==1 else None
-            at=a["personTotals"][0] if len(a["personTotals"])==1 else None
-            if isinstance(ft,(int,float)) and isinstance(at,(int,float)) and ft>at>0:
-                rec={"tripId":tid,"family_total":ft,"adults_total":at,"delta":ft-at,
-                     "family_price":f["price"],"adult_price":a["price"]}
+            try:
+                family_parts=[float(v) for v in f["personTotals"]]
+                adult_parts=[float(v) for v in a["personTotals"]]
+                family_price=float(f["price"])
+                adult_price=float(a["price"])
+            except (TypeError,ValueError):
+                continue
+            if len(family_parts)!=4 or len(adult_parts)!=2:
+                print("PRIMAGQL_REJECT_PART_COUNT",tid,len(family_parts),len(adult_parts))
+                continue
+            family_total=round(sum(family_parts),2)
+            adult_total=round(sum(adult_parts),2)
+            if abs(family_total-family_price)>.01 or abs(adult_total-adult_price)>.01:
+                print("PRIMAGQL_REJECT_SUM_MISMATCH",tid,family_total,family_price,adult_total,adult_price)
+                continue
+            if family_total>adult_total>0:
+                rec={"tripId":tid,"family_total":family_total,"adults_total":adult_total,
+                     "delta":round(family_total-adult_total,2),
+                     "family_person_totals":family_parts,"adult_person_totals":adult_parts,
+                     "family_price":family_price,"adult_price":adult_price}
                 proofs.append(rec);print("PRIMAGQL_PROOF",json.dumps(rec,ensure_ascii=False))
         print("PRIMAGQL_PARTY_SENSITIVE",len(proofs))
         print("PRIMAGQL_EXACT_PARTY",[18,18,5,7])
