@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "src/validate_eccoholiday_exact.py"
+      - "src/inspect_eccoholiday_schema.py"
       - ".github/workflows/eccoholiday-exact.yml"
 
 permissions:
@@ -29,6 +30,8 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           set +e
+          python src/inspect_eccoholiday_schema.py > ecco-schema.log 2>&1
+          rcs=$?
           python src/validate_eccoholiday_exact.py > ecco.log 2>&1
           rc=$?
           {
@@ -40,8 +43,12 @@ jobs:
             echo
             echo '~~~text'
             grep -E '^ECCO_' ecco.log | tail -n 380 || true
+            echo
+            echo "## JS/search schema"
+            grep -E '^ECCOSCHEMA_' ecco-schema.log | tail -n 420 || true
             echo '~~~'
           } > report.md
           gh issue edit 28 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
+          if [ "$rcs" -ne 0 ]; then exit "$rcs"; fi
           exit "$rc"
