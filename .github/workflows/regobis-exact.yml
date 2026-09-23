@@ -1,0 +1,51 @@
+name: Rego-Bis exact-family diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/validate_regobis_exact.py"
+      - ".github/workflows/regobis-exact.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: regobis-exact-family
+  cancel-in-progress: true
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run Rego-Bis exact-family diagnostic
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          python src/validate_regobis_exact.py > rego.log 2>&1
+          rc=$?
+          {
+            echo "# Rego-Bis exact-family diagnostic"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            grep -E "^REGO_" rego.log | tail -n 360 || true
+            echo '~~~'
+          } > report.md
+          gh issue edit 13 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat report.md
+          exit "$rc"
