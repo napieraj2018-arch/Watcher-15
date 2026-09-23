@@ -23,10 +23,11 @@ jobs:
       - name: Strict exact-family adapter dry run
         env:
           PYTHONUNBUFFERED: "1"
+          PYTHONPATH: src
         run: |
           python - <<'PY'
           import json
-          from src.grecos_watcher import run_grecos_watcher
+          from grecos_watcher import run_grecos_watcher
           cfg = next(x for x in json.load(open('config/watchers.json', encoding='utf-8'))['watchers'] if x.get('provider') == 'grecos_pl')
           run_grecos_watcher(cfg)
           PY
