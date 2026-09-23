@@ -6,6 +6,7 @@ on:
     paths:
       - "src/validate_fly_exact.py"
       - "src/inspect_fly_party_html.py"
+      - "src/inspect_fly_person_js.py"
       - ".github/workflows/fly-exact.yml"
 
 permissions:
@@ -34,6 +35,8 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           set +e
+          python src/inspect_fly_person_js.py > fly-js.log 2>&1
+          js_rc=$?
           python src/validate_fly_exact.py > fly.log 2>&1
           rc=$?
           {
@@ -43,6 +46,12 @@ jobs:
             echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "- exit_code: $rc"
             echo
+            echo "## Child serializer"
+            echo '```text'
+            tail -n 260 fly-js.log
+            echo '```'
+            echo
+            echo "## Exact family UI"
             echo '```text'
             tail -n 420 fly.log
             echo '```'
