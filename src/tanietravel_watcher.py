@@ -152,7 +152,8 @@ def _certified_rows(cfg):
     return out
 
 def _quality_ok(x,cfg):
-    return (x["price"]<=cfg["max_total_price_pln"] and x["stars"]>=cfg["min_stars"]
+    return (x["price"]>=cfg.get("min_total_price_pln",0)
+            and x["price"]<=cfg["max_total_price_pln"] and x["stars"]>=cfg["min_stars"]
             and x["rating"] is not None and x["rating"]>=cfg["min_rating"]
             and x["reviews"] is not None and x["reviews"]>=cfg["min_reviews"])
 
