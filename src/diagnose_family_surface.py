@@ -12,7 +12,7 @@ def main():
     cid=os.environ['CHANNEL_ID']
     data=json.loads(REG.read_text(encoding='utf-8'))
     ch=next(x for x in data['channels'] if x['id']==cid)
-    o=Options(); o.add_argument('--headless=new');o.add_argument('--no-sandbox');o.add_argument('--disable-dev-shm-usage');o.add_argument('--window-size=1440,3200');o.add_argument('--lang=pl-PL')
+    o=Options(); o.add_argument('--headless=new');o.add_argument('--no-sandbox');o.add_argument('--disable-dev-shm-usage');o.add_argument('--window-size=1440,3200');o.add_argument('--lang=pl-PL');o.set_capability('goog:loggingPrefs',{'performance':'ALL'})
     d=webdriver.Chrome(options=o)
     try:
         d.get(ch['url']); WebDriverWait(d,45).until(lambda x:x.execute_script('return document.readyState')=='complete');time.sleep(5)
@@ -60,6 +60,18 @@ def main():
         for line in [x.strip() for x in d.find_element(By.TAG_NAME,'body').text.splitlines() if x.strip()]:
             lo=line.lower()
             if any(k in lo for k in ['doros','dzie','osob','osób','uczest','pasaż','wiek','warszaw','radom','all inclusive','cena','szukaj']): print(line[:800])
+        print('NETWORK_SIGNALS')
+        seen=set()
+        for row in d.get_log('performance'):
+            try:
+                msg=json.loads(row['message'])['message']
+                if msg.get('method')!='Network.requestWillBeSent': continue
+                req=msg['params']['request']; u=req.get('url',''); lo=u.lower()
+                if any(k in lo for k in ['search','offer','booking','reservation','adult','child','person','passenger','room','occup']):
+                    if u not in seen:
+                        print('REQ',req.get('method'),u[:5000],'POST',(req.get('postData') or '')[:3000]);seen.add(u)
+            except: pass
+        print('NETWORK_SIGNAL_COUNT',len(seen))
         d.save_screenshot(f'family-surface-{cid}.png')
     finally:d.quit()
 if __name__=='__main__':main()
