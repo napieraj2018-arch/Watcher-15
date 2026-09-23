@@ -1499,44 +1499,17 @@ def rainbow_stars(body):
 def rainbow_verify_offer(driver,offer,cfg,adult_dobs,child_dobs):
     print("RAINBOW_VERIFY",offer["hotel"],offer["href"])
 
-    # Re-open the exact departure-day result page before entering the hotel.
-    # Rainbow's plain hotel URL may otherwise select a different/default date.
-    search=rainbow_search_url(cfg,offer["departure"],adult_dobs,child_dobs)
-    driver.get(search)
-    WebDriverWait(driver,45).until(
-        lambda d:d.execute_script("return document.readyState")=="complete"
-    )
-    time.sleep(3.5)
-    dismiss_cookies(driver)
-
-    target_path=urlsplit(offer["href"]).path.rstrip("/")
-    clicked=False
-    for a in driver.find_elements(By.TAG_NAME,"a"):
-        try:
-            href=a.get_attribute("href") or ""
-            txt=compact(a.text)
-            if urlsplit(href).path.rstrip("/") != target_path:
-                continue
-            if "SZCZEGÓŁY" not in txt:
-                continue
-            if offer["departure"].strftime("%d.%m.%Y") not in txt:
-                continue
-            driver.execute_script("arguments[0].click();",a)
-            clicked=True
-            break
-        except Exception:
-            pass
-
-    if not clicked:
-        return None,"rainbow_exact_listing_link_not_found",None,None
-
+    # Open the concrete hotel detail first. The older production route is more
+    # reliable than clicking the SPA search tile. We still fail closed unless
+    # the exact requested departure survives on the detail after all four DOBs
+    # are forced into the URL.
+    driver.get(offer["href"])
     WebDriverWait(driver,45).until(
         lambda d:d.execute_script("return document.readyState")=="complete"
     )
     time.sleep(4)
+    dismiss_cookies(driver)
 
-    # The listing click gives Rainbow the concrete offer key/date; now add all
-    # four DOBs explicitly so detail pricing remains exact 2+2.
     family_url=rainbow_force_family_url(driver.current_url,adult_dobs,child_dobs)
     driver.get(family_url)
     WebDriverWait(driver,45).until(
@@ -1558,6 +1531,15 @@ def rainbow_verify_offer(driver,offer,cfg,adult_dobs,child_dobs):
     if "all inclusive" not in low:
         return None,"rainbow_meal_not_confirmed",None,None
 
+    if not offer.get("departure_time"):
+        mt=re.search(
+            re.escape(offer["departure"].strftime("%d.%m.%Y"))+r".{0,700}?([0-2]?\d:[0-5]\d)",
+            compact(body),re.I
+        )
+        if mt:
+            offer["departure_time"]=mt.group(1)
+            print("RAINBOW_DEPARTURE_TIME",offer["hotel"],offer["departure_time"])
+
     total=rainbow_parse_total(body)
     if total is None:
         return None,"rainbow_no_family_total",None,None
@@ -1570,7 +1552,7 @@ def run_rainbow_watcher(cfg):
     local_date=now_local().date()
     adult_dobs=rainbow_adult_dobs(local_date)
     child_dobs=[representative_dob(age,local_date) for age in cfg["children_ages"]]
-    target_days=[local_date+timedelta(days=d) for d in cfg["depart_in_days"]]
+    target_days=configured_departure_dates(cfg)
     driver=chrome()
     try:
         offers=[]
