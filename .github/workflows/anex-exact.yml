@@ -6,6 +6,7 @@ on:
     paths:
       - "src/validate_anex_exact.py"
       - "src/probe_anex_control.py"
+      - "src/probe_anex_direct.py"
       - ".github/workflows/anex-exact.yml"
 
 permissions:
@@ -38,6 +39,8 @@ jobs:
           rc=$?
           python src/probe_anex_control.py > anex-control.log 2>&1
           rc2=$?
+          python src/probe_anex_direct.py > anex-direct.log 2>&1
+          rc3=$?
           {
             echo "# ANEX exact-family diagnostic"
             echo
@@ -50,9 +53,13 @@ jobs:
             echo
             echo "## 2+2 vs 2+0 control"
             grep -E "^ANEXCTRL_" anex-control.log | tail -n 220
+            echo
+            echo "## Direct exact-date/airport control"
+            grep -E "^ANEXDIR_" anex-direct.log | tail -n 260
             echo '~~~'
           } > report.md
           gh issue edit 15 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-          exit "$rc2"
+          if [ "$rc2" -ne 0 ]; then exit "$rc2"; fi
+          exit "$rc3"
