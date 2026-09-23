@@ -91,7 +91,17 @@ def main():
                     payload_text=hit[1]
             except Exception as e:
                 print("ANEXDIR_JSON_ERR",AIRPORTS[town],label,type(e).__name__,str(e)[:180])
-            print("ANEXDIR_DECODED",AIRPORTS[town],label,len(payload_text),"price_info" in payload_text)
+            # Some SAMO responses keep one extra JSON escaping layer inside
+            # the field that contains the HTML. Normalize it before DOM parsing.
+            for _ in range(2):
+                if "\\\"" not in payload_text and "\\/" not in payload_text and "\\n" not in payload_text:
+                    break
+                try:
+                    payload_text=bytes(payload_text,"utf-8").decode("unicode_escape")
+                except Exception:
+                    payload_text=payload_text.replace("\\\"","\"").replace("\\/","/").replace("\\n","\n")
+            payload_text=payload_text.replace("\\/","/")
+            print("ANEXDIR_DECODED",AIRPORTS[town],label,len(payload_text),"price_info" in payload_text,"html_rows",'<tr class="' in payload_text)
             rows=read_rows(payload_text,town,family)
             sets[label]=rows
             print("ANEXDIR_ROWS",AIRPORTS[town],label,len(rows))
