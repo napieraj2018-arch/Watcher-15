@@ -568,14 +568,19 @@ def departure_window_ok(offer, cfg):
             return False, "thursday_before_evening_window"
     return True, "departure_window_verified"
 
-def offer_key(offer):
-    base = "|".join([
+def offer_key(offer, cfg=None):
+    parts = [
         offer["hotel"].lower(),
         offer["departure"].isoformat(),
         offer["return"].isoformat(),
         offer["operator"].lower(),
-    ])
-    return hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
+    ]
+    if cfg:
+        parts.extend([
+            str(cfg.get("search_id") or "default-search"),
+            str(cfg.get("deal_profile") or "default-profile"),
+        ])
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 def github_api(method, endpoint, token, repo, **kwargs):
     url = f"https://api.github.com/repos/{repo}/{endpoint.lstrip('/')}"
@@ -610,7 +615,7 @@ def create_alert(token, repo, cfg, offer, verification):
         print("NO_ALERT_DEPARTURE_WINDOW", offer.get("hotel"), window_reason)
         return False
 
-    key = offer_key(offer)
+    key = offer_key(offer, cfg)
     previous = prior_prices(token, repo, key)
     if previous:
         best = min(previous)
@@ -648,6 +653,8 @@ def create_alert(token, repo, cfg, offer, verification):
 Watcher potwierdził konfigurację **2 dorosłych + 2 dzieci** oraz cenę rodzinną przed alarmem.
 
 <!-- watcher-offer-key:{key} -->
+<!-- watcher-search:{cfg.get('search_id') or 'default-search'} -->
+<!-- watcher-profile:{cfg.get('deal_profile') or 'default-profile'} -->
 <!-- watcher-price:{offer['price']} -->
 """
     payload = {
