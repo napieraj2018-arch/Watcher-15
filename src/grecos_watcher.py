@@ -97,7 +97,9 @@ def _params(cfg):
         "Child2": child2,
         "DurationInterval": f"{cfg['min_nights']}:{cfg['max_nights']}",
         "DateOfDeparture": start.strftime("%Y%m%d"),
-        "DateOfReturn": end.strftime("%Y%m%d"),
+        # Return can be up to max_nights after the last allowed departure.
+        # Departure is validated separately against the exact 1–3 day set.
+        "DateOfReturn": (end + timedelta(days=int(cfg["max_nights"]))).strftime("%Y%m%d"),
         "PriceFrom": "0",
         "PriceTo": str(max(50000, int(cfg["max_total_price_pln"]))),
         "PriceType": "man",
@@ -112,18 +114,26 @@ def _params(cfg):
 
 def _fetch(cfg):
     params, child1, child2, allowed = _params(cfg)
-    response = requests.get(API, params=params, headers=HEADERS, timeout=35)
-    print("GRECOS_LIVE_REQUEST", response.url)
-    print("GRECOS_LIVE_STATUS", response.status_code, response.headers.get("content-type"), len(response.content))
-    response.raise_for_status()
-    data = response.json()
-    if not isinstance(data, list):
-        print("GRECOS_FAIL_CLOSED_NON_LIST", type(data).__name__)
-        return []
-
     offers = []
     seen = set()
-    for row in data:
+    rows = []
+    for page in range(0, 6):
+        page_params = dict(params)
+        page_params["pageFrom"] = str(page)
+        response = requests.get(API, params=page_params, headers=HEADERS, timeout=35)
+        print("GRECOS_LIVE_REQUEST", page, response.url)
+        print("GRECOS_LIVE_STATUS", page, response.status_code, response.headers.get("content-type"), len(response.content))
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, list):
+            print("GRECOS_FAIL_CLOSED_NON_LIST", page, type(data).__name__)
+            return []
+        print("GRECOS_LIVE_PAGE_ROWS", page, len(data))
+        if not data:
+            break
+        rows.extend(data)
+
+    for row in rows:
         if not isinstance(row, dict) or not _exact_party(row, child1, child2):
             continue
         if not row.get("Merlin_Id"):
