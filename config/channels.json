@@ -71,12 +71,13 @@
       "id": "travelplanet_pl",
       "name": "Travelplanet",
       "url": "https://www.travelplanet.pl/wakacje/super-last-minute/",
-      "status": "diagnostic",
+      "status": "production",
       "kind": "aggregator",
       "priority": 6,
       "exact_party": true,
-      "final_total": false,
-      "note": "Native array serialization verified: nl_occupancy_adults=2, nl_occupancy_children=2 and nl_ages_children=[5,7] survive into server data-search_params. The strict 24–26 Sep window currently returned boxesFound=0, so live offer availability and final family total are not yet proven; alerts remain blocked."
+      "final_total": true,
+      "note": "Production proof: canonical query and /search-results/ajax-boxes preserve nl_occupancy_adults=2, nl_occupancy_children=2, nl_ages_children=[5,7]. Live result records bind adult:_2_child:_2, age:_5,7, AAC5C7 offer-token passengers and total_summary/originalTotalPrice to the same offer. Family totals are party-sensitive versus adults-only results. Adapter fails closed unless total_summary > two adult unit prices and performs a second live recheck.",
+      "live_availability": true
     },
     {
       "id": "fly_pl",
