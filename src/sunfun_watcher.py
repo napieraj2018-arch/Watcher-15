@@ -87,6 +87,61 @@ def parse_cards(driver):
         except Exception as e:print('SUNFUN_CARD_ERR',type(e).__name__,str(e)[:160])
     return cards
 
+def enrich_detail(driver, card, dep, ages):
+    href=card.get('href') or ''
+    if not href:return card
+    try:
+        driver.get(href)
+        WebDriverWait(driver,40).until(lambda d:d.execute_script('return document.readyState')=='complete')
+        time.sleep(4)
+        dismiss_cookies(driver)
+        cur=driver.current_url
+        qs=parse_qs(urlparse(cur).query)
+        room=(qs.get('room1') or [''])[0]
+        datev=(qs.get('date') or [''])[0]
+        if not room.startswith(f'2,{ages[0]},{ages[1]}') or datev!=dep.isoformat():
+            print('SUNFUN_DETAIL_REJECT_STATE',card.get('name'),cur)
+            return card
+        body=driver.find_element(By.TAG_NAME,'body').text
+        src=driver.page_source
+        text=compact(body)
+        if card.get('stars') is None:
+            pats=[
+                r'\b([1-5])\s*(?:\*|gwiazdk)',
+                r'(?:standard|kategoria)\s*(?:hotelu)?\s*[:\-]?\s*([1-5])',
+                r'"(?:stars|hotelStars|category)"\s*:\s*"?([1-5])',
+                r'(?:hotel-standard|stars?)[-_\s]*([1-5])',
+            ]
+            for pat in pats:
+                m=re.search(pat,text if '"' not in pat else src,re.I)
+                if m:
+                    card['stars']=int(m.group(1));break
+        if card.get('reviews') is None:
+            vals=[]
+            for pat in [r'([0-9][0-9 ]{0,6})\s+opini',r'"reviewCount"\s*:\s*"?([0-9]+)',r'"ratingCount"\s*:\s*"?([0-9]+)']:
+                for m in re.finditer(pat,src if '"' in pat else text,re.I):
+                    try:vals.append(int(m.group(1).replace(' ','')))
+                    except:pass
+            if vals:card['reviews']=max(vals)
+        if card.get('rating') is None:
+            m=re.search(r'\b([0-9](?:[.,][0-9])?)\s*/\s*10\b',text)
+            if m:card['rating']=float(m.group(1).replace(',','.'))
+            else:
+                p=re.search(r'(\d{2,3})\s*%\s*zadowolen',text,re.I)
+                if p:card['rating']=round(int(p.group(1))/10,1)
+        if not card.get('departure_time'):
+            for pat in [
+                r'(?:Warszawa|WAW)[^\n\r]{0,120}?\b([0-2]?\d:[0-5]\d)\b',
+                r'(?:wylot|odlot|departure)[^\n\r]{0,120}?\b([0-2]?\d:[0-5]\d)\b',
+            ]:
+                m=re.search(pat,body,re.I)
+                if m:
+                    card['departure_time']=m.group(1);break
+        print('SUNFUN_DETAIL_ENRICHED',{'name':card.get('name'),'total':card.get('total'),'stars':card.get('stars'),'rating':card.get('rating'),'reviews':card.get('reviews'),'departure_time':card.get('departure_time'),'url':cur})
+    except Exception as e:
+        print('SUNFUN_DETAIL_ENRICH_ERR',card.get('name'),type(e).__name__,str(e)[:180])
+    return card
+
 def qualifies(x,cfg):
     if x['total']>cfg['max_total_price_pln']:return False
     if cfg['meal_contains'].lower() not in x['meal'].lower():return False
@@ -130,6 +185,9 @@ def run_sunfun_watcher(cfg):
                 verified_family_total=True;print('SUNFUN_FAMILY_TOTAL_VERIFIED',dep,cards[0]['total'],len(cards));print('SUNFUN_CARD_SAMPLE',cards[0]['text'][:1800])
             print('SUNFUN_CARDS',dep,len(cards),[(x['name'],x['total'],x['stars'],x['rating'],x['reviews'],x['meal']) for x in cards[:12]])
             for x in cards:
+                if x['total']<=cfg['max_total_price_pln'] and cfg['meal_contains'].lower() in x['meal'].lower():
+                    if x.get('stars') is None or x.get('reviews') is None or x.get('rating') is None or (dep==min(configured_departure_dates(cfg)) and not x.get('departure_time')):
+                        x=enrich_detail(driver,x,dep,cfg['children_ages'])
                 if qualifies(x,cfg):
                     print('SUNFUN_QUALIFIED', {'date':dep.isoformat(),'name':x['name'],'total':x['total'],'stars':x['stars'],'rating':x['rating'],'reviews':x['reviews'],'href':x['href']})
                     matches.append((dep,url,x))
@@ -144,10 +202,10 @@ def run_sunfun_watcher(cfg):
                 nights=int((qs.get('duration') or ['7'])[0])
             except Exception:
                 nights=7
-            departure_time=None
-            mt=re.search(r'\b([0-2]?\d:[0-5]\d)\b',confirm.get('text') or '')
-            if mt:
-                departure_time=mt.group(1)
+            departure_time=confirm.get('departure_time')
+            if not departure_time:
+                mt=re.search(r'\b([0-2]?\d:[0-5]\d)\b',confirm.get('text') or '')
+                if mt:departure_time=mt.group(1)
             offer={
                 'hotel':confirm['name'],
                 'stars':confirm['stars'],
