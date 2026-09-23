@@ -52,7 +52,7 @@ def read_rows(html,town,family):
         av=[x.get("title") for x in tr.select(".hotel_availability") if x.get("title")]
         flights=[x.get("title") for x in tr.select(".fr_place_r,.fr_place_l") if x.get("title")]
         live=any(x in ("Dostępne","Ostatnie miejsca") for x in av) and any("Miejsca dostępne" in x for x in flights)
-        if not live:continue
+        if family and not live:continue
         key=(checkin,nights,tr.get("data-hotel") or "",tr.get("data-tour") or "",tr.get("data-meal") or "",town)
         out[key]={"key":key,"hotel":hotel,"price":int(raw),"meal":meal,"room":room,"availability":av,"flights":flights,"airport":AIRPORTS[town]}
     return out
