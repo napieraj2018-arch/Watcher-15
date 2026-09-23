@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "src/validate_oasis_exact.py"
+      - "src/inspect_oasis_schema.py"
       - "src/inspect_secondary_js.py"
       - ".github/workflows/oasis-exact.yml"
 
@@ -27,6 +28,11 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Inspect Oasis child schema
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python src/inspect_oasis_schema.py > oasis-schema.log 2>&1 || true
+
       - name: Run Oasis exact family
         shell: bash
         env:
@@ -43,6 +49,14 @@ jobs:
             echo "- commit: $GITHUB_SHA"
             echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "- exit_code: $rc"
+            echo
+            echo "## Schema"
+            echo
+            echo '```text'
+            tail -n 260 oasis-schema.log
+            echo '```'
+            echo
+            echo "## Exact-family UI"
             echo
             echo '```text'
             tail -n 360 oasis.log
