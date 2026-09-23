@@ -3,87 +3,96 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support.ui import Select
 
 URL="https://www.grecos.pl/last-minute"
 def compact(s): return " ".join((s or "").split())
 
-def dump_controls(d,label):
+def dump_visible(d,label):
     print(label)
     for el in d.find_elements(By.XPATH,"//button|//input|//select|//*[@role='button']|//*[@role='option']|//*[@role='combobox']"):
         try:
             if not el.is_displayed():continue
-            txt=compact(el.text)
+            txt=compact(el.text); html=el.get_attribute('outerHTML') or ''
             attrs=' '.join(filter(None,[txt,el.get_attribute('aria-label'),el.get_attribute('name'),el.get_attribute('id'),el.get_attribute('class'),el.get_attribute('value'),el.get_attribute('title')]))
-            if any(k in attrs.lower() for k in ['doros','dzie','wiek','lat','osob','plus','minus','adult','child','5','7']):
-                print('CTRL',repr({'tag':el.tag_name,'text':txt[:250],'name':el.get_attribute('name'),'id':el.get_attribute('id'),'class':el.get_attribute('class'),'value':el.get_attribute('value'),'aria':el.get_attribute('aria-label'),'title':el.get_attribute('title'),'html':el.get_attribute('outerHTML')[:2200]}))
+            if any(k in attrs.lower() for k in ['doros','dzie','wiek','lat','osob','plus','minus','adult','child']) or txt in ['+','−','-']:
+                print('CTRL',repr({'tag':el.tag_name,'text':txt[:250],'name':el.get_attribute('name'),'id':el.get_attribute('id'),'class':el.get_attribute('class'),'value':el.get_attribute('value'),'aria':el.get_attribute('aria-label'),'html':html[:2400]}))
         except:pass
 
-def smallest_visible_with_text(d,needle):
-    xs=d.find_elements(By.XPATH,f"//*[contains(normalize-space(.),'{needle}')]")
-    xs=[x for x in xs if x.is_displayed()]
-    xs.sort(key=lambda x:len(compact(x.text)))
-    return xs
+def passenger_box(d):
+    vals=d.find_elements(By.XPATH,"//span[contains(@class,'input-box__value-text') and contains(normalize-space(.),'Dorośli')]")
+    vals=[v for v in vals if v.is_displayed()]
+    if not vals:return None
+    return vals[0].find_element(By.XPATH,"./ancestor::div[contains(@class,'input-box')][1]")
 
-def click_child_plus(d):
-    # Locate the smallest visible section containing the Dzieci counter and click
-    # the right-most enabled button in that section. Repeat twice for two children.
-    for attempt in range(2):
-        done=False
-        for el in smallest_visible_with_text(d,'Dzieci')[:20]:
-            try:
-                t=compact(el.text)
-                if len(t)>500:continue
-                buttons=el.find_elements(By.XPATH,'.//button|.//*[@role="button"]')
-                buttons=[b for b in buttons if b.is_displayed() and b.is_enabled()]
-                if not buttons:continue
-                print('CHILD_SECTION',attempt,repr({'text':t[:500],'html':el.get_attribute('outerHTML')[:2500],'buttons':[compact(b.text) or b.get_attribute('aria-label') for b in buttons]}))
-                d.execute_script('arguments[0].click()',buttons[-1]);time.sleep(1);done=True;break
-            except Exception as e: print('CHILD_PLUS_ERR',type(e).__name__,str(e)[:150])
-        print('CHILD_PLUS_RESULT',attempt,done)
-        if not done:return False
+def open_passengers(d):
+    box=passenger_box(d)
+    if box is None:return False
+    print('PASSENGER_BOX_BEFORE',box.get_attribute('outerHTML')[:5000])
+    body=box.find_element(By.CSS_SELECTOR,'.input-box__body')
+    d.execute_script('arguments[0].click()',body);time.sleep(1.5)
+    print('PASSENGER_BOX_AFTER',box.get_attribute('outerHTML')[:9000])
     return True
 
-def set_child_ages(d):
-    changed=[]
-    sels=[s for s in d.find_elements(By.TAG_NAME,'select') if s.is_displayed()]
-    for idx,s in enumerate(sels):
-        try:
-            opts=[compact(o.text) for o in s.find_elements(By.TAG_NAME,'option')]
-            if any('5' in x for x in opts) and any('7' in x for x in opts):
-                target='5' if len(changed)==0 else '7'
-                sel=Select(s)
-                option=next((o for o in sel.options if compact(o.text).startswith(target+' ') or compact(o.text)==target or compact(o.text).startswith(target+' lat')),None)
-                if option:
-                    sel.select_by_visible_text(compact(option.text));changed.append(target);time.sleep(.5)
-                    print('AGE_SELECT',idx,target,opts[:30])
-                    if len(changed)>=2:return changed
-        except Exception as e: print('AGE_SELECT_ERR',idx,type(e).__name__,str(e)[:120])
-    # Custom controls: click age/child field then visible '5 lat'/'7 lat' option.
-    for target in ['5','7']:
-        if target in changed:continue
-        age_fields=[]
-        for el in d.find_elements(By.XPATH,"//*[self::button or @role='button' or @role='combobox']"):
+def click_child_plus(d):
+    box=passenger_box(d)
+    if box is None:return False
+    # Popup is expected inside/sibling of this search input. Walk to a modest
+    # ancestor, then choose a section whose own text starts with/contains Dzieci.
+    root=box.find_element(By.XPATH,"./parent::*")
+    for attempt in range(2):
+        candidates=root.find_elements(By.XPATH,".//*[contains(normalize-space(.),'Dzieci')]")
+        candidates=[x for x in candidates if x.is_displayed() and len(compact(x.text))<300]
+        candidates.sort(key=lambda x:len(compact(x.text)))
+        clicked=False
+        for sec in candidates:
             try:
-                if el.is_displayed() and any(k in (compact(el.text)+' '+(el.get_attribute('aria-label') or '')).lower() for k in ['wiek','lat','dziecko']):age_fields.append(el)
-            except:pass
-        for field in age_fields:
-            try:
-                d.execute_script('arguments[0].click()',field);time.sleep(.5)
-                options=d.find_elements(By.XPATH,f"//*[(@role='option' or self::li or self::button or self::div) and (normalize-space(.)='{target}' or contains(normalize-space(.),'{target} lat'))]")
-                options=[o for o in options if o.is_displayed() and len(compact(o.text))<40]
-                if options:
-                    d.execute_script('arguments[0].click()',options[0]);changed.append(target);print('AGE_CUSTOM',target,compact(options[0].text));time.sleep(.5);break
-            except:pass
-    return changed
+                txt=compact(sec.text)
+                buttons=sec.find_elements(By.XPATH,'.//button|.//*[@role="button"]')
+                buttons=[b for b in buttons if b.is_displayed() and b.is_enabled()]
+                plus=[b for b in buttons if compact(b.text) in ['+','＋'] or 'plus' in ((b.get_attribute('class') or '')+' '+(b.get_attribute('aria-label') or '')).lower()]
+                if not plus and len(buttons)>=2: plus=[buttons[-1]]
+                if not plus:continue
+                # Never click the main search submit.
+                b=plus[-1]
+                if 'search__submit' in (b.get_attribute('class') or ''):continue
+                print('CHILD_PLUS',attempt,repr({'section':txt,'button':compact(b.text),'html':b.get_attribute('outerHTML')[:1200]}))
+                d.execute_script('arguments[0].click()',b);time.sleep(1);clicked=True;break
+            except Exception as e:print('CHILD_PLUS_ERR',type(e).__name__,str(e)[:150])
+        print('CHILD_PLUS_RESULT',attempt,clicked)
+        if not clicked:return False
+    return True
 
-def click_apply_search(d):
-    for txt in ['Zastosuj','Gotowe','Zatwierdź','Wybierz','Szukaj','Pokaż oferty']:
-        for el in d.find_elements(By.XPATH,f"//*[self::button or @role='button'][contains(normalize-space(.),'{txt}')]"):
+def choose_age(d,target,which):
+    box=passenger_box(d);root=box.find_element(By.XPATH,"./parent::*")
+    # After adding children, Grecos renders per-child age selectors. Click the
+    # nth selector with Wiek/lat/dziecko semantic, then the exact age option.
+    fields=[]
+    for el in root.find_elements(By.XPATH,".//*[self::button or @role='button' or @role='combobox' or contains(@class,'select')]"):
+        try:
+            if not el.is_displayed():continue
+            s=(compact(el.text)+' '+(el.get_attribute('class') or '')+' '+(el.get_attribute('aria-label') or '')).lower()
+            if any(k in s for k in ['wiek','lat','age','dziecko']):fields.append(el)
+        except:pass
+    print('AGE_FIELDS',[(compact(x.text),x.get_attribute('class')) for x in fields[:20]])
+    if which>=len(fields):return False
+    try:d.execute_script('arguments[0].click()',fields[which]);time.sleep(.7)
+    except:return False
+    opts=d.find_elements(By.XPATH,f"//*[(@role='option' or self::li or self::button or self::div or self::span) and (normalize-space(.)='{target}' or normalize-space(.)='{target} lat' or contains(normalize-space(.),'{target} lat'))]")
+    opts=[o for o in opts if o.is_displayed() and len(compact(o.text))<35]
+    print('AGE_OPTIONS',target,[(o.tag_name,compact(o.text),o.get_attribute('class')) for o in opts[:20]])
+    if not opts:return False
+    d.execute_script('arguments[0].click()',opts[0]);time.sleep(.7);return True
+
+def apply_search(d):
+    # Close/apply popup first if it has a local action, then hit main search.
+    for txt in ['Zastosuj','Gotowe','Zatwierdź','Wybierz']:
+        es=d.find_elements(By.XPATH,f"//*[self::button or @role='button'][contains(normalize-space(.),'{txt}')]")
+        for el in es:
             try:
-                if el.is_displayed() and el.is_enabled():
-                    print('APPLY_CLICK',txt,compact(el.text));d.execute_script('arguments[0].click()',el);time.sleep(2);return True
+                if el.is_displayed() and el.is_enabled():print('LOCAL_APPLY',txt);d.execute_script('arguments[0].click()',el);time.sleep(1);break
             except:pass
+    es=d.find_elements(By.CSS_SELECTOR,'button.search__submit')
+    if es and es[0].is_displayed():d.execute_script('arguments[0].click()',es[0]);time.sleep(4);return True
     return False
 
 def dump_api(d):
@@ -92,7 +101,7 @@ def dump_api(d):
         try:
             m=json.loads(row['message'])['message']
             if m.get('method')!='Network.responseReceived':continue
-            r=m['params']['response'];u=r.get('url','')
+            u=m['params']['response'].get('url','')
             if ('OffersList/LoadMoreOffers' in u or '/api/' in u) and u not in seen:
                 seen.add(u)
                 if 'OffersList/LoadMoreOffers' in u:found.append(u);print('OFFERS_API',u)
@@ -111,23 +120,13 @@ def main():
                 es=d.find_elements(By.XPATH,f"//button[contains(normalize-space(.),'{t}')]")
                 if es and es[0].is_displayed():d.execute_script('arguments[0].click()',es[0]);time.sleep(.5);break
             except:pass
-        print('START_URL',d.current_url)
-        matches=d.find_elements(By.XPATH,"//*[contains(normalize-space(.),'Dorośli 2') and contains(normalize-space(.),'Dzieci 0')]")
-        visible=[x for x in matches if x.is_displayed()];visible.sort(key=lambda x:len(compact(x.text)))
-        print('PARTY_SUMMARY_MATCHES',[(x.tag_name,x.get_attribute('class'),compact(x.text)[:300]) for x in visible[:15]])
-        opened=False
-        for el in visible:
-            try:d.execute_script('arguments[0].click()',el);time.sleep(1);opened=True;break
-            except Exception as e:print('OPEN_ERR',type(e).__name__,str(e)[:120])
-        print('PARTY_OPENED',opened);dump_controls(d,'PARTY_UI_BEFORE')
-        plus_ok=click_child_plus(d);print('CHILD_COUNT_CHANGED',plus_ok);dump_controls(d,'PARTY_UI_AFTER_PLUS')
-        ages=set_child_ages(d);print('AGES_CHANGED',ages);dump_controls(d,'PARTY_UI_AFTER_AGES')
-        print('APPLIED',click_apply_search(d));time.sleep(3)
-        print('FINAL_URL',d.current_url)
+        print('START_URL',d.current_url);print('PARTY_OPENED',open_passengers(d));dump_visible(d,'PARTY_UI_BEFORE')
+        plus_ok=click_child_plus(d);print('CHILD_COUNT_CHANGED',plus_ok);dump_visible(d,'PARTY_UI_AFTER_PLUS')
+        age5=choose_age(d,'5',0);age7=choose_age(d,'7',1);print('AGES_CHANGED',{'5':age5,'7':age7});dump_visible(d,'PARTY_UI_AFTER_AGES')
+        print('APPLIED',apply_search(d));print('FINAL_URL',d.current_url)
         body=compact(d.find_element(By.TAG_NAME,'body').text)
-        for needle in ['Dorośli','Dzieci','5 lat','7 lat']:
-            if needle.lower() in body.lower():print('BODY_SIGNAL',needle)
-        apis=dump_api(d);print('OFFERS_API_COUNT',len(apis))
-        d.save_screenshot('grecos-family.png')
+        for needle in ['Dorośli 2','Dzieci 2','5 lat','7 lat']:
+            print('BODY_SIGNAL',needle,needle.lower() in body.lower())
+        apis=dump_api(d);print('OFFERS_API_COUNT',len(apis));d.save_screenshot('grecos-family.png')
     finally:d.quit()
 if __name__=='__main__':main()
