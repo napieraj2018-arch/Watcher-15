@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "src/validate_prima_exact.py"
+      - "src/probe_prima_graphql.py"
       - ".github/workflows/prima-exact.yml"
 
 permissions:
@@ -35,6 +36,8 @@ jobs:
           set +e
           python src/validate_prima_exact.py > prima.log 2>&1
           rc=$?
+          python src/probe_prima_graphql.py > prima-gql.log 2>&1
+          rc2=$?
           {
             echo "# Prima Holiday exact-family diagnostic"
             echo
@@ -44,8 +47,12 @@ jobs:
             echo
             echo '~~~text'
             grep -E "^PRIMA_" prima.log | tail -n 360 || true
+            echo
+            echo "## Bluevendo GraphQL exact-party control"
+            grep -E "^PRIMAGQL_" prima-gql.log | tail -n 320 || true
             echo '~~~'
           } > report.md
           gh issue edit 19 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
-          exit "$rc"
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          exit "$rc2"
