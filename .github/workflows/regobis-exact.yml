@@ -6,6 +6,7 @@ on:
     paths:
       - "src/validate_regobis_exact.py"
       - "src/inspect_regobis_js.py"
+      - "src/probe_regobis_assets.py"
       - ".github/workflows/regobis-exact.yml"
 
 permissions:
@@ -34,6 +35,8 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           set +e
+          python src/probe_regobis_assets.py > rego-deep.log 2>&1
+          rcdeep=$?
           python src/inspect_regobis_js.py > rego-js.log 2>&1
           rcjs=$?
           python src/validate_regobis_exact.py > rego.log 2>&1
@@ -48,11 +51,15 @@ jobs:
             echo '~~~text'
             grep -E "^REGO_" rego.log | tail -n 360 || true
             echo
+            echo "## Focused bundle schema"
+            grep -E "^REGODEEP_(FILE|URL|SNIP)" rego-deep.log | tail -n 320 || true
+            echo
             echo "## JS schema"
-            grep -E "^REGOJS_" rego-js.log | tail -n 260 || true
+            grep -E "^REGOJS_" rego-js.log | tail -n 160 || true
             echo '~~~'
           } > report.md
           gh issue edit 13 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          if [ "$rcdeep" -ne 0 ]; then exit "$rcdeep"; fi
           exit "$rcjs"
