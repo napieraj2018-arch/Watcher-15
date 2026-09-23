@@ -7,7 +7,9 @@ from watcher import chrome,dismiss_cookies,itaka_parse_total,page_stars,represen
 TARGETS=[
 ("Oasis Atlantico Salinas Sea","https://www.itaka.pl/wczasy/wyspy-zielonego-przyladka/sal/hotel-oasis-atlantico-salinas-sea,SIDOASS/?adults%5B0%5D=2&id%5B0%5D=CgVJdGFrYRIEVklUWBoDUExOIgdTSURPQVNTKAQ6BEwyNjBCBgiA89bVBkoGCIDo%2B9UGUAJiBQoDV0FXagUKA1NJRHIDCgExegUKA1NJRIIBBQoDV0FXigEDCgExkgEGCIDz1tUGmgEGCIDo%2B9UGogEFCgNER1aqAQMKAUHiAQkKB1Jlc2FiZWXqAQkKB1Jlc2FiZWXyAQkKB1Jlc2FiZWU%3D"),
 ("Royal Horizon Ponta Sino","https://www.itaka.pl/wczasy/wyspy-zielonego-przyladka/sal/hotel-royal-horizon-ponta-sino,SIDROYA/?adults%5B0%5D=2&airports=WAW%2CWMI%2CKTW%2CWRO%2CPOZ%2CGDN%2CKRK%2CRZE%2CRDO%2CBZG%2CLCJ%2CSZZ%2CIEG&id%5B0%5D=CgVJdGFrYRIEVklUWBoDUExOIgdTSURST1lBKAQ6BEwyNTBCBgiA8pzVBkoGCID%2BsdUGUAJiBQoDV0FXagUKA1NJRHIDCgEyegUKA1NJRIIBBQoDV0FXigEDCgExkgEGCIDynNUGmgEGCID%2BsdUGogEFCgNETFiqAQMKAUHiAQkKB1Jlc2FiZWXqAQkKB1Jlc2FiZWXyAQkKB1Jlc2FiZWU%3D"),
-("Oasis Atlantico Belorizonte","https://www.itaka.pl/wczasy/wyspy-zielonego-przyladka/sal/hotel-oasis-atlantico-belorizonte,SIDOASB/?adults%5B0%5D=2&airports=WAW&id%5B0%5D=CgVJdGFrYRIEVklUWBoDUExOIgdTSURPQVNCKAQ6BE4yNTlCBgiA%2FrHVBkoGCIDz1tUGUAJiBQoDV0FXagUKA1NJRHIDCgExegUKA1NJRIIBBQoDV0FXigEDCgExkgEGCID%2BsdUGmgEGCIDz1tUGogEFCgNCVTKqAQMKAUHiAQkKB1Jlc2FiZWXqAQkKB1Jlc2FiZWXyAQkKB1Jlc2FiZWU%3D")
+("Oasis Atlantico Belorizonte","https://www.itaka.pl/wczasy/wyspy-zielonego-przyladka/sal/hotel-oasis-atlantico-belorizonte,SIDOASB/?adults%5B0%5D=2&airports=WAW&id%5B0%5D=CgVJdGFrYRIEVklUWBoDUExOIgdTSURPQVNCKAQ6BE4yNTlCBgiA%2FrHVBkoGCIDz1tUGUAJiBQoDV0FXagUKA1NJRHIDCgExegUKA1NJRIIBBQoDV0FXigEDCgExkgEGCID%2BsdUGmgEGCIDz1tUGogEFCgNCVTKqAQMKAUHiAQkKB1Jlc2FiZWXqAQkKB1Jlc2FiZWXyAQkKB1Jlc2FiZWU%3D"),
+("Giakalis Aqua Park Resort","https://www.itaka.pl/wczasy/grecja/kos/giakalis-aqua-park-resort,KGSAQUA/?adults%5B0%5D=2&id%5B0%5D=CgVJdGFrYRIEVklUWBoDUExOIgdLR1NBUVVBKAQ6BEwyNjZCBgiA%2F%2BvVBkoGCID0kNYGUAJiBQoDS1RXagUKA0tHU3IDCgEyegUKA0tHU4IBBQoDS1RXigEDCgEykgEGCID%2F69UGmgEGCID0kNYGogEFCgNEQkyqAQMKAUHiAQkKB1Jlc2FiZWXqAQkKB1Jlc2FiZWXyAQkKB1Jlc2FiZWU%3D"),
+("Hotel Atlantis","https://www.itaka.pl/wczasy/grecja/kos/hotel-atlantis,KGSATLA/?adults%5B0%5D=2&id%5B0%5D=CgVJdGFrYRIEVklUWBoDUExOIgdLR1NBVExBKAQ6BEwyNjRCBgiAltzVBkoGCICLgdYGUAJiBQoDV0FXagUKA0tHU3IDCgExegUKA0tHU4IBBQoDS1RXigEDCgExkgEGCICW3NUGmgEGCICLgdYGogEFCgNGQTKqAQMKAUHiAQkKB1Jlc2FiZWXqAQkKB1Jlc2FiZWXyAQkKB1Jlc2FiZWU%3D")
 ]
 def family_url(url):
     parts=urlsplit(url)
@@ -28,7 +30,22 @@ def main():
         body=d.find_element(By.TAG_NAME,"body").text
         source=d.page_source
         print("ITAKATGT_URL",name,cur)
-        print("ITAKATGT_CHILDREN_OK",name,all(dob.strftime("%d.%m.%Y") in cur or dob.strftime("%d.%m.%Y").replace(".","%2E").lower() in cur.lower() for dob in dobs))
+        from urllib.parse import parse_qs
+        vals=(parse_qs(urlsplit(cur).query).get("children[0]") or [])
+        child_ok=False
+        if vals:
+            ages=[]
+            for rawdob in vals[0].split(","):
+                try:
+                    db=datetime.strptime(rawdob,"%d.%m.%Y").date()
+                    dep=datetime(2026,9,25).date() if "25.09" in body or "2026-09-25" in source else datetime(2026,9,26).date()
+                    age=dep.year-db.year-((dep.month,dep.day)<(db.month,db.day))
+                    ages.append(age)
+                except Exception:
+                    ages=[]
+                    break
+            child_ok=sorted(ages)==[5,7]
+        print("ITAKATGT_CHILDREN_OK",name,child_ok,vals)
         total=itaka_parse_total(body)
         print("ITAKATGT_TOTAL",name,total)
         for line in [x.strip() for x in body.splitlines() if x.strip()]:
