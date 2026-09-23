@@ -12,75 +12,106 @@ HEADERS={
     "Referer":"https://www.grecos.pl/last-minute",
 }
 
-def snippets(text,pattern,radius=220,limit=30):
-    out=[]
-    for m in re.finditer(pattern,text,re.I):
-        a=max(0,m.start()-radius); b=min(len(text),m.end()+radius)
-        s=re.sub(r"\\s+"," ",text[a:b])
-        if s not in out: out.append(s)
-        if len(out)>=limit: break
-    return out
+def num(v):
+    s=re.sub(r"\D","",str(v or ""))
+    return int(s) if s else None
+
+def fetch(params,label):
+    r=requests.get(URL,params=params,headers=HEADERS,timeout=35)
+    print(label+"_STATUS",r.status_code)
+    print(label+"_URL",r.url)
+    print(label+"_LEN",len(r.content))
+    r.raise_for_status()
+    data=r.json()
+    print(label+"_JSON_TYPE",type(data).__name__,"COUNT",len(data) if isinstance(data,list) else None)
+    return data
+
+def key(x):
+    return (
+        x.get("Merlin_HotelCode"),
+        x.get("Merlin_ParsedStartDate"),
+        x.get("Merlin_Duration"),
+        x.get("Merlin_BoardStandardDesc"),
+        x.get("Merlin_FlightFrom"),
+    )
 
 def main():
     today=datetime.now(TZ).date()
     dep_from=today+timedelta(days=1)
-    # latest allowed return: latest departure (today+3) + 8 nights
     ret_to=today+timedelta(days=11)
-    # Fixed birthdays safely preserve ages 5 and 7 throughout the current travel window.
     child1=f"{today.year-5}0101"
     child2=f"{today.year-7}0101"
-    params={
-        "Adults":"2","Children":"2",
+    common={
         "DurationInterval":"5:8",
-        "Child1":child1,"Child2":child2,
         "DateOfDeparture":dep_from.strftime("%Y%m%d"),
         "DateOfReturn":ret_to.strftime("%Y%m%d"),
         "PriceFrom":"0","PriceTo":"50000",
         "PriceType":"man","OfferType":"L,S","ObjectType":"H,R,AP",
         "pageFrom":"0","setFilters":"true",
     }
-    r=requests.get(URL,params=params,headers=HEADERS,timeout=35)
-    print("GRECOS_STATUS",r.status_code)
-    print("GRECOS_URL",r.url)
-    print("GRECOS_CONTENT_TYPE",r.headers.get("content-type"))
-    print("GRECOS_LEN",len(r.content))
+    family=common|{
+        "Adults":"2","Children":"2","Child1":child1,"Child2":child2,
+    }
+    adults=common|{"Adults":"2","Children":"0"}
+
+    fam=fetch(family,"GRECOS_FAMILY")
     print("GRECOS_EXACT_PARTY",{"Adults":2,"Children":2,"ages":[5,7],"Child1":child1,"Child2":child2})
-    text=r.text
-    try:
-        data=r.json()
-        print("GRECOS_JSON_TYPE",type(data).__name__)
-        if isinstance(data,dict):
-            print("GRECOS_JSON_KEYS",list(data)[:80])
-            for k,v in data.items():
-                if isinstance(v,(str,int,float,bool)) or v is None:
-                    print("GRECOS_TOP",k,repr(v)[:600])
-                elif isinstance(v,list):
-                    print("GRECOS_TOP_LIST",k,len(v))
-                elif isinstance(v,dict):
-                    print("GRECOS_TOP_DICT",k,list(v)[:40])
-        text=json.dumps(data,ensure_ascii=False)
-    except Exception as e:
-        print("GRECOS_JSON_ERROR",type(e).__name__,str(e)[:200])
+    ad=fetch(adults,"GRECOS_ADULTS_ONLY")
 
-    for pat,label in [
-        (r"total.{0,40}price|price.{0,40}total","TOTAL_PRICE"),
-        (r"cena.{0,40}(?:całkow|razem|łącz)|(?:całkow|razem|łącz).{0,40}cena","TOTAL_LABEL"),
-        (r"price","PRICE"),
-        (r"Child1|Child2|Children|Adults","PARTY"),
-        (r"available|availability|dostępn","AVAIL"),
-        (r"all.?inclusive","AI"),
-        (r"rating|ocen|opini","QUALITY"),
-    ]:
-        ss=snippets(text,pat)
-        print("GRECOS_SNIPPETS",label,len(ss))
-        for s in ss[:12]: print(label,s[:1800])
+    fam_rows=[x for x in fam if isinstance(x,dict)] if isinstance(fam,list) else []
+    ad_rows=[x for x in ad if isinstance(x,dict)] if isinstance(ad,list) else []
+    amap={key(x):x for x in ad_rows if x.get("Merlin_HotelCode")}
+    matches=[]
+    for x in fam_rows:
+        k=key(x); y=amap.get(k)
+        if not y: continue
+        fp=num(x.get("Merlin_FullPriceParsed")); ap=num(y.get("Merlin_FullPriceParsed"))
+        if fp is None or ap is None: continue
+        rec={
+            "key":k,
+            "family_full":fp,
+            "adults_full":ap,
+            "family_adult_unit":num(x.get("Merlin_AdultPrice")),
+            "family_query":x.get("Query_AdultsChildenQueryString"),
+            "adult_query":y.get("Query_AdultsChildenQueryString"),
+            "board":x.get("Merlin_BoardStandardDesc"),
+            "stars":x.get("Hotel_Standard_Stars_Css"),
+            "hotel_url":x.get("Hotel_Url") or x.get("Hotel_Link") or x.get("Hotel_FriendlyUrl"),
+        }
+        matches.append(rec)
 
-    # Explicitly reject any attempt to call a bare per-person value a family total.
-    nums=[]
-    for m in re.finditer(r'(?:totalPrice|total_price|priceTotal|Cena\\s*(?:całkowita|razem|łącznie))[^0-9]{0,80}([0-9][0-9 .]{2,})',text,re.I):
-        raw=m.group(1); val=re.sub(r"\\D","",raw)
-        if val: nums.append(int(val))
-    print("GRECOS_EXPLICIT_TOTAL_CANDIDATES",nums[:50])
+    print("GRECOS_SAME_OFFER_COMPARISONS",len(matches))
+    changed=[x for x in matches if x["family_full"]!=x["adults_full"]]
+    for x in matches[:20]:
+        print("GRECOS_COMPARE",repr(x))
+    print("GRECOS_PARTY_SENSITIVE_FULL_PRICE_COUNT",len(changed))
+    if changed:
+        print("GRECOS_PARTY_SENSITIVE_PROOF",repr(changed[0]))
+
+    exact_rows=[]
+    expected=f"&Adults=2&Children=2&Child1={child1}&Child2={child2}"
+    for x in fam_rows:
+        q=x.get("Query_AdultsChildenQueryString") or ""
+        full=num(x.get("Merlin_FullPriceParsed"))
+        if expected==q and full:
+            exact_rows.append(x)
+    print("GRECOS_EXACT_LIVE_ROWS_WITH_FULL_PRICE",len(exact_rows))
+    for x in exact_rows[:15]:
+        print("GRECOS_LIVE_FULL",repr({
+            "hotel":x.get("Hotel_Name") or x.get("Merlin_HotelName") or x.get("Merlin_HotelCode"),
+            "start":x.get("Merlin_ParsedStartDate"),
+            "duration":x.get("Merlin_Duration"),
+            "flight_from":x.get("Merlin_FlightFrom"),
+            "board":x.get("Merlin_BoardStandardDesc"),
+            "adult_unit":x.get("Merlin_AdultPrice"),
+            "family_full":x.get("Merlin_FullPriceParsed"),
+            "stars":x.get("Hotel_Standard_Stars_Css"),
+            "query":x.get("Query_AdultsChildenQueryString"),
+        }))
+
+    verified=bool(exact_rows) and bool(changed)
+    print("GRECOS_FULL_PRICE_IS_PARTY_SENSITIVE",bool(changed))
+    print("GRECOS_EXACT_FAMILY_TOTAL_VERIFIED",verified)
 
 if __name__=="__main__":
     main()
