@@ -8,6 +8,7 @@ on:
       - "src/probe_anex_control.py"
       - "src/probe_anex_direct.py"
       - "src/probe_anex_session_compare.py"
+      - "src/probe_anex_network_control.py"
       - ".github/workflows/anex-exact.yml"
 
 permissions:
@@ -42,6 +43,8 @@ jobs:
           rc2=$?
           python src/probe_anex_direct.py > anex-direct.log 2>&1
           rc3=$?
+          python src/probe_anex_network_control.py > anex-network.log 2>&1
+          rc4=$?
           {
             echo "# ANEX exact-family diagnostic"
             echo
@@ -63,4 +66,5 @@ jobs:
           cat report.md
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           if [ "$rc2" -ne 0 ]; then exit "$rc2"; fi
-          exit "$rc3"
+          if [ "$rc3" -ne 0 ]; then exit "$rc3"; fi
+          exit "$rc4"
