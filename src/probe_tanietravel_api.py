@@ -86,7 +86,7 @@ def main():
     # First inspect the site's JS to determine canonical childAges serialization.
     try:
         js=requests.get(BASE+"js/search-panel.js?v=20260902-1",headers={"User-Agent":H["User-Agent"],"Referer":BASE},timeout=25).text
-        for term in ["childAges","children","age"]:
+        for term in ["childAges","children","age","optAllInclusive","meal","optHotels4Plus","stars"]:
             lo=js.lower();p=0;n=0
             while n<5:
                 i=lo.find(term.lower(),p)
