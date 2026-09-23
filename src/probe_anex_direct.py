@@ -16,7 +16,7 @@ def params(town,family):
       "LANG":"pol","samo_action":"PRICES","TOWNFROMINC":town,
       "STATEINC":"10","TOURTYPE":"0","TOURINC":"0","PROGRAMINC":"0",
       "CHECKIN_BEG":(today+timedelta(days=1)).strftime("%Y%m%d"),
-      "CHECKIN_END":(today+timedelta(days=3)).strftime("%Y%m%d"),
+      "CHECKIN_END":(today+timedelta(days=60)).strftime("%Y%m%d"),
       "NIGHTS_FROM":"4","NIGHTS_TILL":"9","ADULT":"2","CURRENCY":"4",
       "CHILD":"2" if family else "0","TOWNS_ANY":"1","townssearch":"0","TOWNS":"",
       "STARS_ANY":"1","STARS":"","HOTELS_ANY":"1","hotelsearch":"0","HOTELS":"",
