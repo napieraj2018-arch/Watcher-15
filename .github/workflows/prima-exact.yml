@@ -15,7 +15,7 @@ permissions:
 
 concurrency:
   group: prima-exact-family
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   diagnostic:
