@@ -2,19 +2,27 @@
 
 Stały system monitoringu uruchamiany automatycznie przez GitHub Actions co 15 minut.
 
-## Aktywny watcher — wakacje last minute 2+2
+## Aktywne wyszukiwanie — 24–26.09.2026, exact 2+2
 
-- 2 dorosłych + dzieci w wieku 5 i 7 lat
-- maksymalnie **7000 zł łącznie**
-- All Inclusive / Ultra All Inclusive
-- wylot w ciągu **1–3 dni**
-- **5–8 nocy**
-- priorytet **Warszawa-Radom**, następnie Warszawa / Modlin
-- hotel minimum **4★**
-- ocena minimum **8.0/10** i co najmniej **30 opinii**
-- cena musi być policzona dla dokładnie **2+2**
-- przed alarmem wykonywana jest druga kontrola strony oferty i ceny rodzinnej
-- powtórny alert tej samej oferty dopiero po spadku ceny o co najmniej 250 zł
+Bieżące wyszukiwanie jest przypięte do konkretnych dat, żeby harmonogram nie przesuwał się automatycznie wraz z upływem czasu:
+
+- **rodzina:** 2 dorosłych + dzieci dokładnie 5 i 7 lat,
+- **wylot:** czwartek **24.09.2026 wyłącznie od 17:00**, cały piątek **25.09.2026** albo sobota **26.09.2026**,
+- **pobyt:** 5–8 nocy,
+- **wyżywienie:** All Inclusive / Ultra All Inclusive,
+- **lotniska:** priorytet Warszawa-Radom, następnie Warszawa i Modlin,
+- **cena:** wyłącznie końcowy total za dokładne 2+2; cena /os. ani 2+0 nigdy nie kwalifikuje oferty,
+- **dostępność:** żywa oferta i recheck przed alarmem,
+- **link:** alarm ma prowadzić do zweryfikowanej oferty albo do dokładnie odtworzonego wyszukiwania 2+2, jeżeli serwis nie daje stabilnego URL pojedynczej karty.
+
+System ma dwa rozłączne profile cenowo-jakościowe:
+
+1. **OKAZJA ≤7K** — do 7000 zł za rodzinę, hotel 4★+, ocena ≥8.0/10 i ≥30 opinii.
+2. **SUPER ≤11K** — 7001–11000 zł za rodzinę, hotel 4★+, ocena ≥8.5/10 i ≥100 opinii.
+
+Każdy kanał pobiera źródło tylko raz. Dopiero po pełnej weryfikacji oferta jest przypisywana do właściwego profilu. Czwartkowa oferta bez potwierdzonej godziny wylotu jest odrzucana fail-closed. Powtórny alert tej samej oferty i profilu powstaje dopiero po spadku ceny o co najmniej 250 zł.
+
+**Stan produkcyjny:** 11 niezależnych kanałów — Wakacje.pl, TUI Poland, ITAKA, Rainbow, Travelplanet, EXIM tours, Grecos, Sun & Fun, Oasis Tours, Prima Holiday i TanieTravel. Rozbudowa do 15 trwa dalej.
 
 ## Alarmy
 
