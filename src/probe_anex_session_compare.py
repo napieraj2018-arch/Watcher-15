@@ -125,8 +125,7 @@ def rows(raw,family):
         key=(
           tr.get("data-checkin") or "",tr.get("data-nights") or "",
           tr.get("data-hotel") or "",tr.get("data-tour") or "",
-          tr.get("data-room") or "",tr.get("data-meal") or "",
-          tr.get("data-townfrom") or ""
+          tr.get("data-meal") or "",tr.get("data-townfrom") or ""
         )
         av=[x.get("title") for x in tr.select(".hotel_availability") if x.get("title")]
         flights=[x.get("title") for x in tr.select(".fr_place_r,.fr_place_l") if x.get("title")]
@@ -153,7 +152,7 @@ def main():
                 rr=rows(res.get("text") or "",fam)
                 print("ANEXSESS_ROWS",label,len(rr))
                 sets[label]=rr
-            key=(c["checkin"],str(c["nights"]),c["hotel"],c["tour"],c["room"],c["meal"],c["town"])
+            key=(c["checkin"],str(c["nights"]),c["hotel"],c["tour"],c["meal"],c["town"])
             f=sets["FAMILY"].get(key);a=sets["ADULTS"].get(key)
             if not f or not a:continue
             live=any(x in ("Dostępne","Ostatnie miejsca") for x in f["availability"]) and any("Miejsca dostępne" in x for x in f["flights"])
