@@ -17,7 +17,7 @@ def make_url(family):
     q=[
       ("ADULT","2"),("CHILD","2" if family else "0"),("LANG","pol"),
       ("CHECKIN_BEG",(today+timedelta(days=1)).strftime("%Y%m%d")),
-      ("CHECKIN_END",(today+timedelta(days=3)).strftime("%Y%m%d")),
+      ("CHECKIN_END",(today+timedelta(days=60)).strftime("%Y%m%d")),
       ("NIGHTS_FROM","5"),("NIGHTS_TILL","8")
     ]
     if family:q += [("AGE1","5"),("AGE2","7")]
@@ -38,7 +38,7 @@ def row_key(tr):
     # delta could come from a different room rather than from adding children.
     return (
       attrs("data-checkin"),attrs("data-nights"),attrs("data-hotel"),
-      attrs("data-tour"),attrs("data-room"),attrs("data-meal"),attrs("data-townfrom")
+      attrs("data-tour"),attrs("data-meal"),attrs("data-townfrom")
     )
 
 def read_rows(d,label,family):
@@ -68,12 +68,15 @@ def read_rows(d,label,family):
                 t=compact(td.text)
                 if "All Inclusive" in t:meal=t;break
             avail=[x.get_attribute("title") for x in tr.find_elements(By.CSS_SELECTOR,".hotel_availability") if x.get_attribute("title")]
+            flights=[x.get_attribute("title") for x in tr.find_elements(By.CSS_SELECTOR,".fr_place_r,.fr_place_l") if x.get_attribute("title")]
+            live=any(x in ("Dostępne","Ostatnie miejsca") for x in avail) and any("Miejsca dostępne" in x for x in flights)
+            if family and not live: continue
             room=""
             for td in cells:
                 t=compact(td.text)
                 if "2+2" in t or (not family and ("Room" in t or "Pok" in t)):
                     room=t;break
-            rec={"key":row_key(tr),"hotel":hotel,"price":price,"meal":meal,"availability":avail,"room_text":room[:400]}
+            rec={"key":row_key(tr),"hotel":hotel,"price":price,"meal":meal,"availability":avail,"flights":flights,"live":live,"room_text":room[:400]}
             rows[rec["key"]]=rec
         except: pass
     print("ANEXCTRL_ROWS",label,len(rows))
@@ -97,7 +100,7 @@ def main():
         for k in common:
             f,a=fam[k],adults[k]
             if f["price"]!=a["price"]:
-                proofs.append({"key":k,"hotel":f["hotel"],"family_total":f["price"],"adults_total":a["price"],"delta":f["price"]-a["price"],"availability":f["availability"],"meal":f["meal"],"room":f["room_text"]})
+                proofs.append({"key":k,"hotel":f["hotel"],"family_total":f["price"],"adults_total":a["price"],"delta":f["price"]-a["price"],"availability":f["availability"],"flights":f["flights"],"live":f["live"],"meal":f["meal"],"room":f["room_text"]})
         print("ANEXCTRL_COMMON",len(common))
         print("ANEXCTRL_PARTY_SENSITIVE",len(proofs))
         for p in sorted(proofs,key=lambda x:x["family_total"])[:15]:
