@@ -43,8 +43,19 @@ def dump_people(d,label):
                 }))
         except: pass
 
+def visible_people_root(d):
+    roots=d.find_elements(By.CSS_SELECTOR,"[data-module='dropdown'][data-drop='person']")
+    for el in roots:
+        try:
+            if el.is_displayed():
+                return el
+        except:
+            pass
+    return roots[0] if roots else None
+
 def open_people(d):
     candidates=d.find_elements(By.CSS_SELECTOR,"[data-module='dropdown'][data-drop='person']")
+    candidates=sorted(candidates,key=lambda e: 0 if e.is_displayed() else 1)
     print("FLY_PEOPLE_OPEN_CANDIDATES",len(candidates))
     for el in candidates:
         try:
@@ -94,39 +105,55 @@ def main():
         d.get(URL);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(5);dismiss(d)
         print("FLY_START",d.current_url)
         print("FLY_OPENED",open_people(d))
-        p=d.find_elements(By.CSS_SELECTOR,"input[name='filter[person]']")
-        ch=d.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
+        root=visible_people_root(d)
+        if root is None:
+            raise RuntimeError("Fly participant dropdown not found")
+        p=root.find_elements(By.CSS_SELECTOR,"input[name='filter[person]']")
+        ch=root.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
         print("FLY_PARTY_HIDDEN_BEFORE",p[0].get_attribute("value") if p else None,ch[0].get_attribute("value") if ch else None)
 
-        # Adults default to 2. Change children through the real counter UI so
-        # Fly's frontend creates the DOB controls and serializes the party.
-        adult_hidden=d.find_elements(By.CSS_SELECTOR,"input[name='filter[person]']")
+        # Scope every interaction to the currently visible participant dropdown.
+        # The page contains duplicate/sticky forms; global [0] selectors can hit
+        # a hidden copy and silently leave the real search at 2+0.
+        adult_hidden=p
         a=bool(adult_hidden and adult_hidden[0].get_attribute("value")=="2")
         print("FLY_ADULTS_EXACT",a,adult_hidden[0].get_attribute("value") if adult_hidden else None)
-        child_box=d.find_elements(By.CSS_SELECTOR,"[data-counter='child']")
+        child_box=root.find_elements(By.CSS_SELECTOR,"[data-counter='child']")
         c=False
         if child_box:
             plus=child_box[0].find_elements(By.CSS_SELECTOR,"button.plus")
             if plus:
                 for i in range(2):
-                    d.execute_script("arguments[0].click()",plus[0]);time.sleep(.8)
-                    hidden=d.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
-                    val=hidden[0].get_attribute("value") if hidden else None
-                    summary["child_count"]=val
-                    print("FLY_CHILD_PLUS",i+1,val)
+                    try:
+                        d.execute_script("arguments[0].scrollIntoView({block:'center'})",plus[0])
+                        plus[0].click()
+                    except:
+                        d.execute_script("arguments[0].click()",plus[0])
+                    time.sleep(.8)
+                    span=child_box[0].find_elements(By.CSS_SELECTOR,".counter span")
+                    hidden=root.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
+                    visible_count=compact(span[0].text) if span else None
+                    hidden_count=hidden[0].get_attribute("value") if hidden else None
+                    summary["child_count"]=visible_count
+                    print("FLY_CHILD_PLUS",i+1,{"visible":visible_count,"hidden":hidden_count})
                 c=True
         print("FLY_COUNTS_SET",a,c)
         time.sleep(1)
-        p=d.find_elements(By.CSS_SELECTOR,"input[name='filter[person]']")
-        ch=d.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
-        print("FLY_PARTY_HIDDEN_AFTER",p[0].get_attribute("value") if p else None,ch[0].get_attribute("value") if ch else None)
-        childlists=d.find_elements(By.CSS_SELECTOR,"[data-childlist]")
+        p=root.find_elements(By.CSS_SELECTOR,"input[name='filter[person]']")
+        ch=root.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
+        span=root.find_elements(By.CSS_SELECTOR,"[data-counter='child'] .counter span")
+        print("FLY_PARTY_STATE_AFTER_COUNTER",{
+            "adults_hidden":p[0].get_attribute("value") if p else None,
+            "children_hidden":ch[0].get_attribute("value") if ch else None,
+            "children_visible":compact(span[0].text) if span else None
+        })
+        childlists=root.find_elements(By.CSS_SELECTOR,"[data-childlist]")
         if childlists:
             summary["childlist"]=(childlists[0].get_attribute("outerHTML") or "")
             print("FLY_CHILDLIST_HTML",summary["childlist"][:9000])
 
         age_controls=[]
-        roots=d.find_elements(By.CSS_SELECTOR,"[data-childlist]")
+        roots=root.find_elements(By.CSS_SELECTOR,"[data-childlist]")
         scan=(roots[0].find_elements(By.XPATH,".//select|.//input") if roots else [])
         for el in scan:
             try:
@@ -151,8 +178,8 @@ def main():
         dep=(datetime.now(TZ).date()+timedelta(days=1))
         dobs=[datetime(dep.year-5,1,1).strftime("%d-%m-%Y"),datetime(dep.year-7,1,1).strftime("%d-%m-%Y")]
         for idx,dob in enumerate(dobs,1):
-            hs=d.find_elements(By.CSS_SELECTOR,f"input[name='filter[childAge][{idx}]']")
-            vs=d.find_elements(By.CSS_SELECTOR,f"input[data-birthdate='{idx}']")
+            hs=root.find_elements(By.CSS_SELECTOR,f"input[name='filter[childAge][{idx}]']")
+            vs=root.find_elements(By.CSS_SELECTOR,f"input[data-birthdate='{idx}']")
             if hs:
                 d.execute_script("""
                   const e=arguments[0],v=arguments[1];
@@ -173,7 +200,7 @@ def main():
                 "hidden":hs[0].get_attribute("value") if hs else None,
                 "visible":vs[0].get_attribute("value") if vs else None})
             print("FLY_CHILD_DOB_SET",summary["age_fields"][-1])
-        hidden_children=d.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
+        hidden_children=root.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
         print("FLY_PARTY_BEFORE_APPLY",{
             "adults":adult_hidden[0].get_attribute("value") if adult_hidden else None,
             "children":hidden_children[0].get_attribute("value") if hidden_children else None,
@@ -183,14 +210,19 @@ def main():
         # Apply the participant dropdown. Fly uses live-search/AJAX; there is
         # no reliable primary "Szukaj" button on this results surface.
         applied=False
-        roots=d.find_elements(By.CSS_SELECTOR,"[data-drop='person']")
-        if roots:
-            oks=roots[0].find_elements(By.CSS_SELECTOR,"button[data-ok]")
-            for b in oks:
-                try:
-                    if b.is_displayed() and b.is_enabled():
-                        d.execute_script("arguments[0].click()",b);applied=True;break
-                except: pass
+        oks=root.find_elements(By.CSS_SELECTOR,"button[data-ok]")
+        for b in oks:
+            try:
+                if b.is_displayed() and b.is_enabled():
+                    d.execute_script("arguments[0].scrollIntoView({block:'center'})",b)
+                    try:
+                        b.click()
+                    except:
+                        d.execute_script("arguments[0].click()",b)
+                    applied=True
+                    break
+            except Exception as e:
+                print("FLY_APPLY_ERR",type(e).__name__,str(e)[:180])
         summary["applied"]=applied
         print("FLY_PARTY_APPLIED",applied)
         time.sleep(8)
