@@ -4,7 +4,7 @@ from urllib.parse import urljoin
 
 BASE="https://www.eccoholiday.com/"
 UA={"User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/153 Safari/537.36","Accept-Language":"pl-PL,pl;q=0.9"}
-TERMS=["searchWindow_main_children","searchWindow_main_adults","childAge","childrenAge","children","child","wiek","age","adult","searchWindow","offer","price","api","ajax"]
+TERMS=["searchWindow_main_children","searchWindow_main_adults","childAge","childrenAge","children","child","wiek","age","adult","searchWindow","offer","price","api","ajax","wszystkich","priceClick","za osobę","za wszystkich"]
 
 def compact(s):return re.sub(r"\s+"," ",s or "").strip()
 def snippets(t,term,limit=6,r=1200):
