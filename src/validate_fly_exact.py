@@ -211,21 +211,34 @@ def main():
         # no reliable primary "Szukaj" button on this results surface.
         applied=False
         oks=root.find_elements(By.CSS_SELECTOR,"button[data-ok]")
+        print("FLY_APPLY_BUTTON_COUNT",len(oks))
         for b in oks:
             try:
-                if b.is_displayed() and b.is_enabled():
-                    d.execute_script("arguments[0].scrollIntoView({block:'center'})",b)
-                    try:
-                        b.click()
-                    except:
-                        d.execute_script("arguments[0].click()",b)
-                    applied=True
-                    break
+                print("FLY_APPLY_BUTTON",{"displayed":b.is_displayed(),"enabled":b.is_enabled(),"html":(b.get_attribute("outerHTML") or "")[:800]})
+                if not b.is_enabled():
+                    continue
+                # Fly keeps duplicate/sticky form layers and Selenium may report
+                # the active OK as not displayed after datepicker DOM updates.
+                # Dispatch on the exact button inside the active participant root.
+                d.execute_script("arguments[0].click()",b)
+                applied=True
+                break
             except Exception as e:
                 print("FLY_APPLY_ERR",type(e).__name__,str(e)[:180])
         summary["applied"]=applied
         print("FLY_PARTY_APPLIED",applied)
         time.sleep(8)
+        try:
+            newroot=visible_people_root(d)
+            if newroot is not None:
+                nh=newroot.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
+                ns=newroot.find_elements(By.CSS_SELECTOR,"[data-counter='child'] .counter span")
+                print("FLY_PARTY_STATE_AFTER_APPLY",{
+                  "hidden":nh[0].get_attribute("value") if nh else None,
+                  "visible":compact(ns[0].text) if ns else None
+                })
+        except Exception as e:
+            print("FLY_AFTER_APPLY_STATE_ERR",type(e).__name__,str(e)[:180])
         print("FLY_FINAL_URL",d.current_url)
         q=parse_qs(urlsplit(d.current_url).query)
         summary["final_query"]=q
