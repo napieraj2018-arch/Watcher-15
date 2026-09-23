@@ -8,6 +8,7 @@ on:
       - "src/inspect_fly_party_html.py"
       - "src/inspect_fly_schema.py"
       - "src/inspect_fly_person_js.py"
+      - "src/probe_fly_ajax.py"
       - ".github/workflows/fly-exact.yml"
 
 permissions:
@@ -43,6 +44,8 @@ jobs:
           set +e
           python src/inspect_fly_person_js.py > fly-js.log 2>&1
           js_rc=$?
+          python src/probe_fly_ajax.py > fly-ajax.log 2>&1
+          ajax_rc=$?
           python src/validate_fly_exact.py > fly.log 2>&1
           rc=$?
           {
@@ -55,6 +58,11 @@ jobs:
             echo "## Child serializer"
             echo '```text'
             tail -n 260 fly-js.log
+            echo '```'
+            echo
+            echo "## Exact-family AJAX comparison"
+            echo '```text'
+            tail -n 280 fly-ajax.log
             echo '```'
             echo
             echo "## Exact family UI"
