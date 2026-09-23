@@ -243,6 +243,7 @@ def parse_card(a):
     else:
         meal = ""
 
+    departure_time=None
     if "Warszawa - Radom" in text:
         airport = "Warszawa - Radom"
     elif "Warszawa - Modlin" in text:
@@ -251,6 +252,10 @@ def parse_card(a):
         airport = "Warszawa"
     else:
         airport = ""
+    if airport:
+        mt=re.search(re.escape(airport)+r"[^\d]{0,100}([0-2]?\d:[0-5]\d)",text,re.I)
+        if mt:
+            departure_time=mt.group(1)
 
     operator = next((op for op in KNOWN_OPERATORS if op.lower() in text.lower()), "")
 
@@ -284,6 +289,7 @@ def parse_card(a):
         "rating": float(mr.group(1).replace(",", ".")) if mr else None,
         "reviews": int(mn.group(1).replace(" ", "")) if mn else None,
         "airport": airport,
+        "departure_time": departure_time,
         "meal": meal,
         "operator": operator,
         "href": href,
@@ -889,13 +895,17 @@ def tui_collect_tiles(driver, cfg, target_days):
             seen.add(href)
             hotel = compact(anchor.get_attribute("hotelname")) or "Hotel TUI"
             region = compact(anchor.get_attribute("destination"))
+            departure_time=None
             try:
-                airport = compact(
+                airport_raw = compact(
                     tile.find_element(
                         By.CSS_SELECTOR, "button[data-testid='dropdown-field--same-day-offers']"
                     ).text
                 )
-                airport = re.sub(r"\s*\([^)]*\)\s*$", "", airport)
+                mt=re.search(r"\b([0-2]?\d:[0-5]\d)\b",airport_raw)
+                if mt:
+                    departure_time=mt.group(1)
+                airport = re.sub(r"\s*\([^)]*\)\s*$", "", airport_raw)
             except Exception:
                 airport = "Warszawa-Chopina"
 
@@ -909,6 +919,7 @@ def tui_collect_tiles(driver, cfg, target_days):
                 "rating": rating10,
                 "reviews": reviews,
                 "airport": airport,
+                "departure_time": departure_time,
                 "meal": "All Inclusive",
                 "operator": "TUI",
                 "href": href,
@@ -1384,9 +1395,13 @@ def rainbow_collect_day(driver,cfg,dep,adult_dobs,child_dobs):
             path=urlsplit(href).path.rstrip("/").split("/")[-1]
             hotel=path.replace("-"," ").title()
             airport="Warszawa"
+            departure_time=None
             for ap in ["Warszawa Radom","Warszawa Modlin","Warszawa Chopin","Warszawa"]:
                 if ap.lower() in txt.lower():
                     airport=ap.replace(" ","-",1) if ap!="Warszawa" else ap
+                    mt=re.search(re.escape(ap)+r"[^\d]{0,100}([0-2]?\d:[0-5]\d)",txt,re.I)
+                    if mt:
+                        departure_time=mt.group(1)
                     break
             ret=dep+timedelta(days=nights)
 
@@ -1402,6 +1417,7 @@ def rainbow_collect_day(driver,cfg,dep,adult_dobs,child_dobs):
                 "rating":rating10,
                 "reviews":reviews,
                 "airport":airport,
+                "departure_time":departure_time,
                 "meal":"All Inclusive",
                 "operator":"Rainbow",
                 "href":href,
