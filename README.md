@@ -71,3 +71,7 @@ Grecos jest kanałem `production`, ale alarmy pozostają fail-closed. Adapter wy
 ### Kontrola bezpieczeństwa Fly.pl — 2026-09-23
 
 Fly.pl nie został dopuszczony do produkcji. Zapytanie przyjmuje `filter[person]=2`, `filter[child]=2` i wiek dzieci 5/7, ale wynik ofertowy nadal zachowuje się jak `2+0`. Kontrola trybu „Cena za wszystkich” wykazała te same kwoty dla 2+2 i dla 2 dorosłych (np. 1 017 zł/os. → 2 034 zł w obu przypadkach). Kanał pozostaje diagnostyczny i nie może alarmować, dopóki detal/rezerwacja nie potwierdzi ceny zależnej od obojga dzieci.
+
+### Stan kanałów — 2026-09-23 09:40 CEST
+
+Zweryfikowany stan `main`: **8 kanałów production** — Wakacje.pl, TUI Poland, ITAKA, Rainbow, EXIM tours, Travelplanet, Grecos i Sun & Fun. Fly.pl pozostaje diagnostic, ponieważ backend zeruje dzieci mimo parametrów 2+2; Nekera zachowuje dokładne dzieci 5/7, ale kontrola 2+2 vs 2+0 nie potwierdziła rodzinnego totalu. Oasis ma aktywną diagnostykę BlueVendo/React; eSky pozostaje zablokowany HTTP 403. Statusów nie podnosimy bez exact 2+2 + live availability + końcowego family total.
