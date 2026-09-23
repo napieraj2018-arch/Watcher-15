@@ -1,0 +1,47 @@
+name: Ecco Holiday exact-family diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/validate_eccoholiday_exact.py"
+      - ".github/workflows/eccoholiday-exact.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Probe Ecco Holiday family schema
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          python src/validate_eccoholiday_exact.py > ecco.log 2>&1
+          rc=$?
+          {
+            echo "# Ecco Holiday exact-family diagnostic"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            grep -E '^ECCO_' ecco.log | tail -n 380 || true
+            echo '~~~'
+          } > report.md
+          gh issue edit 28 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat report.md
+          exit "$rc"
