@@ -95,3 +95,7 @@ Właściwe strony pakietowe `coraltravel.pl/tours/*` zwracają w środowisku Git
 ### Odporność Grecos na timeouty
 
 Po rzeczywistym `ReadTimeout` w produkcyjnym teście API adapter dostał ograniczone retry dla błędów sieciowych i nadal działa fail-closed. Kolejne produkcyjne przebiegi Grecosa zakończyły się sukcesem; zasady exact 2+2 i family total nie zostały poluzowane.
+
+### Minimum celu osiągnięte — 10 kanałów production
+
+Po podwójnej certyfikacji live do `production` wszedł Prima Holiday. Dowód: exact 2+2 w kalkulatorze `[18,18,5,7]`, cztery ceny uczestników sumujące się do finalnego totalu 6558 PLN, ten sam trip dla 2 dorosłych = 3786 PLN, `onrequest=false`, `maxroom=20`, a drugi niezależny odczyt oferty i drugi family calculation ponownie potwierdziły 6558 PLN. Aktualna pula production: **Wakacje.pl, TUI Poland, ITAKA, Rainbow, EXIM tours, Travelplanet, Grecos, Sun & Fun, Oasis Tours, Prima Holiday**. System nadal rozwijamy w stronę 15 niezależnych kanałów.
