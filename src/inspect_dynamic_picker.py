@@ -7,9 +7,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 REG=Path('config/channels.json')
 PHRASES={
- 'nekera_pl':['Ile osób?','Szukaj'],
- 'oasis_pl':['Uczestnicy','Dorośli','Dzieci','Szukaj'],
- 'fly_pl':['Wyszukaj i zarezerwuj','Osoby','Dorośli','Dzieci','Szukaj']
+ 'nekera_pl':['Ile osób?','Uczestnicy podróży','Dorośli','Dzieci','Data urodzenia dziecka','Szukaj'],
+ 'oasis_pl':['2 dorosłych','Uczestnicy','Dorośli','Dzieci','Wyszukaj','Szukaj'],
+ 'fly_pl':['kto:','2 dorosłe','dorosłe','dzieci','Osoby','Dorośli','Dzieci','Szukaj']
 }
 def compact(s): return ' '.join((s or '').split())
 def main():
