@@ -92,6 +92,21 @@ def main():
         except Exception as e: print("NEKERA_PASSENGER_DOM_ERR",type(e).__name__,str(e)[:160])
         a,ab,ai=counter_section(d,"Dorośli")
         c,cb,ci=counter_section(d,"Dzieci")
+        # Nekera's child counter is reliably anchored by #children-input even
+        # when the visible label is not present in headless rendering.
+        if c is None:
+            try:
+                child_input=d.find_element(By.ID,"children-input")
+                anc=child_input
+                for level in range(1,8):
+                    anc=anc.find_element(By.XPATH,"..")
+                    buttons=[b for b in anc.find_elements(By.TAG_NAME,"button") if b.is_displayed() and b.is_enabled()]
+                    if len(buttons)>=2:
+                        c=anc;cb=buttons;ci=[child_input]
+                        print("NEKERA_COUNTER_BY_ID",level,(anc.get_attribute("outerHTML") or "")[:6000])
+                        break
+            except Exception as e:
+                print("NEKERA_COUNTER_BY_ID_ERR",type(e).__name__,str(e)[:180])
         print("NEKERA_COUNTERS_FOUND",bool(a),bool(c))
         if c is not None:
             # Identify the plus control by text/aria/class, falling back to last button.
