@@ -1427,11 +1427,31 @@ def rainbow_force_family_url(detail_url,adult_dobs,child_dobs):
     return urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(pairs,doseq=True),parts.fragment))
 
 def rainbow_parse_total(body):
-    m=re.search(r"Cena\s+razem\s*:\s*([0-9][0-9 ]{2,})\s*zł",compact(body),re.I)
-    if not m:
-        return None
-    v=int(m.group(1).replace(" ",""))
-    return v if 1500 <= v <= 40000 else None
+    cleaned=compact(body)
+    patterns=[
+        r"Cena\s+razem\s*:?\s*([0-9][0-9 ]{2,})\s*zł",
+        r"(?:Łącznie|Lacznie)\s*:?\s*([0-9][0-9 ]{2,})\s*zł",
+        r"Do\s+zapłaty\s*:?\s*([0-9][0-9 ]{2,})\s*zł",
+        r"Razem\s*:?\s*([0-9][0-9 ]{2,})\s*zł",
+    ]
+    vals=[]
+    for pat in patterns:
+        for m in re.finditer(pat,cleaned,re.I):
+            start=max(0,m.start()-80);end=min(len(cleaned),m.end()+80)
+            ctx=cleaned[start:end].lower()
+            if "/os" in ctx or "za osob" in ctx:
+                continue
+            try:
+                v=int(m.group(1).replace(" ",""))
+            except Exception:
+                continue
+            if 1500 <= v <= 40000:
+                vals.append(v)
+    if vals:
+        print("RAINBOW_TOTAL_VALUES",vals[:12])
+        return vals[0]
+    print("RAINBOW_TOTAL_NOT_FOUND",cleaned[:5000])
+    return None
 
 def rainbow_stars(body):
     for pat in [r"hotel(?:u)?\s+([1-5])\s*\*",r"\b([1-5])\s*\*\s*,"]:
