@@ -75,6 +75,11 @@ def read_rows(d,label,family):
             rows[rec["key"]]=rec
         except: pass
     print("ANEXCTRL_ROWS",label,len(rows))
+    if not rows:
+        for tr in d.find_elements(By.CSS_SELECTOR,"tr.price_info")[:12]:
+            try:
+                print("ANEXCTRL_RAW_ROW_CLASS",label,(tr.get_attribute("class") or "")[:600],compact(tr.text)[:500])
+            except: pass
     for x in list(rows.values())[:8]:print("ANEXCTRL_ROW",label,json.dumps(x,ensure_ascii=False))
     return rows
 
