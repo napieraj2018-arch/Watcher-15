@@ -6,6 +6,7 @@ on:
     paths:
       - "src/validate_nekera_exact.py"
       - "src/probe_nekera_query.py"
+      - "src/probe_nekera_detail.py"
       - "src/inspect_secondary_js.py"
       - "src/inspect_nekera_price_js.py"
       - ".github/workflows/nekera-exact.yml"
@@ -49,6 +50,9 @@ jobs:
             echo
             echo "## Direct query probe"
             python src/probe_nekera_query.py
+            echo
+            echo "## Detail exact-family probe"
+            python src/probe_nekera_detail.py
             echo
             echo "## UI/network probe"
             python src/validate_nekera_exact.py
