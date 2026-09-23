@@ -48,7 +48,7 @@ Co godzinę działa lekki health-check wszystkich źródeł. Raz dziennie urucha
 
 ## Diagnostyka 2026-09-23
 
-Stan produkcyjny pozostaje celowo konserwatywny: **8 kanałów produkcyjnych** — Wakacje.pl, TUI Poland, ITAKA, Rainbow, EXIM tours, Travelplanet, Grecos i Sun & Fun. Kanał jest promowany dopiero po zachowaniu dokładnego składu 2+2 (dzieci 5 i 7 lat), potwierdzeniu bieżącej dostępności i odczytaniu końcowej ceny całej rodziny. Dodatkowe filtry jakościowe działają fail-closed: brak wiarygodnych danych nie może zostać zastąpiony danymi z sąsiedniej oferty ani luźną heurystyką.
+Stan produkcyjny pozostaje celowo konserwatywny: **9 kanałów produkcyjnych** — Wakacje.pl, TUI Poland, ITAKA, Rainbow, EXIM tours, Travelplanet, Grecos, Sun & Fun i Oasis Tours. Kanał jest promowany dopiero po zachowaniu dokładnego składu 2+2 (dzieci 5 i 7 lat), potwierdzeniu bieżącej dostępności i odczytaniu końcowej ceny całej rodziny. Dodatkowe filtry jakościowe działają fail-closed: brak wiarygodnych danych nie może zostać zastąpiony danymi z sąsiedniej oferty ani luźną heurystyką.
 
 Najważniejsze ustalenia:
 - **EXIM tours** — kanał `production`. Żywe karty zachowują `AC1=2`, `KC1=2`, `KA1=5|7`, pokazują „2 dorosłych 2 dzieci”, stan „Dostępne online” oraz osobną `Cena całkowita` obok ceny `Dorosły od`. Walidacja na szerszym oknie potwierdziła rodzinne sumy niezależne od ceny dorosłego (m.in. 12 616 zł dla rodziny przy 5 369 zł dla dorosłego). Produkcyjny watcher nadal stosuje ścisłe okno 1–3 dni, 5–8 nocy, właściwe lotniska i fail-closed dla jakości; przy braku ofert w bieżącym oknie poprawnie zwraca 0 bez alarmu.
@@ -57,7 +57,7 @@ Najważniejsze ustalenia:
 - **Grecos** — kanał `production`. Live API `/api/sitecore/OffersList/LoadMoreOffers` zachowuje dokładne `Adults=2&Children=2` oraz `Child1`/`Child2` odpowiadające dzieciom 5 i 7 lat. `Merlin_FullPriceParsed` został zweryfikowany jako cena zależna od składu grupy: dla tego samego pakietu porównujemy 2+2 z osobnym zapytaniem 2+0; jeżeli odpowiednika 2+0 nie ma, rekord przechodzi tylko wtedy, gdy końcowa suma jest większa niż suma dwóch cen `Merlin_AdultPrice`, dzięki czemu cena dla dwóch dorosłych nie może zostać uznana za rodzinną. Końcowy smoke test zwrócił dwie bieżące oferty 2+2 z Warszawy za 15 020 zł i 15 232 zł; matcher lotniska został poprawiony, aby surowe `Warszawa` nigdy nie było fałszywie oznaczane jako `Warszawa-Radom`. Link prowadzi teraz do właściwej strony hotelu. Przed alarmem wykonywany jest świeży recheck API, a brak wiarygodnej oceny/liczby opinii nadal blokuje alert.
 - **Fly.pl** — pozostaje `diagnostic`. URL potrafi zawierać `filter[child]=2` i wiek 5/7, ale po renderze backendowa wartość dzieci wraca do `0`, a analityka ofert zgłasza `number_of_kids=0`. Test „Cena za wszystkich” dawał tę samą kwotę co 2+0, więc źródło jest twardo blokowane przed produkcją.
 - **Nekera** — exact 2+2 jest potwierdzone: `adults=2` z `child=2021-01-01` i `child=2019-01-01` przechodzi do wyników. Jednocześnie wykryto twardy blocker: oficjalny tryb `pricetype=1` (`za wszystkich`) został porównany na 40 tych samych listingach 2+2 i 2+0 i we wszystkich przypadkach pokazał identyczny total (`party-sensitive count = 0`). Tych kwot nie wolno uznawać za rodzinne. Następna ścieżka to właściwy endpoint/szczegóły oferty, który rzeczywiście wycenia dzieci.
-- **Oasis Tours** — picker uczestników został już poprawnie otwarty i automat potrafi ustawić licznik na `2 dzieci`. Nadal brakuje pewnego ustawienia wieku 5/7 i odpowiadającego mu payloadu w `POST /api-bv/search-search`; bez tych pól ceny nie są traktowane jako rodzinne.
+- **Oasis Tours** — kanał `production`. UI oraz request BlueVendo zachowują dokładnie `adults=2` i `infants=5,7`; siedem identycznych pakietów hotel/pokój/data/wyżywienie/transport przeszło kontrolę 2+2 vs 2+0, a `customertotalprice` zmieniał się wraz ze składem (np. 3102 zł vs 1926 zł). Adapter wymaga żywej dostępności, końcowej ceny rodzinnej, ścisłych filtrów 1–3 dni / 5–8 nocy / AI / lotnisko oraz drugiego rechecku; brak jakości pozostaje fail-closed.
 - **Coral Travel, Join UP!, eSky, TraveliGo** — nadal wymagają alternatywnej drogi dostępu z powodu blokad lub braku użytecznej treści w środowisku headless.
 
 ### Stabilność diagnostyki
@@ -74,7 +74,7 @@ Fly.pl nie został dopuszczony do produkcji. Zapytanie przyjmuje `filter[person]
 
 ### Stan kanałów — 2026-09-23 09:40 CEST
 
-Zweryfikowany stan `main`: **8 kanałów production** — Wakacje.pl, TUI Poland, ITAKA, Rainbow, EXIM tours, Travelplanet, Grecos i Sun & Fun. Fly.pl pozostaje diagnostic, ponieważ backend zeruje dzieci mimo parametrów 2+2; Nekera zachowuje dokładne dzieci 5/7, ale kontrola 2+2 vs 2+0 nie potwierdziła rodzinnego totalu. Oasis ma aktywną diagnostykę BlueVendo/React; eSky pozostaje zablokowany HTTP 403. Statusów nie podnosimy bez exact 2+2 + live availability + końcowego family total.
+Zweryfikowany stan `main`: **9 kanałów production** — Wakacje.pl, TUI Poland, ITAKA, Rainbow, EXIM tours, Travelplanet, Grecos, Sun & Fun i Oasis Tours. Fly.pl pozostaje diagnostic, ponieważ backend zeruje dzieci mimo parametrów 2+2; Nekera zachowuje dokładne dzieci 5/7, ale kontrola 2+2 vs 2+0 nie potwierdziła rodzinnego totalu. eSky pozostaje zablokowany HTTP 403. Statusów nie podnosimy bez exact 2+2 + live availability + końcowego family total.
 
 ### Rozszerzenie puli źródeł — Rego-Bis
 
@@ -82,4 +82,4 @@ Do puli dodano niezależny kanał `regobis_pl`. Serwis ma dedykowany przepływ �
 
 ### Postęp — Oasis i ANEX
 
-Oasis ma już twardy dowód exact 2+2: UI potwierdza `2 dorosłych, 2 dzieci`, a rzeczywisty request BlueVendo wysyła `adults=2` oraz `infants=5,7`. Kanał pozostaje diagnostic do czasu potwierdzenia party-sensitive final total na żywym wyniku. Dodano także ANEX Tour jako 16. niezależne źródło: żywe wiersze SAMO zawierają `adult-2 child-2`, `AGES=5,7`, wariant pokoju 2+2, dostępność i jawny PLN price. ANEX pozostaje diagnostic, dopóki kontrola tej samej oferty 2+0 nie dowiedzie, że kwota jest końcową ceną rodzinną.
+Oasis został awansowany do `production` po potwierdzeniu exact 2+2, żywej dostępności i party-sensitive final total na tych samych pakietach. Dodano także ANEX Tour jako 16. niezależne źródło: żywe wiersze SAMO zawierają `adult-2 child-2`, `AGES=5,7`, wariant pokoju 2+2, dostępność i jawny PLN price. ANEX pozostaje diagnostic, dopóki kontrola tej samej oferty 2+0 nie dowiedzie, że kwota jest końcową ceną rodzinną.
