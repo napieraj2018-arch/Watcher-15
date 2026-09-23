@@ -103,16 +103,21 @@ def main():
         base_cfg = next((x for x in watchers if x.get("provider") == channel_id and x.get("enabled")), None)
         if base_cfg is None:
             raise RuntimeError(f"No enabled watcher config for production channel {channel_id}")
-        for cfg in deal_profiles(base_cfg):
-            print(
-                "DEAL_PROFILE",
-                cfg.get("deal_profile", "default"),
-                cfg.get("min_total_price_pln", 0),
-                cfg.get("max_total_price_pln"),
-                cfg.get("min_rating"),
-                cfg.get("min_reviews"),
-            )
-            run_production_adapter(channel_id, cfg)
+        profiles = base_cfg.get("deal_profiles") or []
+        print("DEAL_PROFILES", [
+            {
+                "id": p.get("id"),
+                "label": p.get("label"),
+                "min_price": p.get("min_total_price_pln", 0),
+                "max_price": p.get("max_total_price_pln"),
+                "min_rating": p.get("min_rating"),
+                "min_reviews": p.get("min_reviews"),
+            }
+            for p in profiles
+        ])
+        # Fetch each production source once. The final alert gate assigns the
+        # verified offer to the appropriate bargain/premium profile.
+        run_production_adapter(channel_id, base_cfg)
         return
 
     source_probe(channel)
