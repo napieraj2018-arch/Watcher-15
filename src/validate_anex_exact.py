@@ -44,7 +44,7 @@ def dump_selects(d,label):
 def main():
     today=datetime.now(TZ).date()
     q=[
-      ("ADULT","2"),("CHILD","2"),("LANG","pol"),
+      ("ADULT","2"),("CHILD","2"),("AGE1","5"),("AGE2","7"),("LANG","pol"),
       ("CHECKIN_BEG",(today+timedelta(days=1)).strftime("%Y%m%d")),
       ("CHECKIN_END",(today+timedelta(days=3)).strftime("%Y%m%d")),
       ("NIGHTS_FROM","5"),("NIGHTS_TILL","8")
@@ -57,7 +57,9 @@ def main():
     try:
         d.get(url);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(6)
         print("ANEX_START",d.current_url,"TITLE",d.title)
-        print("ANEX_QUERY",json.dumps(parse_qs(urlsplit(d.current_url).query),ensure_ascii=False,sort_keys=True))
+        qnow=parse_qs(urlsplit(d.current_url).query)
+        print("ANEX_QUERY",json.dumps(qnow,ensure_ascii=False,sort_keys=True))
+        print("ANEX_EXACT_PARTY_QUERY",qnow.get("ADULT")==["2"] and qnow.get("CHILD")==["2"] and qnow.get("AGE1")==["5"] and qnow.get("AGE2")==["7"])
         dump_selects(d,"ANEX_SELECTS_BEFORE")
         body=d.find_element(By.TAG_NAME,"body").text
         for line in [x.strip() for x in body.splitlines() if x.strip()]:
@@ -87,14 +89,16 @@ def main():
         for idx,target in enumerate(["5","7"]):
             if idx>=len(ages):break
             e=ages[idx]
-            opts=[(o.get_attribute("value"),compact(o.text)) for o in e.find_elements(By.TAG_NAME,"option")]
-            chosen=None
-            for v,t in opts:
-                if str(v)==target or compact(t)==target or re.search(rf"(^|\\D){target}(\\D|$)",t):
-                    chosen=v;break
-            if chosen is not None:
-                Select(e).select_by_value(chosen);time.sleep(.4)
-                print("ANEX_AGE_SET",idx+1,{"name":e.get_attribute("name"),"id":e.get_attribute("id"),"target":target,"value":e.get_attribute("value")})
+            # SAMO renders the canonical selects hidden behind its own widget.
+            # Direct query parameters are the source of truth; mirror them into
+            # DOM with native change events only for serialization diagnostics.
+            d.execute_script("""
+              const e=arguments[0],v=arguments[1];
+              e.value=v;
+              e.dispatchEvent(new Event('change',{bubbles:true}));
+            """,e,target)
+            time.sleep(.3)
+            print("ANEX_AGE_SET",idx+1,{"name":e.get_attribute("name"),"id":e.get_attribute("id"),"target":target,"value":e.get_attribute("value")})
 
         # Inspect exact form serialization after age changes.
         forms=d.find_elements(By.TAG_NAME,"form")
