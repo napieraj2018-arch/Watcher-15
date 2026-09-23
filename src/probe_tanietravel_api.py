@@ -13,9 +13,9 @@ def payload(family, child_ages="5,7"):
       "type":"tours","destinationId":11,"favoritesOnly":False,
       "dateFrom":(today+timedelta(days=1)).isoformat(),
       "dateTo":(today+timedelta(days=3)).isoformat(),
-      "stars":"any","adults":2,"children":2 if family else 0,
+      "stars":"4plus","adults":2,"children":2 if family else 0,
       "childAges":child_ages if family else "",
-      "meal":"","limit":500,"depCode":"WAW,WMI,RDO","nights":"5:8"
+      "meal":"ai","limit":500,"depCode":"WAW,WMI,RDO","nights":"5:8"
     }
 
 def scalar(v):
