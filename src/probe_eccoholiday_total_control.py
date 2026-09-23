@@ -6,6 +6,7 @@ FAMILY=None
 ADULTS=None
 def norm(s):return " ".join(re.sub(r"<[^>]+>"," ",s or "").replace("&nbsp;"," ").split())
 def fetch(label,path):
+ if not path.startswith("/"): path="/"+path
  r=requests.get(BASE+path,headers=H,timeout=45)
  print("ECCOCTRL_STATUS",label,r.status_code,len(r.content),r.url)
  r.raise_for_status()
