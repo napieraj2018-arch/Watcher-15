@@ -50,6 +50,16 @@ def main():
                 d.execute_script("arguments[0].click()",e);time.sleep(1);opened=True;break
             except:pass
         print("REGO_PARTY_OPENED",opened)
+        trigger=d.find_elements(By.CSS_SELECTOR,"[data-search-option-id='participants']")
+        if trigger:
+            did=trigger[0].get_attribute("aria-controls")
+            if did:
+                dialogs=d.find_elements(By.ID,did)
+                if dialogs:
+                    print("REGO_PARTY_DIALOG",json.dumps({
+                      "id":did,"text":compact(dialogs[0].text)[:6000],
+                      "html":(dialogs[0].get_attribute("outerHTML") or "")[:30000]
+                    },ensure_ascii=False))
         for e in d.find_elements(By.XPATH,"//input|//select|//button|//*[@role='button']|//*[@role='combobox']"):
             try:
                 if not e.is_displayed():continue
