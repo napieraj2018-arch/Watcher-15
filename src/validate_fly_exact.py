@@ -44,21 +44,19 @@ def dump_people(d,label):
         except: pass
 
 def open_people(d):
-    candidates=[]
-    for el in d.find_elements(By.XPATH,"//*[@data-module='dropdown']|//*[contains(@class,'dropmenu-input')]|//*[contains(@class,'main_advance_filters_container')]"):
-        try:
-            blob=compact(el.text).lower()
-            html=(el.get_attribute("outerHTML") or "").lower()
-            if any(k in blob+" "+html for k in ["doros","dziec","kto","people","person"]):
-                candidates.append(el)
-        except: pass
+    candidates=d.find_elements(By.CSS_SELECTOR,"[data-module='dropdown'][data-drop='person']")
     print("FLY_PEOPLE_OPEN_CANDIDATES",len(candidates))
     for el in candidates:
         try:
-            print("FLY_OPEN_TRY",compact(el.text)[:500],(el.get_attribute("outerHTML") or "")[:1600])
-            d.execute_script("arguments[0].click()",el);time.sleep(1)
-            if d.find_elements(By.XPATH,"//input[contains(translate(@placeholder,'DOROSŁI','dorosłi'),'doros') or contains(translate(@placeholder,'DZIECI','dzieci'),'dzieci')]"):
-                return True
+            target=el.find_element(By.CSS_SELECTOR,".main_advance_filters_container")
+        except:
+            target=el
+        try:
+            print("FLY_OPEN_TRY",(el.get_attribute("outerHTML") or "")[:2600])
+            d.execute_script("arguments[0].click()",target);time.sleep(1)
+            menu=el.find_elements(By.CSS_SELECTOR,".menu")
+            print("FLY_MENU_CLASS",menu[0].get_attribute("class") if menu else None)
+            return True
         except Exception as e: print("FLY_OPEN_ERR",type(e).__name__,str(e)[:180])
     return False
 
@@ -99,7 +97,9 @@ def main():
 
         # Adults default to 2. Change children through the real counter UI so
         # Fly's frontend creates the DOB controls and serializes the party.
-        a=set_numeric(d,"doros",2)
+        adult_hidden=d.find_elements(By.CSS_SELECTOR,"input[name='filter[person]']")
+        a=bool(adult_hidden and adult_hidden[0].get_attribute("value")=="2")
+        print("FLY_ADULTS_EXACT",a,adult_hidden[0].get_attribute("value") if adult_hidden else None)
         child_box=d.find_elements(By.CSS_SELECTOR,"[data-counter='child']")
         c=False
         if child_box:
@@ -118,23 +118,22 @@ def main():
 
         age_controls=[]
         roots=d.find_elements(By.CSS_SELECTOR,"[data-childlist]")
-        scan=(roots[0].find_elements(By.XPATH,".//select|.//input") if roots else d.find_elements(By.XPATH,"//select|//input"))
+        scan=(roots[0].find_elements(By.XPATH,".//select|.//input") if roots else [])
         for el in scan:
             try:
-                blob=" ".join(filter(None,[el.get_attribute("name"),el.get_attribute("id"),el.get_attribute("placeholder"),el.get_attribute("aria-label"),compact(el.text)])).lower()
-                if "wiek" in blob or "age" in blob:
-                    age_controls.append(el)
-                    print("FLY_AGE_CONTROL",repr({"tag":el.tag_name,"name":el.get_attribute("name"),"id":el.get_attribute("id"),"value":el.get_attribute("value"),"html":el.get_attribute("outerHTML")[:2000]}))
+                rec={"tag":el.tag_name,"type":el.get_attribute("type"),"name":el.get_attribute("name"),"id":el.get_attribute("id"),"value":el.get_attribute("value"),"placeholder":el.get_attribute("placeholder"),"class":el.get_attribute("class"),"html":(el.get_attribute("outerHTML") or "")[:2400]}
+                print("FLY_CHILD_FIELD",repr(rec))
+                age_controls.append(el)
             except: pass
-        for idx,target in enumerate(["5","7"]):
-            if idx>=len(age_controls): break
-            el=age_controls[idx]
-            try:
-                if el.tag_name=="select": Select(el).select_by_value(target)
-                else:
-                    d.execute_script("arguments[0].value=arguments[1];arguments[0].dispatchEvent(new Event('input',{bubbles:true}));arguments[0].dispatchEvent(new Event('change',{bubbles:true}));",el,target)
-                time.sleep(.4);print("FLY_AGE_SET",idx,target,el.get_attribute("value"))
-            except Exception as e: print("FLY_AGE_SET_ERR",idx,type(e).__name__,str(e)[:200])
+        print("FLY_CHILD_FIELD_COUNT",len(age_controls))
+        # Do not invent child-age serialization. We first expose every generated
+        # field; setting happens only when its type/name/options make the schema explicit.
+        for idx,el in enumerate(age_controls):
+            if el.tag_name=="select":
+                try:
+                    opts=[(o.get_attribute("value"),compact(o.text)) for o in el.find_elements(By.TAG_NAME,"option")]
+                    print("FLY_CHILD_OPTIONS",idx,opts[:80])
+                except: pass
 
         # Dump all form fields after party editing, including hidden serialization.
         for i,f in enumerate(d.find_elements(By.TAG_NAME,"form")):
