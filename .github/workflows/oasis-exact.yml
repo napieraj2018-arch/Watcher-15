@@ -35,6 +35,7 @@ jobs:
         run: |
           python src/inspect_oasis_schema.py > oasis-schema.log 2>&1 || true
           python src/probe_oasis_js.py > oasis-probe.log 2>&1 || true
+          CHANNEL_ID=oasis_pl python src/inspect_secondary_js.py > oasis-recursive.log 2>&1 || true
 
       - name: Run Oasis exact family
         shell: bash
@@ -58,7 +59,11 @@ jobs:
             echo '```text'
             tail -n 200 oasis-schema.log
             echo
-            grep -E "OASIS_JS_(FILE|SNIP|COUNT|PAGE)" oasis-probe.log | tail -n 220
+            grep -E "OASIS_JS_(FILE|SNIP|COUNT|PAGE)" oasis-probe.log | tail -n 160
+            echo
+            echo "## Recursive JS crawl"
+            echo
+            grep -E "JS_(FILE|SNIP|IMPORTS|CRAWL_DONE)" oasis-recursive.log | tail -n 260
             echo '```'
             echo
             echo "## Exact-family UI"
