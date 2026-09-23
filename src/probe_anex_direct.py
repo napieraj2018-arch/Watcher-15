@@ -68,6 +68,13 @@ def main():
             rows=read_rows(r.text,town,family)
             sets[label]=rows
             print("ANEXDIR_ROWS",AIRPORTS[town],label,len(rows))
+            if not rows:
+                low=r.text.lower()
+                for needle in ["price_info","data-converted-price-number","adult-2","child-2","td_price","samo_action"]:
+                    pos=low.find(needle.lower())
+                    print("ANEXDIR_SIGNAL",AIRPORTS[town],label,needle,pos)
+                    if pos>=0:
+                        print("ANEXDIR_SNIP",AIRPORTS[town],label,needle,compact(r.text[max(0,pos-500):pos+1800]))
             for x in list(rows.values())[:6]:print("ANEXDIR_ROW",label,json.dumps(x,ensure_ascii=False))
         common=set(sets["FAMILY"]) & set(sets["ADULTS"])
         print("ANEXDIR_COMMON",AIRPORTS[town],len(common))
