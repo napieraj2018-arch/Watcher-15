@@ -89,7 +89,7 @@ def _reviews(x):
 def _results_url(cfg):
     p=_payload(cfg,True)
     q={"type":"tours","dest":p["destinationId"],"dateFrom":p["dateFrom"],"dateTo":p["dateTo"],
-       "adults":2,"children":2,"childAges":"5,7","dep":p["depCode"],
+       "adults":2,"children":2,"ages":"5,7","dep":p["depCode"],
        "nMin":cfg["min_nights"],"nMax":cfg["max_nights"],"meal":"ai","stars":"4plus"}
     return BASE+"results.php?"+urlencode(q)
 
