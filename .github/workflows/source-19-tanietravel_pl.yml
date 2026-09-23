@@ -1,0 +1,59 @@
+name: Channel 19 — TanieTravel
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "3,18,33,48 * * * *"
+  push:
+    paths:
+      - "src/tanietravel_watcher.py"
+      - "src/channel_runner.py"
+      - "config/channels.json"
+      - "config/watchers.json"
+      - ".github/workflows/source-19-tanietravel_pl.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: source-channel-tanietravel_pl
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run TanieTravel production channel
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+          WATCHER_CHANNEL: tanietravel_pl
+        run: |
+          set +e
+          python src/channel_runner.py > tanie-run.log 2>&1
+          rc=$?
+          {
+            echo "# TanieTravel production smoke"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            grep -E '^(CHANNEL_|TANIE_PROD_)' tanie-run.log | tail -n 420 || true
+            echo '~~~'
+          } > tanie-smoke.md
+          gh issue edit 30 --repo "$GITHUB_REPOSITORY" --body-file tanie-smoke.md >/dev/null 2>&1 || true
+          cat tanie-run.log
+          exit "$rc"
