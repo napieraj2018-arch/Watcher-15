@@ -6,6 +6,7 @@ from pathlib import Path
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
+from sunfun_watcher import run_sunfun_watcher
 from watcher import chrome, dismiss_cookies, run_itaka_watcher, run_rainbow_watcher, run_tui_watcher, run_watcher
 
 CHANNELS_PATH = Path("config/channels.json")
@@ -62,6 +63,8 @@ def main():
             run_itaka_watcher(cfg)
         elif channel_id == "rainbow_pl":
             run_rainbow_watcher(cfg)
+        elif channel_id == "sunfun_pl":
+            run_sunfun_watcher(cfg)
         else:
             raise RuntimeError(f"Production adapter missing for {channel_id}")
         return
