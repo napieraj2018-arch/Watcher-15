@@ -105,6 +105,11 @@ def main():
 
         # Re-read DOB controls because they may be inserted after child-count changes.
         dobs=[e for e in d.find_elements(By.XPATH,"//input[contains(@placeholder,'Data urodzenia dziecka')]") if e.is_displayed()]
+        if len(dobs)<2:
+            # Keep diagnostic evidence for hidden controls too; do not treat
+            # them as valid until the child counter actually reached 2.
+            all_dobs=d.find_elements(By.XPATH,"//input[contains(@placeholder,'Data urodzenia dziecka')]")
+            print("NEKERA_ALL_DOB_COUNT",len(all_dobs))
         print("NEKERA_DOB_COUNT",len(dobs))
         for i,e in enumerate(dobs):
             print("NEKERA_DOB_FIELD",i,repr({
@@ -160,6 +165,14 @@ def main():
                         seen.add(key);print("NEKERA_REQ",req.get("method"),u[:6000],"POST",post[:5000])
             except: pass
         print("NEKERA_REQ_COUNT",len(seen))
+        fq=parse_qs(urlsplit(d.current_url).query)
+        exact_children=fq.get("child",[])
+        print("NEKERA_EXACT_SUMMARY",json.dumps({
+            "adults":fq.get("adults"),
+            "children_input":(d.find_element(By.ID,"children-input").get_attribute("value") if d.find_elements(By.ID,"children-input") else None),
+            "child_values":exact_children,
+            "exact_2plus2":fq.get("adults")==["2"] and len(exact_children)==2
+        },ensure_ascii=False))
         d.save_screenshot("nekera-exact.png")
     finally:
         d.quit()
