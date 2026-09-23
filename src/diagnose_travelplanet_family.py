@@ -77,7 +77,18 @@ def main():
         except Exception as e:
             print("SET_AGES_ERROR",type(e).__name__,str(e)[:240])
 
-        # Close picker by clicking the main page heading/search area if necessary.
+        print("CLOSE_PICKER_STATE")
+        try:
+            toggle=d.find_element(By.CSS_SELECTOR,"[data-testid='sf-passengers-picker-textbox']")
+            d.execute_script("arguments[0].click();",toggle)
+            time.sleep(.7)
+            print("PARTY_BEFORE_SEARCH",
+                  [x.get_attribute("value") for x in d.find_elements(By.CSS_SELECTOR,"[data-testid='person-textbox-control-adults']") if x.is_displayed()],
+                  [x.get_attribute("value") for x in d.find_elements(By.CSS_SELECTOR,"[data-testid='person-textbox-control-children']") if x.is_displayed()])
+        except Exception as e:
+            print("CLOSE_PICKER_ERROR",type(e).__name__,str(e)[:200])
+
+        # Submit the main search after committing the passenger picker.
         try:
             d.find_element(By.CSS_SELECTOR,"[data-testid='sf-submit-button']").click()
         except Exception:
