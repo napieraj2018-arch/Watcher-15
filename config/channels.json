@@ -65,7 +65,7 @@
       "priority": 12,
       "exact_party": false,
       "final_total": false,
-      "note": "HTTP works but headless page exposes no usable UI/content; alternative route needed."
+      "note": "Hard package-surface blocker confirmed: coraltravel.pl/tours/* returns an Imperva 'Pardon Our Interruption' interstitial to GitHub/headless clients. Accessible booking.coraltravel.pl GDS exposes child-age semantics, 'CAŁKOWITY' labels and /api/initialization/, but that GDS is not proof of the Coral package-tour channel; /api/initialization/ is login/session initialization, not public package pricing. Do not promote until a package endpoint can prove exact 2+2 ages 5/7, live availability and final family total."
     },
     {
       "id": "travelplanet_pl",
