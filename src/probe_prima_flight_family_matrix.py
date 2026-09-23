@@ -1,4 +1,4 @@
-import json,requests
+import json,requests,time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -12,10 +12,25 @@ QC="""query C($persons:[PersonsGroupInput!]!,$trips:[TripInput!]!){
 }"""
 
 def gql(q,v=None,op=None):
-    r=requests.post(GQL,json={"operationName":op,"variables":v or {},"query":q},headers=H,timeout=45)
-    print("PRIMAMATRIX_STATUS",op,r.status_code,len(r.content))
-    r.raise_for_status()
-    return r.json()
+    last=None
+    for attempt in range(3):
+        try:
+            r=requests.post(GQL,json={"operationName":op,"variables":v or {},"query":q},headers=H,timeout=45)
+            print("PRIMAMATRIX_STATUS",op,attempt+1,r.status_code,len(r.content))
+            r.raise_for_status()
+            data=r.json()
+            # BlueVendo occasionally returns a successful HTTP response with a
+            # transient null/error GraphQL payload. Retry those on live rechecks.
+            if data.get("errors"):
+                print("PRIMAMATRIX_GQL_ERRORS",op,json.dumps(data.get("errors"),ensure_ascii=False)[:1200])
+                last=RuntimeError("GraphQL errors")
+            else:
+                return data
+        except Exception as exc:
+            last=exc
+            print("PRIMAMATRIX_RETRY",op,attempt+1,type(exc).__name__,str(exc)[:200])
+        if attempt<2: time.sleep(1.5*(attempt+1))
+    raise last or RuntimeError("GraphQL request failed")
 
 def val(v):
     if isinstance(v,str):
@@ -100,7 +115,13 @@ def main():
     verified=[]
     for rec,t in candidates[:3]:
         # independent second read + second family calculation
-        ov=val((gql(QO,{"id":rec["offerid"]},"O2").get("data") or {}).get("bluevendoOffer")) or {}
+        ov={}
+        for reattempt in range(3):
+            ov=val((gql(QO,{"id":rec["offerid"]},"O2").get("data") or {}).get("bluevendoOffer")) or {}
+            if isinstance(ov,dict) and ((ov.get("trips") or {}).get("trip") if isinstance(ov.get("trips"),dict) else None):
+                break
+            print("PRIMAMATRIX_OFFER_RECHECK_RETRY",rec["offerid"],reattempt+1,type(ov).__name__)
+            if reattempt<2: time.sleep(2*(reattempt+1))
         ts=((ov.get("trips") or {}).get("trip") or []) if isinstance(ov,dict) else []
         if isinstance(ts,dict):ts=[ts]
         fresh=next((x for x in ts if str(x.get("id"))==rec["tripid"]),None)
