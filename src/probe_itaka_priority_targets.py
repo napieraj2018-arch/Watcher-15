@@ -5,7 +5,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from watcher import chrome,dismiss_cookies,itaka_parse_total,page_stars,representative_dob,now_local
 
 TARGETS=[
-("Oasis Atlantico Salinas Sea","https://www.itaka.pl/wczasy/wyspy-zielonego-przyladka/sal/hotel-oasis-atlantico-salinas-sea,SIDOASS/?adults%5B0%5D=2&id%5B0%5D=CgVJdGFrYRIEVklUWBoDUExOIgdTSURPQVNTKAQ6BEwyNjBCBgiA89bVBkoGCIDo%2B9UGUAJiBQoDV0FXagUKA1NJRHIDCgExegUKA1NJRIIBBQoDV0FXigEDCgExkgEGCIDz1tUGmgEGCIDo%2B9UGogEFCgNER1aqAQMKAUHiAQkKB1Jlc2FiZWXqAQkKB1Jlc2FiZWXyAQkKB1Jlc2FiZWU%3D")
+("Oasis Atlantico Salinas Sea","https://www.itaka.pl/wczasy/wyspy-zielonego-przyladka/sal/hotel-oasis-atlantico-salinas-sea,SIDOASS/?adults%5B0%5D=2&id%5B0%5D=CgVJdGFrYRIEVklUWBoDUExOIgdTSURPQVNTKAQ6BEwyNjBCBgiA89bVBkoGCIDo%2B9UGUAJiBQoDV0FXagUKA1NJRHIDCgExegUKA1NJRIIBBQoDV0FXigEDCgExkgEGCIDz1tUGmgEGCIDo%2B9UGogEFCgNER1aqAQMKAUHiAQkKB1Jlc2FiZWXqAQkKB1Jlc2FiZWXyAQkKB1Jlc2FiZWU%3D"),
+("Royal Horizon Ponta Sino","https://www.itaka.pl/wczasy/wyspy-zielonego-przyladka/sal/hotel-royal-horizon-ponta-sino,SIDROYA/?adults%5B0%5D=2&airports=WAW%2CWMI%2CKTW%2CWRO%2CPOZ%2CGDN%2CKRK%2CRZE%2CRDO%2CBZG%2CLCJ%2CSZZ%2CIEG&id%5B0%5D=CgVJdGFrYRIEVklUWBoDUExOIgdTSURST1lBKAQ6BEwyNTBCBgiA8pzVBkoGCID%2BsdUGUAJiBQoDV0FXagUKA1NJRHIDCgEyegUKA1NJRIIBBQoDV0FXigEDCgExkgEGCIDynNUGmgEGCID%2BsdUGogEFCgNETFiqAQMKAUHiAQkKB1Jlc2FiZWXqAQkKB1Jlc2FiZWXyAQkKB1Jlc2FiZWU%3D"),
+("Oasis Atlantico Belorizonte","https://www.itaka.pl/wczasy/wyspy-zielonego-przyladka/sal/hotel-oasis-atlantico-belorizonte,SIDOASB/?adults%5B0%5D=2&airports=WAW&id%5B0%5D=CgVJdGFrYRIEVklUWBoDUExOIgdTSURPQVNCKAQ6BE4yNTlCBgiA%2FrHVBkoGCIDz1tUGUAJiBQoDV0FXagUKA1NJRHIDCgExegUKA1NJRIIBBQoDV0FXigEDCgExkgEGCID%2BsdUGmgEGCIDz1tUGogEFCgNCVTKqAQMKAUHiAQkKB1Jlc2FiZWXqAQkKB1Jlc2FiZWXyAQkKB1Jlc2FiZWU%3D")
 ]
 def family_url(url):
     parts=urlsplit(url)
