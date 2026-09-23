@@ -147,6 +147,28 @@ def main():
             "children_hidden":ch[0].get_attribute("value") if ch else None,
             "children_visible":compact(span[0].text) if span else None
         })
+        # Fly's visible counter can advance while its hidden serializer
+        # remains stale at 0 in headless mode. We only synchronize the hidden
+        # field after the real UI has visibly reached exactly 2 and created two
+        # child controls; otherwise fail closed.
+        ch=root.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
+        span=root.find_elements(By.CSS_SELECTOR,"[data-counter='child'] .counter span")
+        visible_two=bool(span and compact(span[0].text)=="2")
+        generated_two=len(root.find_elements(By.CSS_SELECTOR,"[data-childlist] [data-childage]"))==2
+        if visible_two and generated_two and ch and ch[0].get_attribute("value")!="2":
+            d.execute_script("""
+              const e=arguments[0];
+              const p=Object.getPrototypeOf(e),desc=Object.getOwnPropertyDescriptor(p,'value');
+              if(desc&&desc.set) desc.set.call(e,'2'); else e.value='2';
+              e.dispatchEvent(new Event('input',{bubbles:true}));
+              e.dispatchEvent(new Event('change',{bubbles:true}));
+            """,ch[0])
+            time.sleep(.5)
+            print("FLY_CHILD_HIDDEN_SYNC",ch[0].get_attribute("value"))
+        else:
+            print("FLY_CHILD_HIDDEN_SYNC_SKIPPED",{"visible_two":visible_two,"generated_two":generated_two,
+              "hidden":ch[0].get_attribute("value") if ch else None})
+
         childlists=root.find_elements(By.CSS_SELECTOR,"[data-childlist]")
         if childlists:
             summary["childlist"]=(childlists[0].get_attribute("outerHTML") or "")
