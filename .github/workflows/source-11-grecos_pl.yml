@@ -46,10 +46,10 @@ jobs:
           {
             echo "# Grecos production smoke"
             echo
-            echo "- commit: `$GITHUB_SHA`"
+            echo "- commit: $GITHUB_SHA"
             echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "- generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            echo "- exit_code: `$rc`"
+            echo "- exit_code: $rc"
             echo
             echo '```text'
             tail -n 260 grecos-run.log
