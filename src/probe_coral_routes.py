@@ -52,6 +52,21 @@ def main():
                 found.add(v)
     for v in sorted(found):
         print("CORALROUTE_AJAX",v)
+        pos=t.find(v)
+        if pos>=0:
+            print("CORALROUTE_AJAX_CONTEXT",v,compact(t[max(0,pos-1200):pos+2600])[:5200])
+
+    # Probe discovered initialization route. It may expose downstream API roots,
+    # tokens or feature-specific service paths without touching the Imperva-
+    # protected package storefront.
+    for method in ["GET","POST"]:
+        try:
+            url=urljoin(BASE,"/api/initialization/")
+            rr=requests.request(method,url,headers={**UA,"Accept":"application/json,text/plain,*/*"},timeout=30)
+            print("CORALROUTE_INIT",method,rr.status_code,len(rr.content),rr.headers.get("content-type"))
+            print("CORALROUTE_INIT_HEAD",method,compact(rr.text)[:12000])
+        except Exception as e:
+            print("CORALROUTE_INIT_ERR",method,type(e).__name__,str(e)[:220])
 
     # Focused snippets around likely route/action identifiers.
     terms=[
