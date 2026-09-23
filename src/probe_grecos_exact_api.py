@@ -96,7 +96,11 @@ def main():
         if expected==q and full:
             exact_rows.append(x)
     print("GRECOS_EXACT_LIVE_ROWS_WITH_FULL_PRICE",len(exact_rows))
-    if exact_rows:\n        sample=exact_rows[0]\n        qfields={k:v for k,v in sample.items() if any(t in k.lower() for t in ["rating","review","opini","score","star","standard","flight","price","full","url","name"])}\n        print("GRECOS_QUALITY_FIELDS",repr(qfields))\n    for x in exact_rows[:15]:
+    if exact_rows:
+        sample=exact_rows[0]
+        qfields={k:v for k,v in sample.items() if any(t in k.lower() for t in ["rating","review","opini","score","star","standard","flight","price","full","url","name"])}
+        print("GRECOS_QUALITY_FIELDS",repr(qfields))
+    for x in exact_rows[:15]:
         print("GRECOS_LIVE_FULL",repr({
             "hotel":x.get("Hotel_Name") or x.get("Merlin_HotelName") or x.get("Merlin_HotelCode"),
             "start":x.get("Merlin_ParsedStartDate"),
