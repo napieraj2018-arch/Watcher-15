@@ -8,6 +8,8 @@ VARIANTS=[
     ('priceView',[('priceView','2')]),
     ('filter_priceView',[('filter[priceView]','2')]),
     ('price_type',[('price_type','2')]),
+    ('pricetype_total',[('pricetype','1')]),
+    ('pricetype_person',[('pricetype','0')]),
 ]
 HEAD={'User-Agent':'Mozilla/5.0'}
 for label,extra in VARIANTS:
@@ -19,7 +21,8 @@ for label,extra in VARIANTS:
     for el in soup.select('input[name]'):
         n=el.get('name','')
         if 'price' in n.lower() or 'view' in n.lower():
-            print('NEKERA_PRICE_FIELD',label,n,el.get('value',''))
+            parent=el.parent
+            print('NEKERA_PRICE_FIELD',label,n,el.get('value',''),'checked',el.has_attr('checked'),'parent',str(parent)[:1400])
     text=' '.join(soup.get_text(' ',strip=True).split())
     for m in re.finditer(r'\b\d[\d ]{1,8}\s*zł(?:\s*/os\.)?',text,re.I):
         sn=text[max(0,m.start()-180):m.start()+420]
