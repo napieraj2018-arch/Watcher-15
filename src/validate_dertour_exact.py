@@ -37,10 +37,21 @@ def main():
         for s in ["Uczestnicy","Dzieci 0-17","Data urodzenia","WAKACJE SAMOLOTEM","All inclusive"]:
             print("DER_SIGNAL",s,s.lower() in body.lower())
         opened=click_match(d,["Uczestnicy"],"party");print("DER_PARTY_OPENED",opened);time.sleep(1)
+        print("DER_CONTROLS_OPEN")
+        for e in d.find_elements(By.XPATH,"//input|//select|//button"):
+            try:
+                if not e.is_displayed():continue
+                txt=compact(e.text)
+                blob=" ".join(filter(None,[txt,e.get_attribute("name"),e.get_attribute("id"),e.get_attribute("value"),e.get_attribute("placeholder"),e.get_attribute("aria-label"),e.get_attribute("class")]))
+                if any(k in blob.lower() for k in ["doros","dzie","child","adult","wiek","age","urodz","birth","participant"]):
+                    print("DER_CTRL",json.dumps({"tag":e.tag_name,"text":txt[:220],"name":e.get_attribute("name"),"id":e.get_attribute("id"),"value":e.get_attribute("value"),"placeholder":e.get_attribute("placeholder"),"aria":e.get_attribute("aria-label"),"class":e.get_attribute("class"),"html":(e.get_attribute("outerHTML") or "")[:2600]},ensure_ascii=False))
+            except:pass
 
         # Add exactly two children through the smallest visible container around "Dzieci".
         child_row=None
-        nodes=[x for x in d.find_elements(By.XPATH,"//*[contains(normalize-space(.),'Dzieci')]") if x.is_displayed()]
+        nodes=[x for x in d.find_elements(By.XPATH,"//*[normalize-space(.)='Dzieci 0-17' or normalize-space(.)='Dzieci']") if x.is_displayed()]
+        if not nodes:
+            nodes=[x for x in d.find_elements(By.XPATH,"//*[contains(normalize-space(.),'Dzieci 0-17')]") if x.is_displayed()]
         nodes.sort(key=lambda x:len(compact(x.text)))
         for n in nodes[:30]:
             anc=n
@@ -69,6 +80,14 @@ def main():
                     dob_fields.append(e)
             except:pass
         print("DER_DOB_COUNT",len(dob_fields))
+        for e in d.find_elements(By.TAG_NAME,"select"):
+            try:
+                if not e.is_displayed():continue
+                opts=[(o.get_attribute("value"),compact(o.text)) for o in e.find_elements(By.TAG_NAME,"option")]
+                blob=json.dumps({"name":e.get_attribute("name"),"id":e.get_attribute("id"),"value":e.get_attribute("value"),"options":opts[:50]},ensure_ascii=False)
+                if any(k in blob.lower() for k in ["wiek","age","dzie","child"]) or any(str(i) in {str(v) for v,t in opts} for i in [5,7]):
+                    print("DER_SELECT",blob)
+            except:pass
         vals=["01.01.2021","01.01.2019"]
         setvals=[]
         for i,v in enumerate(vals):
