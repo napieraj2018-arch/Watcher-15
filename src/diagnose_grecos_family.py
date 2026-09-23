@@ -22,7 +22,7 @@ def passenger_box(d):
     vals=d.find_elements(By.XPATH,"//span[contains(@class,'input-box__value-text') and contains(normalize-space(.),'Dorośli')]")
     vals=[v for v in vals if v.is_displayed()]
     if not vals:return None
-    return vals[0].find_element(By.XPATH,"./ancestor::div[contains(@class,'input-box')][1]")
+    return vals[0].find_element(By.XPATH,"./ancestor::div[contains(concat(' ',normalize-space(@class),' '),' search__input-box ')][1]")
 
 def open_passengers(d):
     box=passenger_box(d)
@@ -36,9 +36,7 @@ def open_passengers(d):
 def click_child_plus(d):
     box=passenger_box(d)
     if box is None:return False
-    # Popup is expected inside/sibling of this search input. Walk to a modest
-    # ancestor, then choose a section whose own text starts with/contains Dzieci.
-    root=box.find_element(By.XPATH,"./parent::*")
+    root=box
     for attempt in range(2):
         candidates=root.find_elements(By.XPATH,".//*[contains(normalize-space(.),'Dzieci')]")
         candidates=[x for x in candidates if x.is_displayed() and len(compact(x.text))<300]
@@ -52,7 +50,6 @@ def click_child_plus(d):
                 plus=[b for b in buttons if compact(b.text) in ['+','＋'] or 'plus' in ((b.get_attribute('class') or '')+' '+(b.get_attribute('aria-label') or '')).lower()]
                 if not plus and len(buttons)>=2: plus=[buttons[-1]]
                 if not plus:continue
-                # Never click the main search submit.
                 b=plus[-1]
                 if 'search__submit' in (b.get_attribute('class') or ''):continue
                 print('CHILD_PLUS',attempt,repr({'section':txt,'button':compact(b.text),'html':b.get_attribute('outerHTML')[:1200]}))
@@ -63,11 +60,9 @@ def click_child_plus(d):
     return True
 
 def choose_age(d,target,which):
-    box=passenger_box(d);root=box.find_element(By.XPATH,"./parent::*")
-    # After adding children, Grecos renders per-child age selectors. Click the
-    # nth selector with Wiek/lat/dziecko semantic, then the exact age option.
+    box=passenger_box(d)
     fields=[]
-    for el in root.find_elements(By.XPATH,".//*[self::button or @role='button' or @role='combobox' or contains(@class,'select')]"):
+    for el in box.find_elements(By.XPATH,".//*[self::button or @role='button' or @role='combobox' or self::select or contains(@class,'select')]"):
         try:
             if not el.is_displayed():continue
             s=(compact(el.text)+' '+(el.get_attribute('class') or '')+' '+(el.get_attribute('aria-label') or '')).lower()
@@ -84,7 +79,6 @@ def choose_age(d,target,which):
     d.execute_script('arguments[0].click()',opts[0]);time.sleep(.7);return True
 
 def apply_search(d):
-    # Close/apply popup first if it has a local action, then hit main search.
     for txt in ['Zastosuj','Gotowe','Zatwierdź','Wybierz']:
         es=d.find_elements(By.XPATH,f"//*[self::button or @role='button'][contains(normalize-space(.),'{txt}')]")
         for el in es:
