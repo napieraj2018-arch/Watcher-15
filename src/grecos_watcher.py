@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from watcher import create_alert
+from watcher import create_alert, configured_departure_dates
 
 TZ = ZoneInfo("Europe/Warsaw")
 API = "https://www.grecos.pl/api/sitecore/OffersList/LoadMoreOffers"
@@ -111,10 +111,9 @@ def _airport_ok(name, configured):
 
 
 def _params(cfg):
-    today = datetime.now(TZ).date()
-    deltas = sorted(int(x) for x in cfg["depart_in_days"])
-    start = today + timedelta(days=deltas[0])
-    end = today + timedelta(days=deltas[-1])
+    dates = configured_departure_dates(cfg)
+    start = dates[0]
+    end = dates[-1]
     # Jan 1 keeps the requested ages stable for the whole short departure window.
     child1 = f"{end.year - 5}0101"
     child2 = f"{end.year - 7}0101"
@@ -136,7 +135,7 @@ def _params(cfg):
         "pageFrom": "0",
         "setFilters": "true",
     }
-    allowed = {today + timedelta(days=d) for d in deltas}
+    allowed = set(dates)
     return params, child1, child2, allowed
 
 
