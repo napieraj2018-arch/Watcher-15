@@ -497,15 +497,57 @@ def verify_offer(driver, offer, cfg, family, child_dobs):
     return final_price, "live_family_total", stars
 
 def qualify_listing(offer, cfg):
-    if offer["price"] > cfg["max_total_price_pln"]:
+    price = offer.get("price")
+    if price is None:
         return False
-    if (offer["rating"] or 0) < cfg["min_rating"]:
+    if price < cfg.get("min_total_price_pln", 0):
         return False
-    if (offer["reviews"] or 0) < cfg["min_reviews"]:
+    if price > cfg["max_total_price_pln"]:
         return False
-    if offer.get("stars") is not None and offer["stars"] < cfg.get("min_stars", 4):
+    if (offer.get("rating") or 0) < cfg["min_rating"]:
+        return False
+    if (offer.get("reviews") or 0) < cfg["min_reviews"]:
+        return False
+    stars = offer.get("stars")
+    if cfg.get("require_stars", True):
+        if stars is None or stars < cfg.get("min_stars", 4):
+            return False
+    elif stars is not None and stars < cfg.get("min_stars", 4):
         return False
     return True
+
+
+def departure_window_ok(offer, cfg):
+    dep = offer.get("departure")
+    if dep is None:
+        return False, "missing_departure_date"
+    local_date = now_local().date()
+    allowed = [local_date + timedelta(days=int(d)) for d in cfg.get("depart_in_days", [])]
+    if dep not in allowed:
+        return False, "departure_outside_allowed_days"
+
+    not_before = cfg.get("first_day_not_before")
+    if not_before and allowed and dep == min(allowed):
+        dep_time = None
+        dt = offer.get("departure_datetime")
+        if dt is not None:
+            try:
+                dep_time = dt.time()
+            except Exception:
+                dep_time = None
+        if dep_time is None:
+            raw = str(offer.get("departure_time") or "")
+            m = re.search(r"\b([01]?\d|2[0-3]):([0-5]\d)\b", raw)
+            if m:
+                from datetime import time as _time
+                dep_time = _time(int(m.group(1)), int(m.group(2)))
+        if dep_time is None:
+            return False, "thursday_evening_time_not_verified"
+        hh, mm = [int(x) for x in str(not_before).split(":", 1)]
+        from datetime import time as _time
+        if dep_time < _time(hh, mm):
+            return False, "thursday_before_evening_window"
+    return True, "departure_window_verified"
 
 def offer_key(offer):
     base = "|".join([
@@ -541,6 +583,14 @@ def prior_prices(token, repo, key):
     return prices
 
 def create_alert(token, repo, cfg, offer, verification):
+    if not qualify_listing(offer, cfg):
+        print("NO_ALERT_PROFILE_GATE", cfg.get("deal_profile", "default"), offer.get("hotel"), offer.get("price"))
+        return False
+    window_ok, window_reason = departure_window_ok(offer, cfg)
+    if not window_ok:
+        print("NO_ALERT_DEPARTURE_WINDOW", offer.get("hotel"), window_reason)
+        return False
+
     key = offer_key(offer)
     previous = prior_prices(token, repo, key)
     if previous:
@@ -554,8 +604,9 @@ def create_alert(token, repo, cfg, offer, verification):
 
     radom = cfg["priority_airport_contains"].lower() in offer["airport"].lower()
     prefix = "🔥 RADOM" if radom else "✈️ WARSZAWA"
+    deal_label = cfg.get("deal_label") or cfg.get("deal_profile") or "OFERTA"
     title = (
-        f"{prefix}: {offer['hotel']} — {offer['price']} zł 2+2 — "
+        f"{prefix} [{deal_label}]: {offer['hotel']} — {offer['price']} zł 2+2 — "
         f"{offer['departure'].strftime('%d.%m')}"
     )
     stars_text = f"{offer.get('stars')}★" if offer.get("stars") else "kategoria hotelu nieodczytana"
@@ -564,6 +615,7 @@ def create_alert(token, repo, cfg, offer, verification):
 **{drop_note}**
 
 - **Hotel:** {offer['hotel']} ({stars_text})
+- **Profil:** {cfg.get('deal_label') or cfg.get('deal_profile') or 'OFERTA'}
 - **Cena łączna 2+2:** **{offer['price']} zł**
 - **Dzieci:** {', '.join(str(x) for x in cfg['children_ages'])} lat
 - **Termin:** {offer['departure'].strftime('%d.%m.%Y')} – {offer['return'].strftime('%d.%m.%Y')} ({offer['nights']} nocy)
@@ -571,7 +623,7 @@ def create_alert(token, repo, cfg, offer, verification):
 - **Wyżywienie:** {offer['meal']}
 - **Organizator:** {offer['operator']}
 - **Ocena:** {offer['rating']}/10 ({offer['reviews']} opinii)
-- **Weryfikacja:** {verification}, {now_local().strftime('%d.%m.%Y %H:%M:%S')} Europe/Warsaw
+- **Weryfikacja:** {verification}; {window_reason}; {now_local().strftime('%d.%m.%Y %H:%M:%S')} Europe/Warsaw
 - **Oferta:** {offer['verified_href']}
 
 Watcher potwierdził konfigurację **2 dorosłych + 2 dzieci** oraz cenę rodzinną przed alarmem.
