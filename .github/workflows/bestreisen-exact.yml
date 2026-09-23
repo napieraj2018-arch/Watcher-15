@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "src/validate_bestreisen_exact.py"
+      - "src/inspect_bestreisen_schema.py"
       - ".github/workflows/bestreisen-exact.yml"
 
 permissions:
@@ -35,6 +36,8 @@ jobs:
           set +e
           python src/validate_bestreisen_exact.py > best.log 2>&1
           rc=$?
+          python src/inspect_bestreisen_schema.py > best-schema.log 2>&1
+          rc2=$?
           {
             echo "# Best Reisen exact-family diagnostic"
             echo
@@ -44,8 +47,12 @@ jobs:
             echo
             echo '~~~text'
             grep -E "^BEST_" best.log | tail -n 420 || true
+            echo
+            echo "## BlueVendo schema"
+            grep -E "^BESTSCHEMA_" best-schema.log | tail -n 360 || true
             echo '~~~'
           } > report.md
           gh issue edit 21 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
-          exit "$rc"
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          exit "$rc2"
