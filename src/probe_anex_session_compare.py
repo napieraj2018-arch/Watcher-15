@@ -18,7 +18,7 @@ def family_url():
     q=[
       ("ADULT","2"),("CHILD","2"),("AGE1","5"),("AGE2","7"),("LANG","pol"),
       ("CHECKIN_BEG",(today+timedelta(days=1)).strftime("%Y%m%d")),
-      ("CHECKIN_END",(today+timedelta(days=3)).strftime("%Y%m%d")),
+      ("CHECKIN_END",(today+timedelta(days=60)).strftime("%Y%m%d")),
       ("NIGHTS_FROM","5"),("NIGHTS_TILL","8")
     ]
     return BASE+"?"+urlencode(q)
