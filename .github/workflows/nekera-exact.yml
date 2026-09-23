@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "src/validate_nekera_exact.py"
+      - "src/probe_nekera_query.py"
       - "src/inspect_secondary_js.py"
       - ".github/workflows/nekera-exact.yml"
 
@@ -35,7 +36,13 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           set +e
-          python src/validate_nekera_exact.py > nekera.log 2>&1
+          {
+            echo "## Direct query probe"
+            python src/probe_nekera_query.py
+            echo
+            echo "## UI/network probe"
+            python src/validate_nekera_exact.py
+          } > nekera.log 2>&1
           rc=$?
           {
             echo "# Nekera exact-family diagnostic"
@@ -45,7 +52,7 @@ jobs:
             echo "- exit_code: $rc"
             echo
             echo '```text'
-            tail -n 360 nekera.log
+            tail -n 420 nekera.log
             echo '```'
           } > report.md
           gh issue edit 6 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
