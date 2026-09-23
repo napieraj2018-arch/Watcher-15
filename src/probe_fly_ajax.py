@@ -14,7 +14,7 @@ COMMON=[
  ("filter[addTransport]","F"),("filter[addObjType]",""),("ajaxRequest","true")
 ]
 FAMILY=COMMON+[("filter[person]","2"),("filter[child]","2"),
- ("filter[childAge][1]","01-01-2021"),("filter[childAge][2]","01-01-2019")]
+ ("filter[childAge][1]","5"),("filter[childAge][2]","7")]
 ADULTS=COMMON+[("filter[person]","2"),("filter[child]","0")]
 
 def fetch(label,params):
@@ -24,7 +24,7 @@ def fetch(label,params):
     text=r.text
     print("FLY_AJAX_SIGNALS",label,{
       "child2": "filter%5Bchild%5D=2" in r.url or "filter[child]=2" in r.url,
-      "age1": "01-01-2021" in r.url, "age2":"01-01-2019" in r.url,
+      "age1": ("childAge%5D%5B1%5D=5" in r.url or "filter%5BchildAge%5D%5B1%5D=5" in r.url or "filter[childAge][1]=5" in r.url), "age2":("childAge%5D%5B2%5D=7" in r.url or "filter%5BchildAge%5D%5B2%5D=7" in r.url or "filter[childAge][2]=7" in r.url),
       "za_wszystkich":"za wszystkich" in text.lower(),
       "number_of_kids": "number_of_kids" in text.lower(),
       "priceView":"priceview" in text.lower()
