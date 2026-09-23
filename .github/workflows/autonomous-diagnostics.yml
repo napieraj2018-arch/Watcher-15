@@ -14,6 +14,10 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: autonomous-adapter-diagnostics
+  cancel-in-progress: true
+
 jobs:
   diagnose:
     runs-on: ubuntu-latest
@@ -26,8 +30,10 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
 
-      - name: Run source diagnostics
+      - name: Run and publish source diagnostics incrementally
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set +e
           {
@@ -37,7 +43,13 @@ jobs:
             echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "- generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo
+            echo "Status: started"
+            echo
           } > diagnostic-report.md
+
+          publish() {
+            gh issue edit 2 --repo "${GITHUB_REPOSITORY}" --body-file diagnostic-report.md >/dev/null 2>&1 || true
+          }
 
           run_diag() {
             label="$1"
@@ -56,15 +68,18 @@ jobs:
               echo
             } >> diagnostic-report.md
             rm -f "$out"
+            publish
           }
 
+          publish
           run_diag "EXIM exact family" python src/validate_exim_exact.py
           run_diag "Grecos family" python src/diagnose_grecos_family.py
           run_diag "Travelplanet family" python src/diagnose_travelplanet_family.py
           run_diag "Travelplanet state/network" python src/diagnose_travelplanet_state.py
 
-      - name: Publish diagnostic report
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh issue edit 2 --repo "${GITHUB_REPOSITORY}" --body-file diagnostic-report.md
+          {
+            echo "## Completed"
+            echo
+            echo "All configured diagnostics finished."
+          } >> diagnostic-report.md
+          publish
