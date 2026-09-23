@@ -6,6 +6,7 @@ on:
     paths:
       - "src/validate_oasis_exact.py"
       - "src/inspect_oasis_schema.py"
+      - "src/probe_oasis_js.py"
       - "src/inspect_secondary_js.py"
       - ".github/workflows/oasis-exact.yml"
 
@@ -31,7 +32,9 @@ jobs:
       - name: Inspect Oasis child schema
         env:
           PYTHONUNBUFFERED: "1"
-        run: python src/inspect_oasis_schema.py > oasis-schema.log 2>&1 || true
+        run: |
+          python src/inspect_oasis_schema.py > oasis-schema.log 2>&1 || true
+          python src/probe_oasis_js.py > oasis-probe.log 2>&1 || true
 
       - name: Run Oasis exact family
         shell: bash
@@ -53,7 +56,9 @@ jobs:
             echo "## Schema"
             echo
             echo '```text'
-            tail -n 260 oasis-schema.log
+            tail -n 200 oasis-schema.log
+            echo
+            grep -E "OASIS_JS_(FILE|SNIP|COUNT|PAGE)" oasis-probe.log | tail -n 220
             echo '```'
             echo
             echo "## Exact-family UI"
