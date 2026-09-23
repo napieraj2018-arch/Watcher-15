@@ -105,3 +105,7 @@ Po podwójnej certyfikacji live do `production` wszedł Prima Holiday. Dowód: e
 TanieTravel został awansowany do `production` po twardym teście API. Kanoniczny request zawiera `adults=2`, `children=2`, `childAges=5,7`, `stars=4plus`, `meal=ai` oraz lotniska WAW/WMI/RDO. Dla 20 identycznych pakietów cena 2+2 różniła się od kontroli 2+0, a wszystkie 20 pakietów wróciły ponownie w drugim świeżym zapytaniu 2+2 z identycznym family total. Adapter pozostaje fail-closed na filtrach ceny, jakości, terminu, długości pobytu, lotniska i drugiego odczytu.
 
 Aktualny stan: **11 kanałów production**. Cel pozostaje **15**.
+
+### Kanał nr 11 — TanieTravel production
+
+TanieTravel został awansowany po trzech niezależnych dowodach. Oficjalny skrypt wyszukiwarki serializuje dzieci jako `ages/childAges=5,7`, All Inclusive jako `meal=ai`, a filtr 4★+ jako `stars=4plus`. Bieżąca strona wynikowa pokazała jednocześnie `2 + 2 (5, 7 lat)`, osobną `Cena za 1 osobę` oraz `Cena za 2+2 (5, 7 lat) / Kup za ... zł`, bez oznaczenia `zł/os.` przy family total. Bezpośrednie API znalazło 20 identycznych pakietów 2+2 vs 2+0 z różnymi totalami, a drugi świeży odczyt 2+2 odtworzył te same pakiety i ceny. Adapter produkcyjny wykonuje dwa odczyty rodzinne oraz osobną kontrolę 2+0 i pozostaje fail-closed dla ceny, jakości, terminu i lotniska. Aktualna pula: **11 kanałów production**.
