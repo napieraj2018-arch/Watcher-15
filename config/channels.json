@@ -7,7 +7,7 @@
     "alert_requires_live_availability": true,
     "no_per_person_price_as_total": true,
     "production_goal": 10,
-    "total_registered": 18,
+    "total_registered": 19,
     "alert_only_from_production": true,
     "block_unverified_family_totals": true
   },
@@ -216,6 +216,17 @@
       "exact_party": false,
       "final_total": false,
       "note": "Independent operator added as fallback path toward 10+ production channels. Exact 2+2 ages 5/7, live availability and final family total are not yet proven."
+    },
+    {
+      "id": "bestreisen_pl",
+      "name": "Best Reisen Group",
+      "url": "https://www.bestreisengroup.pl/",
+      "status": "diagnostic",
+      "kind": "operator",
+      "priority": 18,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Current hotel pages expose adult/child URL parameters and an explicit 'Całkowita' price alongside adult price. Exact 2+2 ages 5/7 and party-sensitive total are being validated."
     }
   ]
 }
