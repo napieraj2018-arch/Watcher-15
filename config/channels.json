@@ -187,12 +187,12 @@
       "id": "regobis_pl",
       "name": "Rego-Bis",
       "url": "https://www.rego-bis.pl/rodzina2plus2",
-      "status": "diagnostic",
+      "status": "blocked_no_child_age",
       "kind": "aggregator",
       "priority": 12,
       "exact_party": false,
       "final_total": false,
-      "note": "Added as an independent candidate because its dedicated family 2+2 flow requires child birth dates and rechecks price/availability for the selected party. Exact 5/7 serialization and live final total still require connector proof."
+      "note": "Hard blocker confirmed: Rego-Bis family picker preserves 2 adults + 2 children but exposes no child-age fields at all (only a 0-17 years child category). Under Watcher-15 policy it cannot prove exact ages 5/7, so it cannot enter production even if a price is shown."
     },
     {
       "id": "anex_pl",
