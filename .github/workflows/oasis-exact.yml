@@ -7,6 +7,7 @@ on:
       - "src/probe_oasis_party.py"
       - "src/probe_oasis_confirm.py"
       - "src/probe_oasis_api.py"
+      - "src/probe_oasis_compare.py"
       - "src/validate_oasis_exact.py"
       - ".github/workflows/oasis-exact.yml"
 
