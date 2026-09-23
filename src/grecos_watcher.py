@@ -77,7 +77,7 @@ def _exact_party(row, child1, child2):
 
 
 def _offer_url(row):
-    value = row.get("Hotel_Url") or row.get("Hotel_Link") or row.get("Hotel_FriendlyUrl") or ""
+    value = row.get("Hotel_OfferUrlWithOfferCode") or row.get("Hotel_Url") or row.get("Hotel_Link") or row.get("Hotel_FriendlyUrl") or ""
     if value.startswith("http"):
         return value
     if value:
@@ -124,28 +124,73 @@ def _params(cfg):
     return params, child1, child2, allowed
 
 
+def _comparison_key(row):
+    return (
+        row.get("Merlin_HotelCode"),
+        row.get("Merlin_ParsedStartDate"),
+        row.get("Merlin_Duration"),
+        row.get("Merlin_BoardStandardDesc"),
+        row.get("Merlin_FlightFrom"),
+    )
+
+
+def _fetch_pages(params, label, max_pages=6):
+    rows = []
+    fingerprints = set()
+    for page in range(0, max_pages):
+        page_params = dict(params)
+        page_params["pageFrom"] = str(page)
+        response = requests.get(API, params=page_params, headers=HEADERS, timeout=35)
+        print("GRECOS_LIVE_REQUEST", label, page, response.url)
+        print("GRECOS_LIVE_STATUS", label, page, response.status_code, response.headers.get("content-type"), len(response.content))
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, list):
+            print("GRECOS_FAIL_CLOSED_NON_LIST", label, page, type(data).__name__)
+            return []
+        print("GRECOS_LIVE_PAGE_ROWS", label, page, len(data))
+        if not data:
+            break
+        fingerprint = tuple(
+            str(x.get("Merlin_Id") or x.get("Merlin_HotelCode") or "")
+            for x in data
+            if isinstance(x, dict)
+        )
+        if fingerprint and fingerprint in fingerprints:
+            print("GRECOS_DUPLICATE_PAGE_STOP", label, page)
+            break
+        fingerprints.add(fingerprint)
+        rows.extend(data)
+    return rows
+
+
 def _fetch(cfg):
     params, child1, child2, allowed = _params(cfg)
     offers = []
     seen = set()
-    rows = []
-    for page in range(0, 6):
-        page_params = dict(params)
-        page_params["pageFrom"] = str(page)
-        response = requests.get(API, params=page_params, headers=HEADERS, timeout=35)
-        print("GRECOS_LIVE_REQUEST", page, response.url)
-        print("GRECOS_LIVE_STATUS", page, response.status_code, response.headers.get("content-type"), len(response.content))
-        response.raise_for_status()
-        data = response.json()
-        if not isinstance(data, list):
-            print("GRECOS_FAIL_CLOSED_NON_LIST", page, type(data).__name__)
-            return []
-        print("GRECOS_LIVE_PAGE_ROWS", page, len(data))
-        if not data:
-            break
-        rows.extend(data)
 
-    for row in rows:
+    family_rows = _fetch_pages(params, "FAMILY")
+    if not family_rows:
+        return []
+
+    # Independent same-offer control: never trust Merlin_FullPriceParsed merely
+    # because it is larger than the per-adult amount. Compare it against a
+    # separate adults-only query and require the exact same package to price
+    # differently for 2+2 than for 2 adults.
+    adults_params = dict(params)
+    adults_params["Children"] = "0"
+    adults_params.pop("Child1", None)
+    adults_params.pop("Child2", None)
+    adult_rows = _fetch_pages(adults_params, "ADULTS")
+    adult_totals = {}
+    for row in adult_rows:
+        if not isinstance(row, dict):
+            continue
+        total = _num(row.get("Merlin_FullPriceParsed"))
+        if total is not None:
+            adult_totals[_comparison_key(row)] = total
+
+    for row in family_rows:
         if not isinstance(row, dict) or not _exact_party(row, child1, child2):
             continue
         if not row.get("Merlin_Id"):
@@ -154,6 +199,14 @@ def _fetch(cfg):
         adult_unit = _num(row.get("Merlin_AdultPrice"))
         if total is None or adult_unit is None or total == adult_unit:
             continue
+
+        comparison_key = _comparison_key(row)
+        adults_only_total = adult_totals.get(comparison_key)
+        if adults_only_total is None or adults_only_total == total:
+            print("GRECOS_FAMILY_PRICE_PROOF_REJECT", comparison_key, total, adults_only_total)
+            continue
+        print("GRECOS_FAMILY_PRICE_PROOF", comparison_key, "family", total, "adults_only", adults_only_total)
+
         dep = _departure(row.get("Merlin_ParsedStartFullDate") or row.get("Merlin_ParsedStartDate"))
         if dep not in allowed:
             continue
@@ -188,6 +241,8 @@ def _fetch(cfg):
             "href": href,
             "verified_href": href,
             "price": total,
+            "adult_only_total": adults_only_total,
+            "family_price_proof": True,
             "departure": dep,
             "return": dep + timedelta(days=nights),
             "nights": nights,
@@ -202,7 +257,6 @@ def _fetch(cfg):
         print("GRECOS_EXACT_LIVE_CARD", offer)
     print("GRECOS_EXACT_LIVE_COUNT", len(offers))
     return offers
-
 
 def _quality_ok(offer, cfg):
     # Fail closed. We never substitute a listing/per-person price or borrow
