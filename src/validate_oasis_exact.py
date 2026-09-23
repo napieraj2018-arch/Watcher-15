@@ -149,12 +149,16 @@ def main():
         # counter reaches 2. Fill those exact React controls first.
         age_inputs=[e for e in d.find_elements(By.CSS_SELECTOR,".participants input.ageInput") if e.is_displayed()]
         print("OASIS_EXACT_AGE_INPUT_COUNT",len(age_inputs))
-        for i,(e,target) in enumerate(zip(age_inputs,["01.01.2021","01.01.2019"])):
+        # The masked React field inserts separators itself. Sending dots
+        # produces malformed values such as 01..0.1.20 and keeps Confirm disabled.
+        for i,(e,keys,expected) in enumerate(zip(age_inputs,["01012021","01012019"],["01.01.2021","01.01.2019"])):
             try:
                 e.click()
                 from selenium.webdriver.common.keys import Keys
-                e.send_keys(Keys.CONTROL,"a");e.send_keys(target);e.send_keys(Keys.TAB);time.sleep(.7)
-                print("OASIS_EXACT_DOB",i,target,"=>",e.get_attribute("value"))
+                e.send_keys(Keys.CONTROL,"a");e.send_keys(Keys.BACKSPACE)
+                e.send_keys(keys);e.send_keys(Keys.TAB);time.sleep(.8)
+                actual=e.get_attribute("value")
+                print("OASIS_EXACT_DOB",i,expected,"=>",actual,"VALID",actual==expected)
             except Exception as ex:
                 print("OASIS_EXACT_DOB_ERR",i,type(ex).__name__,str(ex)[:180])
         confirms=[e for e in d.find_elements(By.CSS_SELECTOR,".participants button.confirmButton") if e.is_displayed()]
