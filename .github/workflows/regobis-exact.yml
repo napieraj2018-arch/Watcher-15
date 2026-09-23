@@ -7,6 +7,7 @@ on:
       - "src/validate_regobis_exact.py"
       - "src/inspect_regobis_js.py"
       - "src/probe_regobis_assets.py"
+      - "src/probe_regobis_party.py"
       - ".github/workflows/regobis-exact.yml"
 
 permissions:
@@ -37,6 +38,8 @@ jobs:
           set +e
           python src/probe_regobis_assets.py > rego-deep.log 2>&1
           rcdeep=$?
+          python src/probe_regobis_party.py > rego-party.log 2>&1
+          rcparty=$?
           python src/inspect_regobis_js.py > rego-js.log 2>&1
           rcjs=$?
           python src/validate_regobis_exact.py > rego.log 2>&1
@@ -51,6 +54,9 @@ jobs:
             echo '~~~text'
             grep -E "^REGO_" rego.log | tail -n 360 || true
             echo
+            echo "## Focused participant flow"
+            grep -E "^REGO2_" rego-party.log | tail -n 320 || true
+            echo
             echo "## Focused bundle schema"
             grep -E "^REGODEEP_(FILE|URL|SNIP)" rego-deep.log | tail -n 320 || true
             echo
@@ -62,4 +68,5 @@ jobs:
           cat report.md
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           if [ "$rcdeep" -ne 0 ]; then exit "$rcdeep"; fi
+          if [ "$rcparty" -ne 0 ]; then exit "$rcparty"; fi
           exit "$rcjs"
