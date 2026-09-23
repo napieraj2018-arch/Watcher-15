@@ -37,6 +37,20 @@ def compact(s: str) -> str:
 def now_local():
     return datetime.now(TZ)
 
+
+def configured_departure_dates(cfg):
+    fixed=cfg.get("departure_dates") or []
+    if fixed:
+        out=[]
+        for raw in fixed:
+            try:
+                out.append(datetime.strptime(str(raw),"%Y-%m-%d").date())
+            except Exception as exc:
+                raise RuntimeError(f"Invalid departure date {raw}: {exc}")
+        return sorted(set(out))
+    local_date=now_local().date()
+    return sorted({local_date+timedelta(days=int(d)) for d in cfg.get("depart_in_days", [])})
+
 def representative_dob(age: int, on_date: date) -> date:
     # A synthetic DOB used only to price the requested completed age.
     # Keeping it ~30 days before today's month/day prevents a birthday
@@ -527,8 +541,7 @@ def departure_window_ok(offer, cfg):
     dep = offer.get("departure")
     if dep is None:
         return False, "missing_departure_date"
-    local_date = now_local().date()
-    allowed = [local_date + timedelta(days=int(d)) for d in cfg.get("depart_in_days", [])]
+    allowed = configured_departure_dates(cfg)
     if dep not in allowed:
         return False, "departure_outside_allowed_days"
 
@@ -649,7 +662,7 @@ Watcher potwierdził konfigurację **2 dorosłych + 2 dzieci** oraz cenę rodzin
 def run_watcher(cfg):
     local_date = now_local().date()
     family, child_dobs = family_token(cfg["adults"], cfg["children_ages"], local_date)
-    target_days = [local_date + timedelta(days=d) for d in cfg["depart_in_days"]]
+    target_days = configured_departure_dates(cfg)
     print("WATCHER_DATE", local_date.isoformat())
     print("TARGET_DAYS", [d.isoformat() for d in target_days])
     print("FAMILY", f"{cfg['adults']} adults + {len(cfg['children_ages'])} children ages {cfg['children_ages']}")
@@ -1273,7 +1286,7 @@ def itaka_verify_offer(driver, offer, cfg, child_dobs):
 def run_itaka_watcher(cfg):
     local_date=now_local().date()
     child_dobs=[representative_dob(age,local_date) for age in cfg["children_ages"]]
-    target_days=[local_date+timedelta(days=d) for d in cfg["depart_in_days"]]
+    target_days=configured_departure_dates(cfg)
     family_url=itaka_family_url(cfg,child_dobs)
     print("ITAKA_TARGET_DAYS",[d.isoformat() for d in target_days])
     print("ITAKA_FAMILY_URL",family_url)
