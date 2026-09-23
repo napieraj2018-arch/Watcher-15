@@ -139,6 +139,42 @@ def main():
                     print("FLY_CHILD_OPTIONS",idx,opts[:80])
                 except: pass
 
+        # The generated child controls expose canonical hidden fields:
+        # filter[childAge][1] and filter[childAge][2]. Fly uses DD-MM-YYYY
+        # throughout the same search form (e.g. whenFrom/whenTo), so write
+        # exact DOBs there and mirror them into the visible readonly date inputs.
+        dep=(datetime.now(TZ).date()+timedelta(days=1))
+        dobs=[datetime(dep.year-5,1,1).strftime("%d-%m-%Y"),datetime(dep.year-7,1,1).strftime("%d-%m-%Y")]
+        for idx,dob in enumerate(dobs,1):
+            hs=d.find_elements(By.CSS_SELECTOR,f"input[name='filter[childAge][{idx}]']")
+            vs=d.find_elements(By.CSS_SELECTOR,f"input[data-birthdate='{idx}']")
+            if hs:
+                d.execute_script("""
+                  const e=arguments[0],v=arguments[1];
+                  e.value=v;
+                  e.dispatchEvent(new Event('input',{bubbles:true}));
+                  e.dispatchEvent(new Event('change',{bubbles:true}));
+                """,hs[0],dob)
+            if vs:
+                d.execute_script("""
+                  const e=arguments[0],v=arguments[1];
+                  e.removeAttribute('readonly');
+                  e.value=v;
+                  e.dispatchEvent(new Event('input',{bubbles:true}));
+                  e.dispatchEvent(new Event('change',{bubbles:true}));
+                  e.dispatchEvent(new Event('blur',{bubbles:true}));
+                """,vs[0],dob)
+            summary["age_fields"].append({"index":idx,"dob":dob,
+                "hidden":hs[0].get_attribute("value") if hs else None,
+                "visible":vs[0].get_attribute("value") if vs else None})
+            print("FLY_CHILD_DOB_SET",summary["age_fields"][-1])
+        hidden_children=d.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
+        print("FLY_PARTY_BEFORE_APPLY",{
+            "adults":adult_hidden[0].get_attribute("value") if adult_hidden else None,
+            "children":hidden_children[0].get_attribute("value") if hidden_children else None,
+            "ages":summary["age_fields"]
+        })
+
         # Apply the participant dropdown. Fly uses live-search/AJAX; there is
         # no reliable primary "Szukaj" button on this results surface.
         applied=False
