@@ -240,7 +240,7 @@
       "exact_party": true,
       "final_total": true,
       "live_availability": true,
-      "note": "Production proof: search_offers.php accepts adults=2, children=2, canonical childAges='5,7', stars=4plus and meal=ai. Same-package matching on offerHash/hotel/date/room/airport/provider found 20 family totals different from 2+0 controls; all 20 exact-family packages returned again in a second fresh API request with identical totals. Production adapter repeats family/adult/family reads and fails closed on date, nights, airport, price, rating/reviews or recheck mismatch."
+      "note": "Production proof: official search JS serializes child ages as ages/childAges=5,7, All Inclusive as meal=ai and 4★+ as stars=4plus. Current exact-family surface visibly showed '2 + 2 (5, 7 lat)', separate 'Cena za 1 osobę' and 'Cena za 2+2 (5, 7 lat) / Kup za ... zł'. Direct API matched 20 identical provider/hotel/date/room/airport/service packages against 2+0 with different totals and repeated the same 2+2 rows/prices on a second fresh API read. Production adapter is fail-closed and performs two family reads plus the adult control before any alert."
     },
     {
       "id": "dertour_pl",
