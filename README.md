@@ -99,3 +99,9 @@ Po rzeczywistym `ReadTimeout` w produkcyjnym teście API adapter dostał ogranic
 ### Minimum celu osiągnięte — 10 kanałów production
 
 Po podwójnej certyfikacji live do `production` wszedł Prima Holiday. Dowód: exact 2+2 w kalkulatorze `[18,18,5,7]`, cztery ceny uczestników sumujące się do finalnego totalu 6558 PLN, ten sam trip dla 2 dorosłych = 3786 PLN, `onrequest=false`, `maxroom=20`, a drugi niezależny odczyt oferty i drugi family calculation ponownie potwierdziły 6558 PLN. Aktualna pula production: **Wakacje.pl, TUI Poland, ITAKA, Rainbow, EXIM tours, Travelplanet, Grecos, Sun & Fun, Oasis Tours, Prima Holiday**. System nadal rozwijamy w stronę 15 niezależnych kanałów.
+
+### Kanał 11 — TanieTravel
+
+TanieTravel został awansowany do `production` po twardym teście API. Kanoniczny request zawiera `adults=2`, `children=2`, `childAges=5,7`, `stars=4plus`, `meal=ai` oraz lotniska WAW/WMI/RDO. Dla 20 identycznych pakietów cena 2+2 różniła się od kontroli 2+0, a wszystkie 20 pakietów wróciły ponownie w drugim świeżym zapytaniu 2+2 z identycznym family total. Adapter pozostaje fail-closed na filtrach ceny, jakości, terminu, długości pobytu, lotniska i drugiego odczytu.
+
+Aktualny stan: **11 kanałów production**. Cel pozostaje **15**.
