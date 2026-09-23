@@ -1,0 +1,33 @@
+name: TanieTravel exact-family diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/validate_tanietravel_exact.py"
+      - ".github/workflows/tanietravel-exact.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tanietravel-exact-family
+  cancel-in-progress: true
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Probe TanieTravel exact family
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python src/validate_tanietravel_exact.py
