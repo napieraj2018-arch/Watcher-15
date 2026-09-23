@@ -175,12 +175,13 @@
       "id": "oasis_pl",
       "name": "Oasis Tours",
       "url": "https://oasis.pl/",
-      "status": "diagnostic",
+      "status": "production",
       "kind": "operator",
       "priority": 11,
       "exact_party": true,
-      "final_total": false,
-      "note": "Exact participant serialization verified in live BlueVendo request: adults=2, infants='5,7', UI label '2 dorosłych, 2 dzieci'. Still diagnostic until live result rows prove a final party-sensitive family total and availability."
+      "final_total": true,
+      "note": "Production proof: live BlueVendo UI/API preserves adults=2 and infants=5,7. Seven identical hotel/room/date/meal/transport packages were matched against 2+0 controls and customertotalprice increased for 2+2 (e.g. 3102 vs 1926 PLN). Adapter requires live mintrip availability, exact 1–3 day departure, 5–8 nights, AI/target airport, same-package adult control, and second API recheck; missing quality metadata fails closed.",
+      "live_availability": true
     },
     {
       "id": "regobis_pl",
