@@ -1,5 +1,5 @@
 import json,time
-from urllib.parse import urlparse,parse_qs
+from urllib.parse import urlparse,parse_qs,urlencode
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -66,5 +66,52 @@ def main():
         for kind,expr in [('local','return JSON.stringify(localStorage)'),('session','return JSON.stringify(sessionStorage)')]:
             try: print(kind,d.execute_script(expr)[:20000])
             except Exception as e: print(kind,'ERR',type(e).__name__)
+
+        # Canonical frontend state uses nl_occupancy_children and an array
+        # nl_ages_children. Travelplanet serializes array filters with [] (the
+        # same form is visible for nl_transportation_id[]), so bypass the
+        # headless picker commit bug and verify the backend directly.
+        parsed=urlparse(d.current_url)
+        base=parse_qs(parsed.query,keep_blank_values=True)
+        base['nl_occupancy_adults']=['2']
+        base['nl_occupancy_children']=['2']
+        base.pop('nl_ages_children',None); base.pop('nl_ages_children[]',None)
+        pairs=[]
+        for k,vals in base.items():
+            for v in vals: pairs.append((k,v))
+        pairs.extend([('nl_ages_children[]','5'),('nl_ages_children[]','7')])
+        direct='https://www.travelplanet.pl/wakacje/?'+urlencode(pairs)
+        print('TP_DIRECT_EXACT_URL',direct)
+        d.get_log('performance')
+        d.get(direct); WebDriverWait(d,45).until(lambda x:x.execute_script('return document.readyState')=='complete'); time.sleep(8)
+        print('TP_DIRECT_FINAL_URL',d.current_url)
+        print('TP_DIRECT_QS',json.dumps(parse_qs(urlparse(d.current_url).query),ensure_ascii=False,sort_keys=True))
+        try:
+            print('TP_DIRECT_PARTY',[
+              (x.get_attribute('data-testid'),x.get_attribute('value'))
+              for x in d.find_elements(By.CSS_SELECTOR,"[data-testid^='person-textbox-control-']")
+            ])
+        except Exception as e: print('TP_DIRECT_PARTY_ERR',type(e).__name__)
+        body=d.find_element(By.TAG_NAME,'body').text
+        for line in [x.strip() for x in body.splitlines() if x.strip()]:
+            lo=line.lower()
+            if any(k in lo for k in ['2 dzieci','5 lat','7 lat','za wszystkich','cena razem','łącznie']):
+                print('TP_DIRECT_SIGNAL',line[:1000])
+        print('TP_DIRECT_STORAGE')
+        for kind,expr in [('local','return JSON.stringify(localStorage)'),('session','return JSON.stringify(sessionStorage)')]:
+            try:
+                raw=d.execute_script(expr)
+                if any(k in raw for k in ['nl_occupancy_children','nl_ages_children','kids','child']):
+                    print(kind,raw[:24000])
+            except Exception as e: print(kind,'ERR',type(e).__name__)
+        print('TP_DIRECT_NETWORK')
+        for row in d.get_log('performance'):
+            try:
+                msg=json.loads(row['message'])['message']
+                if msg['method']!='Network.requestWillBeSent': continue
+                req=msg['params']['request']; blob=(req.get('url','')+' '+(req.get('postData') or ''))
+                if any(k in blob for k in ['nl_occupancy_children','nl_ages_children','adult:_2_child:_2','number_of_kids']):
+                    print('TP_DIRECT_REQ',req.get('method'),req.get('url','')[:7000],'POST',(req.get('postData') or '')[:10000])
+            except: pass
     finally: d.quit()
 if __name__=='__main__': main()
