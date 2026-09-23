@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "src/diagnose_travelplanet_family.py"
+      - "src/inspect_travelplanet_js.py"
       - "src/diagnose_travelplanet_state.py"
       - "src/inspect_travelplanet_js.py"
       - ".github/workflows/travelplanet-family.yml"
