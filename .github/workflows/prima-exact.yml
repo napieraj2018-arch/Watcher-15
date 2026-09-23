@@ -7,6 +7,7 @@ on:
       - "src/validate_prima_exact.py"
       - "src/probe_prima_graphql.py"
       - "src/inspect_prima_graphql_schema.py"
+      - "src/probe_prima_introspection.py"
       - ".github/workflows/prima-exact.yml"
 
 permissions:
@@ -41,6 +42,8 @@ jobs:
           rc2=$?
           python src/inspect_prima_graphql_schema.py > prima-schema.log 2>&1
           rc3=$?
+          python src/probe_prima_introspection.py > prima-introspection.log 2>&1
+          rc4=$?
           {
             echo "# Prima Holiday exact-family diagnostic"
             echo
@@ -56,10 +59,14 @@ jobs:
             echo
             echo "## GraphQL/search schema"
             grep -E "^PRIMASCHEMA_" prima-schema.log | tail -n 320 || true
+            echo
+            echo "## GraphQL introspection"
+            grep -E "^PRIMAINT_" prima-introspection.log | tail -n 360 || true
             echo '~~~'
           } > report.md
           gh issue edit 19 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           if [ "$rc2" -ne 0 ]; then exit "$rc2"; fi
-          exit "$rc3"
+          if [ "$rc3" -ne 0 ]; then exit "$rc3"; fi
+          exit "$rc4"
