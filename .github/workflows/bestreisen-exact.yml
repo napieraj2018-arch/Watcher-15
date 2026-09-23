@@ -1,0 +1,51 @@
+name: Best Reisen exact-family diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/validate_bestreisen_exact.py"
+      - ".github/workflows/bestreisen-exact.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bestreisen-exact-family
+  cancel-in-progress: true
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run Best Reisen exact family
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          python src/validate_bestreisen_exact.py > best.log 2>&1
+          rc=$?
+          {
+            echo "# Best Reisen exact-family diagnostic"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            grep -E "^BEST_" best.log | tail -n 420 || true
+            echo '~~~'
+          } > report.md
+          gh issue edit 21 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat report.md
+          exit "$rc"
