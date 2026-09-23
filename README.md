@@ -83,3 +83,7 @@ Do puli dodano niezależny kanał `regobis_pl`. Serwis ma dedykowany przepływ �
 ### Postęp — Oasis i ANEX
 
 Oasis został awansowany do `production` po potwierdzeniu exact 2+2, żywej dostępności i party-sensitive final total na tych samych pakietach. Dodano także ANEX Tour jako 16. niezależne źródło: żywe wiersze SAMO zawierają `adult-2 child-2`, `AGES=5,7`, wariant pokoju 2+2, dostępność i jawny PLN price. ANEX pozostaje diagnostic, dopóki kontrola tej samej oferty 2+0 nie dowiedzie, że kwota jest końcową ceną rodzinną.
+
+### Prima Holiday — twardy dowód ceny rodzinnej
+
+GraphQL `BluevendoFastCalculation` został sprawdzony bez polegania na cenach `/os.`. Dla dokładnej grupy `[18,18,5,7]` zwraca cztery ceny uczestników i ich sumę jako cenę wyjazdu; kontrola tego samego `tripId` dla `[18,18]` daje inny, niższy total (m.in. 1036 vs 678 PLN oraz 7476 vs 3738 PLN). Prima pozostaje `diagnostic` do czasu spięcia tego kalkulatora z żywym pakietem lotniczym 1–3 dni / 5–8 nocy oraz końcowym recheckiem dostępności, lotniska i jakości hotelu.
