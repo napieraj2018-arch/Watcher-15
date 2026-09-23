@@ -49,7 +49,10 @@ def read_rows(d,label,family):
     for tr in d.find_elements(By.CSS_SELECTOR,"tr.price_info"):
         try:
             cls=tr.get_attribute("class") or ""
-            expected=("adult-2" in cls and ("child-2" in cls if family else "child-0" in cls))
+            if family:
+                expected=("adult-2" in cls and "child-2" in cls)
+            else:
+                expected=("adult-2" in cls and not re.search(r"\\bchild-[1-9]\\b",cls))
             if not expected:continue
             price_el=tr.find_elements(By.CSS_SELECTOR,"[data-converted-price-number]")
             if not price_el:continue
