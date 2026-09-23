@@ -606,42 +606,80 @@ def prior_prices(token, repo, key):
             prices.append(int(m.group(1)))
     return prices
 
+def select_deal_profile(cfg, offer):
+    profiles = cfg.get("deal_profiles") or []
+    if not profiles:
+        return dict(cfg)
+
+    price = offer.get("price")
+    rating = offer.get("rating")
+    reviews = offer.get("reviews")
+    stars = offer.get("stars")
+    if price is None:
+        return None
+
+    for profile in profiles:
+        lo = int(profile.get("min_total_price_pln", 0))
+        hi = int(profile.get("max_total_price_pln", cfg.get("max_total_price_pln", 10**9)))
+        if not (lo <= price <= hi):
+            continue
+        if (rating or 0) < float(profile.get("min_rating", cfg.get("min_rating", 0))):
+            continue
+        if (reviews or 0) < int(profile.get("min_reviews", cfg.get("min_reviews", 0))):
+            continue
+        min_stars = int(profile.get("min_stars", cfg.get("min_stars", 0)))
+        require_stars = bool(profile.get("require_stars", cfg.get("require_stars", True)))
+        if require_stars:
+            if stars is None or stars < min_stars:
+                continue
+        elif stars is not None and stars < min_stars:
+            continue
+
+        out = dict(cfg)
+        out.update(profile)
+        out["deal_profile"] = profile.get("id", "default")
+        out["deal_label"] = profile.get("label", out["deal_profile"])
+        return out
+    return None
+
+
 def create_alert(token, repo, cfg, offer, verification):
-    if not qualify_listing(offer, cfg):
-        print("NO_ALERT_PROFILE_GATE", cfg.get("deal_profile", "default"), offer.get("hotel"), offer.get("price"))
+    profile_cfg = select_deal_profile(cfg, offer)
+    if profile_cfg is None:
+        print("NO_ALERT_PROFILE_GATE", offer.get("hotel"), offer.get("price"), offer.get("rating"), offer.get("reviews"), offer.get("stars"))
         return False
-    window_ok, window_reason = departure_window_ok(offer, cfg)
+    window_ok, window_reason = departure_window_ok(offer, profile_cfg)
     if not window_ok:
         print("NO_ALERT_DEPARTURE_WINDOW", offer.get("hotel"), window_reason)
         return False
 
-    key = offer_key(offer, cfg)
+    key = offer_key(offer, profile_cfg)
     previous = prior_prices(token, repo, key)
     if previous:
         best = min(previous)
-        if best - offer["price"] < cfg["significant_price_drop_pln"]:
+        if best - offer["price"] < profile_cfg["significant_price_drop_pln"]:
             print("NO_ALERT_DUPLICATE", offer["hotel"], offer["price"], "prior_best", best)
             return False
         drop_note = f"Spadek z najlepszego wcześniejszego alertu {best} zł."
     else:
         drop_note = "Nowa zweryfikowana oferta."
 
-    radom = cfg["priority_airport_contains"].lower() in offer["airport"].lower()
+    radom = profile_cfg["priority_airport_contains"].lower() in offer["airport"].lower()
     prefix = "🔥 RADOM" if radom else "✈️ WARSZAWA"
-    deal_label = cfg.get("deal_label") or cfg.get("deal_profile") or "OFERTA"
+    deal_label = profile_cfg.get("deal_label") or profile_cfg.get("deal_profile") or "OFERTA"
     title = (
         f"{prefix} [{deal_label}]: {offer['hotel']} — {offer['price']} zł 2+2 — "
         f"{offer['departure'].strftime('%d.%m')}"
     )
     stars_text = f"{offer.get('stars')}★" if offer.get("stars") else "kategoria hotelu nieodczytana"
-    body = f"""@{cfg['notify_github_user']}
+    body = f"""@{profile_cfg['notify_github_user']}
 
 **{drop_note}**
 
 - **Hotel:** {offer['hotel']} ({stars_text})
-- **Profil:** {cfg.get('deal_label') or cfg.get('deal_profile') or 'OFERTA'}
+- **Profil:** {profile_cfg.get('deal_label') or profile_cfg.get('deal_profile') or 'OFERTA'}
 - **Cena łączna 2+2:** **{offer['price']} zł**
-- **Dzieci:** {', '.join(str(x) for x in cfg['children_ages'])} lat
+- **Dzieci:** {', '.join(str(x) for x in profile_cfg['children_ages'])} lat
 - **Termin:** {offer['departure'].strftime('%d.%m.%Y')} – {offer['return'].strftime('%d.%m.%Y')} ({offer['nights']} nocy)
 - **Wylot:** {offer['airport']}
 - **Wyżywienie:** {offer['meal']}
@@ -653,14 +691,14 @@ def create_alert(token, repo, cfg, offer, verification):
 Watcher potwierdził konfigurację **2 dorosłych + 2 dzieci** oraz cenę rodzinną przed alarmem.
 
 <!-- watcher-offer-key:{key} -->
-<!-- watcher-search:{cfg.get('search_id') or 'default-search'} -->
-<!-- watcher-profile:{cfg.get('deal_profile') or 'default-profile'} -->
+<!-- watcher-search:{profile_cfg.get('search_id') or 'default-search'} -->
+<!-- watcher-profile:{profile_cfg.get('deal_profile') or 'default-profile'} -->
 <!-- watcher-price:{offer['price']} -->
 """
     payload = {
         "title": title,
         "body": body,
-        "assignees": [cfg["notify_github_user"]],
+        "assignees": [profile_cfg["notify_github_user"]],
     }
     github_api("POST", "issues", token, repo, json=payload)
     print("ALERT_CREATED", title)
