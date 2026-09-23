@@ -98,7 +98,7 @@
       "priority": 5,
       "exact_party": true,
       "final_total": false,
-      "note": "Exact family state is now verified in the live result URL/UI: AC1=2, KC1=2, KA1=5|7 and visible 2 adults + 2 children, ages 5/7. Current candidate selector/API path still yields no offer whose explicit final family total can be rechecked, so alerts remain blocked."
+      "note": "Exact family state is verified in live UI/URL: AC1=2, KC1=2, KA1=5|7. EXIM filter API now also exposes occupancy.childAges including 5/7 and airport IDs 3850 Warsaw, 4380 Modlin, 4381 Radom. A direct guessed getsearchresult query returned toursCount=0 despite aggregate destination counts, so the backend parameter mapping is not yet trustworthy. Browser network capture with live dates was added to recover the exact API request before any production promotion."
     },
     {
       "id": "joinup_pl",
@@ -131,7 +131,7 @@
       "priority": 8,
       "exact_party": false,
       "final_total": false,
-      "note": "Direct live JSON offer endpoint discovered: /api/sitecore/OffersList/LoadMoreOffers with Adults=2 and search filters. Passenger summary picker is identified; next step is mapping child-count/age parameters into this API before any family-price verification."
+      "note": "Direct live JSON endpoint /api/sitecore/OffersList/LoadMoreOffers is confirmed. First passenger automation attempt proved the final URL/API explicitly serializes Adults=2 and Children=0, and also exposed a selector bug: a broad ancestor accidentally clicked the main SZUKAJ button instead of child-plus. The diagnostic is now rewritten to target the passenger input-box itself and refuse the main search button while mapping child ages 5/7."
     },
     {
       "id": "sunfun_pl",
@@ -142,7 +142,7 @@
       "priority": 9,
       "exact_party": true,
       "final_total": true,
-      "note": "Live exact search verified room1=2,5,7, visible 2 adults + 2 children, exact departure-date guard and explicit 'Cena całkowita' family total (e.g. 8304 zł on 2026-09-24). Kept diagnostic because offer-level stars/rating/review metadata is not yet reliably scoped, so the active quality filters cannot safely generate alerts yet."
+      "note": "Live exact search verifies room1=2,5,7, visible 2 adults + 2 children, exact departure-date guard and explicit family total (8304 zł on 2026-09-24). Parser now scopes quality metadata to the same DOM ancestor containing exactly one family total so adjacent hotels cannot lend stars/rating/reviews. Production remains blocked until a live exact-priced card exposes >=4 stars, >=8/10 and >=30 reviews in that same scoped offer."
     },
     {
       "id": "esky_pl",
