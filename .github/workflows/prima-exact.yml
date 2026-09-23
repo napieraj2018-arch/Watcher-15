@@ -10,6 +10,7 @@ on:
       - "src/probe_prima_introspection.py"
       - "src/probe_prima_token.py"
       - "src/probe_prima_filters.py"
+      - "src/probe_prima_live.py"
       - ".github/workflows/prima-exact.yml"
 
 permissions:
@@ -50,6 +51,8 @@ jobs:
           rc5=$?
           python src/probe_prima_filters.py > prima-filters.log 2>&1
           rc6=$?
+          python src/probe_prima_live.py > prima-live.log 2>&1
+          rc7=$?
           {
             echo "# Prima Holiday exact-family diagnostic"
             echo
@@ -74,6 +77,9 @@ jobs:
             echo
             echo "## Filters input schema"
             grep -E "^PRIMAFILTER_" prima-filters.log | tail -n 220 || true
+            echo
+            echo "## Live BlueVendo search/offer metadata"
+            grep -E "^PRIMALIVE_" prima-live.log | tail -n 520 || true
             echo '~~~'
           } > report.md
           gh issue edit 19 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
@@ -83,4 +89,5 @@ jobs:
           if [ "$rc3" -ne 0 ]; then exit "$rc3"; fi
           if [ "$rc4" -ne 0 ]; then exit "$rc4"; fi
           if [ "$rc5" -ne 0 ]; then exit "$rc5"; fi
-          exit "$rc6"
+          if [ "$rc6" -ne 0 ]; then exit "$rc6"; fi
+          exit "$rc7"
