@@ -38,6 +38,12 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python src/probe_oasis_confirm.py > oasis-focus.log 2>&1
 
+      - name: Compare Oasis family and adults totals
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: timeout 45s python src/probe_oasis_compare.py > oasis-compare.log 2>&1
+
       - name: Probe Oasis direct API fallback
         continue-on-error: true
         shell: bash
@@ -60,8 +66,11 @@ jobs:
             echo '~~~text'
             if [ -f oasis-focus.log ]; then grep -E "^OASIS2_" oasis-focus.log | tail -n 240 || true; fi
             echo
+            echo "## Family vs adults total"
+            if [ -f oasis-compare.log ]; then grep -E "^OASISCMP_" oasis-compare.log | tail -n 220 || true; fi
+            echo
             echo "## Direct API fallback"
-            if [ -f oasis-api.log ]; then grep -E "^OASIS_API_" oasis-api.log | tail -n 220 || true; fi
+            if [ -f oasis-api.log ]; then grep -E "^OASIS_API_" oasis-api.log | tail -n 140 || true; fi
             echo '~~~'
           } > report.md
           gh issue edit 7 --repo "$GITHUB_REPOSITORY" --body-file report.md
