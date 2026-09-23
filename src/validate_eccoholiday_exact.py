@@ -75,6 +75,55 @@ def main():
                 if any(k in lo for k in ["2 doros","dzieci","5 lat","7 lat","all inclusive","cena","zł","dostęp"]):
                     print("ECCO_RESULT",line[:1000])
         except:pass
+        # Ecco explicitly offers "CENA NA LIŚCIE -> ZA WSZYSTKICH".
+        # Switch to that native mode before reading any amount; /os. values
+        # are diagnostic only and can never certify the family channel.
+        total_mode=False
+        total_nodes=[]
+        for el in d.find_elements(By.XPATH,"//*[self::label or self::button or self::span or self::div or self::a]"):
+            try:
+                if not el.is_displayed():continue
+                txt=compact(el.text)
+                if "ZA WSZYSTKICH" in txt.upper():
+                    total_nodes.append((len(txt),el,txt))
+            except:pass
+        total_nodes.sort(key=lambda z:z[0])
+        for _,el,txt in total_nodes[:20]:
+            try:
+                print("ECCO_TOTAL_MODE_TRY",txt[:500],(el.get_attribute("outerHTML") or "")[:3500])
+                d.execute_script("arguments[0].click()",el)
+                time.sleep(6)
+                total_mode=True
+                break
+            except Exception as ex:
+                print("ECCO_TOTAL_MODE_ERR",type(ex).__name__,str(ex)[:160])
+        print("ECCO_TOTAL_MODE_CLICKED",total_mode)
+        if total_mode:
+            try:
+                bt=d.find_element(By.TAG_NAME,"body").text
+                for line in [x.strip() for x in bt.splitlines() if x.strip()]:
+                    lo=line.lower()
+                    if any(k in lo for k in ["za wszystkich","2 doros","5 lat","7 lat","zł/os","zł","dostęp"]):
+                        print("ECCO_TOTAL_RESULT",line[:1200])
+            except:pass
+            total_cards=[]
+            for node in d.find_elements(By.XPATH,"//*[contains(normalize-space(.),'zł')]"):
+                try:
+                    if not node.is_displayed():continue
+                    anc=node
+                    best=""
+                    for _ in range(7):
+                        txt=compact(anc.text)
+                        if len(txt)>len(best) and len(txt)<4500:best=txt
+                        anc=anc.find_element(By.XPATH,"..")
+                    if not best or "zł/os" in best.lower():continue
+                    if ("zobacz ofert" in best.lower() or "dostęp" in best.lower()) and best not in total_cards:
+                        total_cards.append(best)
+                        print("ECCO_TOTAL_CARD",best[:3600])
+                    if len(total_cards)>=12:break
+                except:pass
+            print("ECCO_TOTAL_CARD_COUNT",len(total_cards))
+
         # Inspect one concrete result card. Listing prices are per-person and
         # must never be treated as family totals; only a detail/availability
         # surface tied to children 5/7 may certify the source.
