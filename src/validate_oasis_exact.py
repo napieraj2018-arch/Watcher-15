@@ -74,6 +74,30 @@ def main():
         opened=click_text(d,"2 dorosłych","party")
         print("OASIS_PARTY_OPENED",opened);time.sleep(1)
         family_controls(d,"OASIS_CONTROLS_OPEN")
+        # React renders the participant stepper mostly as styled divs, so
+        # inspect the shortest visible DOM blocks around the family labels,
+        # not only native button/input elements.
+        for label in ["Dorośli","Dzieci","dzieci","Wiek"]:
+            nodes=d.find_elements(By.XPATH,f"//*[contains(normalize-space(.),'{label}')]")
+            nodes=[n for n in nodes if n.is_displayed()]
+            nodes.sort(key=lambda n:len(compact(n.text)))
+            for n in nodes[:8]:
+                try:
+                    print("OASIS_FAMILY_NODE",label,repr({
+                      "tag":n.tag_name,"text":compact(n.text)[:500],"class":n.get_attribute("class"),
+                      "html":(n.get_attribute("outerHTML") or "")[:5000]
+                    }))
+                    anc=n
+                    for level in range(1,4):
+                        anc=anc.find_element(By.XPATH,"..")
+                        print("OASIS_FAMILY_ANCESTOR",label,level,(anc.get_attribute("outerHTML") or "")[:7000])
+                except: pass
+        for e in d.find_elements(By.XPATH,"//*[contains(translate(@class,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'participant')]"):
+            try:
+                if e.is_displayed():
+                    print("OASIS_PARTICIPANT_CLASS",repr({"tag":e.tag_name,"class":e.get_attribute("class"),
+                      "text":compact(e.text)[:1000],"html":(e.get_attribute("outerHTML") or "")[:9000]}))
+            except: pass
 
         ca,buttons=counter(d,"Dzieci")
         if ca is not None:
