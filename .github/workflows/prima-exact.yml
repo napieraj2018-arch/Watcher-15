@@ -9,6 +9,7 @@ on:
       - "src/inspect_prima_graphql_schema.py"
       - "src/probe_prima_introspection.py"
       - "src/probe_prima_token.py"
+      - "src/probe_prima_filters.py"
       - ".github/workflows/prima-exact.yml"
 
 permissions:
@@ -47,6 +48,8 @@ jobs:
           rc4=$?
           python src/probe_prima_token.py > prima-token.log 2>&1
           rc5=$?
+          python src/probe_prima_filters.py > prima-filters.log 2>&1
+          rc6=$?
           {
             echo "# Prima Holiday exact-family diagnostic"
             echo
@@ -68,6 +71,9 @@ jobs:
             echo
             echo "## qapi token trace"
             grep -E "^PRIMATOKEN_" prima-token.log | tail -n 320 || true
+            echo
+            echo "## Filters input schema"
+            grep -E "^PRIMAFILTER_" prima-filters.log | tail -n 220 || true
             echo '~~~'
           } > report.md
           gh issue edit 19 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
@@ -76,4 +82,5 @@ jobs:
           if [ "$rc2" -ne 0 ]; then exit "$rc2"; fi
           if [ "$rc3" -ne 0 ]; then exit "$rc3"; fi
           if [ "$rc4" -ne 0 ]; then exit "$rc4"; fi
-          exit "$rc5"
+          if [ "$rc5" -ne 0 ]; then exit "$rc5"; fi
+          exit "$rc6"
