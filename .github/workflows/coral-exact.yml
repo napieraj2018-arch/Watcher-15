@@ -56,7 +56,7 @@ jobs:
             grep -E '^CORALGDS_' coral-gds.log | tail -n 320 || true
             echo
             echo '## Browser exact-family probe'
-            tail -n 460 coral.log
+            grep -E '^CORAL_(START|BODY|PARTY|CONTROLS|CHILD|AGES|TOTAL|FINAL|SIGNAL|STORAGE|REQ_COUNT)' coral.log | tail -n 220 || true
             echo '~~~'
           } > report.md
           gh issue edit 12 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
