@@ -50,6 +50,26 @@ def main():
                 d.execute_script("arguments[0].click()",e);time.sleep(1);opened=True;break
             except:pass
         print("REGO_PARTY_OPENED",opened)
+        # Dump participant/date controls after opening the family picker. Rego-Bis
+        # uses a dedicated 2+2 landing page, but production still requires explicit
+        # ages 5/7 rather than trusting the page title.
+        forms=d.find_elements(By.TAG_NAME,"form")
+        for i,form in enumerate(forms[:12]):
+            try:
+                fields=[]
+                for e in form.find_elements(By.XPATH,".//input|.//select"):
+                    fields.append({
+                      "tag":e.tag_name,"name":e.get_attribute("name"),"id":e.get_attribute("id"),
+                      "type":e.get_attribute("type"),"value":e.get_attribute("value"),
+                      "placeholder":e.get_attribute("placeholder")
+                    })
+                if fields:
+                    print("REGO_FORM",i,json.dumps({"action":form.get_attribute("action"),"method":form.get_attribute("method"),"fields":fields[:80]},ensure_ascii=False))
+            except:pass
+        try:
+            storage=d.execute_script("return {local:{...localStorage},session:{...sessionStorage}}")
+            print("REGO_STORAGE",json.dumps(storage,ensure_ascii=False)[:12000])
+        except Exception as e: print("REGO_STORAGE_ERR",type(e).__name__)
         trigger=d.find_elements(By.CSS_SELECTOR,"[data-search-option-id='participants']")
         if trigger:
             did=trigger[0].get_attribute("aria-controls")
