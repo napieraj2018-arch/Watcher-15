@@ -60,7 +60,7 @@ jobs:
             echo '~~~'
           } > report.md
           gh issue edit 12 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
-          cat coral.log
+          cat report.md
           if [ "$rc0" -ne 0 ]; then exit "$rc0"; fi
           if [ "$rcg" -ne 0 ]; then exit "$rcg"; fi
           exit "$rc"
