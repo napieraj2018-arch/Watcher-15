@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -24,13 +25,24 @@ Q_CALC="""query C($persons:[PersonsGroupInput!]!,$trips:[TripInput!]!){
 }"""
 
 def _gql(q,variables=None,op=None):
-    r=requests.post(GQL,json={"operationName":op,"variables":variables or {},"query":q},headers=HEADERS,timeout=45)
-    print("PRIMA_PROD_STATUS",op,r.status_code,len(r.content))
-    r.raise_for_status()
-    data=r.json()
-    if data.get("errors"):
-        print("PRIMA_PROD_GRAPHQL_ERRORS",op,json.dumps(data["errors"],ensure_ascii=False)[:1600])
-    return data
+    last=None
+    for attempt in range(3):
+        try:
+            r=requests.post(GQL,json={"operationName":op,"variables":variables or {},"query":q},headers=HEADERS,timeout=45)
+            print("PRIMA_PROD_STATUS",op,attempt+1,r.status_code,len(r.content))
+            r.raise_for_status()
+            data=r.json()
+            if data.get("errors"):
+                print("PRIMA_PROD_GRAPHQL_ERRORS",op,json.dumps(data["errors"],ensure_ascii=False)[:1600])
+                last=RuntimeError("Prima GraphQL transient error")
+            else:
+                return data
+        except (requests.RequestException, ValueError) as exc:
+            last=exc
+            print("PRIMA_PROD_RETRY",op,attempt+1,type(exc).__name__,str(exc)[:220])
+        if attempt<2:
+            time.sleep(1.5*(attempt+1))
+    raise last or RuntimeError("Prima GraphQL request failed")
 
 def _json_value(v):
     if isinstance(v,str):
