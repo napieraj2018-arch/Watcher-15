@@ -4,7 +4,7 @@ from urllib.parse import urlencode,urlparse,parse_qs
 from zoneinfo import ZoneInfo
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from watcher import chrome,dismiss_cookies,create_alert
+from watcher import chrome,dismiss_cookies,create_alert, configured_departure_dates
 
 TZ=ZoneInfo('Europe/Warsaw')
 BASE='https://www.exim.pl/wyszukanie'
@@ -23,8 +23,8 @@ def intval(s):
     return int(x) if x else None
 
 def search_url(cfg):
-    today=datetime.now(TZ).date(); ds=sorted(cfg['depart_in_days'])
-    start=today+timedelta(days=ds[0]); end=today+timedelta(days=ds[-1])
+    dates=configured_departure_dates(cfg)
+    start=dates[0]; end=dates[-1]
     nn='|'.join(str(i) for i in range(cfg['min_nights'],cfg['max_nights']+1))
     q={'ac1':'2','kc1':'2','ka1':'5|7','dd':start.isoformat(),'rd':end.isoformat(),'nn':nn,'tt':'1','to':AIRPORT_IDS}
     return BASE+'?'+urlencode(q),start,end
