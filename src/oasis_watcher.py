@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from watcher import create_alert
+from watcher import create_alert, configured_departure_dates
 
 TZ=ZoneInfo("Europe/Warsaw")
 BASE="https://oasis.pl/"
@@ -40,8 +40,7 @@ def _rows(data):
     return []
 
 def _payload(cfg,family=True):
-    today=datetime.now(TZ).date()
-    ds=sorted(int(x) for x in cfg["depart_in_days"])
+    dates=configured_departure_dates(cfg)
     p={
       "transporttypeid":"1",
       "adults":"2",
@@ -49,15 +48,15 @@ def _payload(cfg,family=True):
       "priceend":str(max(25000000,int(cfg["max_total_price_pln"])*100)),
       "ordername":"price",
       "hoteltypeid":"",
-      "startdate":(today+timedelta(days=ds[0])).isoformat(),
-      "enddate":(today+timedelta(days=ds[-1])).isoformat(),
+      "startdate":dates[0].isoformat(),
+      "enddate":dates[-1].isoformat(),
       "page":1,
       "numOnPage":"100",
       "pricestart":"100",
       "orderdirection":"asc",
     }
     if family:p["infants"]="5,7"
-    return p,{today+timedelta(days=d) for d in ds}
+    return p,set(dates)
 
 def _get(session,p,label):
     r=session.post(API,json=p,headers=HEADERS,timeout=55)
