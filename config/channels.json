@@ -96,9 +96,9 @@
       "status": "diagnostic",
       "kind": "operator",
       "priority": 5,
-      "exact_party": false,
+      "exact_party": true,
       "final_total": false,
-      "note": "Exact family parameters mapped: ac1=2, kc1=2, ka1=5|7. Departure IDs mapped: Warszawa=3850, Modlin=4380, Warszawa-Radom=4381. Current exact 2+2 API query returns no tour payload, so live final family total is not yet verified."
+      "note": "Exact family state is now verified in the live result URL/UI: AC1=2, KC1=2, KA1=5|7 and visible 2 adults + 2 children, ages 5/7. Current candidate selector/API path still yields no offer whose explicit final family total can be rechecked, so alerts remain blocked."
     },
     {
       "id": "joinup_pl",
@@ -131,7 +131,7 @@
       "priority": 8,
       "exact_party": false,
       "final_total": false,
-      "note": "Current DOM-heavy family diagnostics time out/hang on the source. Needs a lighter targeted search/API route before exact-family verification."
+      "note": "Direct live JSON offer endpoint discovered: /api/sitecore/OffersList/LoadMoreOffers with Adults=2 and search filters. Passenger summary picker is identified; next step is mapping child-count/age parameters into this API before any family-price verification."
     },
     {
       "id": "sunfun_pl",
@@ -140,9 +140,9 @@
       "status": "diagnostic",
       "kind": "operator",
       "priority": 9,
-      "exact_party": false,
-      "final_total": false,
-      "note": "Family form internals mapped: rooms[0].adults=2 and explicit child fields rooms[0].children[n].age; two children can be generated and ages 5/7 are being submitted in live-search diagnostics. Final family total still must be verified before production."
+      "exact_party": true,
+      "final_total": true,
+      "note": "Live exact search verified room1=2,5,7, visible 2 adults + 2 children, exact departure-date guard and explicit 'Cena całkowita' family total (e.g. 8304 zł on 2026-09-24). Kept diagnostic because offer-level stars/rating/review metadata is not yet reliably scoped, so the active quality filters cannot safely generate alerts yet."
     },
     {
       "id": "esky_pl",
