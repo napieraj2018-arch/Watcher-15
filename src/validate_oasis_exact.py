@@ -126,6 +126,24 @@ def main():
             for i in range(2):
                 d.execute_script("arguments[0].click()",plus[-1]);time.sleep(.8);print("OASIS_CHILD_PLUS",i+1)
         family_controls(d,"OASIS_CONTROLS_AFTER_CHILDREN")
+        for p in d.find_elements(By.CSS_SELECTOR,".participants"):
+            try:
+                if p.is_displayed():
+                    print("OASIS_PARTICIPANTS_AFTER_CHILDREN",(p.get_attribute("outerHTML") or "")[:24000])
+            except: pass
+        # Dump shortest visible nodes mentioning child/age after React has
+        # rendered the two child rows. These controls can be styled divs rather
+        # than native input/select elements.
+        for needle in ["Dziecko","dziecko","lat","Wiek","wiek"]:
+            nodes=[x for x in d.find_elements(By.XPATH,f"//*[contains(normalize-space(.),'{needle}')]") if x.is_displayed()]
+            nodes.sort(key=lambda x:len(compact(x.text)))
+            for x in nodes[:16]:
+                try:
+                    print("OASIS_AFTER_CHILD_NODE",needle,repr({
+                      "tag":x.tag_name,"text":compact(x.text)[:700],"class":x.get_attribute("class"),
+                      "html":(x.get_attribute("outerHTML") or "")[:7000]
+                    }))
+                except: pass
 
         ages=[]
         for e in d.find_elements(By.XPATH,"//input|//select"):
