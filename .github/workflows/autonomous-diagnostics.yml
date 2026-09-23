@@ -1,0 +1,70 @@
+name: Autonomous adapter diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/validate_exim_exact.py"
+      - "src/diagnose_grecos_family.py"
+      - "src/diagnose_travelplanet_family.py"
+      - "src/diagnose_travelplanet_state.py"
+      - ".github/workflows/autonomous-diagnostics.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Run source diagnostics
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "# Watcher-15 autonomous diagnostics"
+            echo
+            echo "- commit: \`${GITHUB_SHA}\`"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo
+          } > diagnostic-report.md
+
+          run_diag() {
+            label="$1"
+            shift
+            out="$(mktemp)"
+            timeout 210s "$@" >"$out" 2>&1
+            rc=$?
+            {
+              echo "## ${label}"
+              echo
+              echo "exit_code: \`${rc}\`"
+              echo
+              echo '\`\`\`text'
+              tail -n 260 "$out"
+              echo '\`\`\`'
+              echo
+            } >> diagnostic-report.md
+            rm -f "$out"
+          }
+
+          run_diag "EXIM exact family" python src/validate_exim_exact.py
+          run_diag "Grecos family" python src/diagnose_grecos_family.py
+          run_diag "Travelplanet family" python src/diagnose_travelplanet_family.py
+          run_diag "Travelplanet state/network" python src/diagnose_travelplanet_state.py
+
+      - name: Publish diagnostic report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue edit 2 --repo "${GITHUB_REPOSITORY}" --body-file diagnostic-report.md
