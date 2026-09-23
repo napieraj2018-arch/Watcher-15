@@ -34,9 +34,11 @@ def click_search(d):
 
 def row_key(tr):
     attrs=lambda n: tr.get_attribute(n) or ""
+    # Production proof must keep the room identical too. Otherwise a price
+    # delta could come from a different room rather than from adding children.
     return (
       attrs("data-checkin"),attrs("data-nights"),attrs("data-hotel"),
-      attrs("data-tour"),attrs("data-meal"),attrs("data-townfrom")
+      attrs("data-tour"),attrs("data-room"),attrs("data-meal"),attrs("data-townfrom")
     )
 
 def read_rows(d,label,family):
