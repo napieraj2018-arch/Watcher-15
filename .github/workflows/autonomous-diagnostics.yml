@@ -10,6 +10,7 @@ on:
       - "src/diagnose_grecos_family.py"
       - "src/diagnose_travelplanet_family.py"
       - "src/diagnose_travelplanet_state.py"
+      - "src/inspect_travelplanet_js.py"
       - ".github/workflows/autonomous-diagnostics.yml"
 
 permissions:
@@ -26,7 +27,7 @@ jobs:
       github.event_name != 'issue_comment' ||
       (github.event.issue.number == 2 && contains(github.event.comment.body, '/diagnose'))
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 22
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -81,6 +82,7 @@ jobs:
           run_diag "Grecos family" python src/diagnose_grecos_family.py
           run_diag "Travelplanet family" python src/diagnose_travelplanet_family.py
           run_diag "Travelplanet state/network" python src/diagnose_travelplanet_state.py
+          run_diag "Travelplanet frontend serialization" python src/inspect_travelplanet_js.py
 
           {
             echo "## Completed"
