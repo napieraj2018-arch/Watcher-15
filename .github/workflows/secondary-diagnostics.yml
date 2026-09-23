@@ -10,6 +10,7 @@ on:
       - "src/diagnose_family_surface.py"
       - "src/validate_fly_exact.py"
       - "src/validate_nekera_exact.py"
+      - "src/validate_oasis_exact.py"
       - "src/inspect_fly_party_html.py"
       - "src/inspect_secondary_js.py"
       - "config/channels.json"
@@ -81,6 +82,7 @@ jobs:
           run_one "fly_pl" src/inspect_fly_party_html.py "fly_pl party HTML"
           run_one "fly_pl" src/validate_fly_exact.py "fly_pl exact family"
           run_one "nekera_pl" src/validate_nekera_exact.py "nekera_pl exact family"
+          run_one "oasis_pl" src/validate_oasis_exact.py "oasis_pl exact family"
           for c in fly_pl nekera_pl oasis_pl; do
             run_one "$c" src/inspect_secondary_js.py "$c secondary JS serialization"
           done
