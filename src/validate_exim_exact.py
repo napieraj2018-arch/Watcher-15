@@ -1,11 +1,14 @@
-import re,time
+import json,re,time
+from datetime import datetime,timedelta
 from urllib.parse import urlencode, urlsplit, parse_qsl, urlunsplit, parse_qs
+from zoneinfo import ZoneInfo
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 
 BASE="https://www.exim.pl/wyszukanie"
+TZ=ZoneInfo('Europe/Warsaw')
 def compact(s): return " ".join((s or "").split())
 
 def party_params(url):
@@ -16,19 +19,35 @@ def exact_party_in_url(url):
     p=party_params(url)
     return p.get("AC1")=="2" and p.get("KC1")=="2" and p.get("KA1") in ("5|7","5%7C7")
 
+def dump_search_api(d,label):
+    urls=[]
+    for row in d.get_log('performance'):
+        try:
+            m=json.loads(row['message'])['message']
+            if m.get('method')!='Network.responseReceived':continue
+            u=m['params']['response'].get('url','')
+            if '/api/searchapi/' in u or '/api/searchfilter/' in u:
+                if u not in urls:urls.append(u);print(label,u)
+        except:pass
+    return urls
+
 def main():
+    today=datetime.now(TZ).date();start=today+timedelta(days=1);end=today+timedelta(days=3)
     q=[
       ("ac1","2"),("kc1","2"),("ka1","5|7"),
-      ("dd","2026-09-23"),("rd","2026-11-23"),
-      ("nn","7|8|9|10"),("tt","1")
+      ("dd",start.isoformat()),("rd",end.isoformat()),
+      ("nn","5|6|7|8"),("tt","1"),("to","3850|4380|4381")
     ]
     url=BASE+"?"+urlencode(q)
     o=Options();o.add_argument("--headless=new");o.add_argument("--no-sandbox");o.add_argument("--disable-dev-shm-usage");o.add_argument("--window-size=1440,3000");o.add_argument("--lang=pl-PL")
+    o.set_capability('goog:loggingPrefs',{'performance':'ALL'})
     d=webdriver.Chrome(options=o)
     try:
-      d.get(url);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(6)
+      d.get(url);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(8)
       print("SEARCH_URL",d.current_url)
       print("SEARCH_PARTY_PARAMS",party_params(d.current_url),"EXACT",exact_party_in_url(d.current_url))
+      api_urls=dump_search_api(d,'SEARCH_API')
+      print('SEARCH_API_COUNT',len(api_urls))
       body0=d.find_element(By.TAG_NAME,"body").text
       for line in [x.strip() for x in body0.splitlines() if x.strip()]:
         lo=line.lower()
@@ -47,7 +66,6 @@ def main():
           if "All inclusive" not in t and "All Inclusive" not in t: continue
           if "Warszawa" not in t and "Radom" not in t: continue
           md=re.search(r"(\d{1,2}\.\d{1,2}\.\d{4}).*?(\d+)\s+nocy",t)
-          if not md: continue
           mr=re.search(r"(?:trustYouRating\s*)?(\d[,.]\d)\s+(?:Bardzo dobra|Znakomita|Dobra)",t,re.I)
           rating=float(mr.group(1).replace(",",".")) if mr else None
           if rating is not None and rating<8.0: continue
@@ -62,14 +80,15 @@ def main():
       params["AC1"]="2";params["KC1"]="2";params["KA1"]="5|7";params["IC1"]="0"
       exact=urlunsplit((p.scheme,p.netloc,p.path,urlencode(params),""))
       print("DETAIL_EXACT",exact)
-      d.get(exact);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(7)
+      d.get(exact);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(8)
       print("DETAIL_FINAL",d.current_url)
       print("DETAIL_PARTY_PARAMS",party_params(d.current_url),"EXACT",exact_party_in_url(d.current_url))
+      dump_search_api(d,'DETAIL_API')
       body=d.find_element(By.TAG_NAME,"body").text
       lines=[x.strip() for x in body.splitlines() if x.strip()]
       for line in lines:
         lo=line.lower()
-        if any(k in lo for k in ["doros","dzieci","wiek","cena łącznie","cena razem","zł","all inclusive","24.09","25.09","26.09"]): print("DETAIL_LINE",line[:800])
+        if any(k in lo for k in ["doros","dzieci","wiek","cena łącznie","cena razem","zł","all inclusive",start.strftime('%d.%m'),(start+timedelta(days=1)).strftime('%d.%m')]): print("DETAIL_LINE",line[:800])
       totals=[]
       for pat in [r"Cena\s*(?:łącznie|razem|całkowita)\s*[: ]\s*([0-9][0-9 .]*)\s*zł",r"Razem\s*[: ]\s*([0-9][0-9 .]*)\s*zł"]:
         totals.extend(int(re.sub(r"\D","",m)) for m in re.findall(pat,body,re.I) if re.sub(r"\D","",m))
