@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from watcher import create_alert
+from watcher import create_alert, configured_departure_dates
 
 TZ=ZoneInfo("Europe/Warsaw")
 GQL="https://app.primaholiday.pl/graphql"
@@ -172,9 +172,7 @@ def _candidate(base,t,cfg,allowed):
     }
 
 def _fetch(cfg):
-    today=datetime.now(TZ).date()
-    ds=sorted(int(x) for x in cfg["depart_in_days"])
-    allowed={today+timedelta(days=d) for d in ds}
+    allowed=set(configured_departure_dates(cfg))
     bases=_flight_bases(_raw_items())
     out=[]
     for oid,base in bases.items():
