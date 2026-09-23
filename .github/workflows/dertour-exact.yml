@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "src/validate_dertour_exact.py"
+      - "src/inspect_dertour_schema.py"
       - ".github/workflows/dertour-exact.yml"
 
 permissions:
@@ -29,6 +30,8 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           set +e
+          python src/inspect_dertour_schema.py > der-schema.log 2>&1
+          rcs=$?
           python src/validate_dertour_exact.py > der.log 2>&1
           rc=$?
           {
@@ -40,8 +43,12 @@ jobs:
             echo
             echo '~~~text'
             grep -E '^DER_' der.log | tail -n 380 || true
+            echo
+            echo "## JS/search schema"
+            grep -E '^DERSCHEMA_' der-schema.log | tail -n 420 || true
             echo '~~~'
           } > report.md
           gh issue edit 27 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
+          if [ "$rcs" -ne 0 ]; then exit "$rcs"; fi
           exit "$rc"
