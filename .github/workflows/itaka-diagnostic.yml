@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "src/diagnose_itaka.py"
+      - "src/probe_itaka_priority_targets.py"
       - ".github/workflows/itaka-diagnostic.yml"
 
 jobs:
@@ -19,6 +20,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python src/diagnose_itaka.py
+      - run: python src/probe_itaka_priority_targets.py
       - if: always()
         uses: actions/upload-artifact@v4
         with:
