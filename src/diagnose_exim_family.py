@@ -76,10 +76,58 @@ def main():
             try:
                 href=a.get_attribute("href") or ""
                 txt=compact(a.text)
-                if "Szczegóły hotelu" in txt and href:
-                    print(repr({"href":href[:1800]})); n+=1
-                    if n>=8: break
+                if href and ("hotel" in href.lower() or "oferta" in href.lower()):
+                    print(repr({"text":txt[:400],"href":href[:1800]})); n+=1
+                    if n>=30: break
             except: pass
+
+        print("OFFER_CARD_SCAN")
+        candidates=[]
+        for a in d.find_elements(By.TAG_NAME,"a"):
+            try:
+                if not a.is_displayed(): continue
+                href=a.get_attribute("href") or ""
+                if not href or "exim.pl" not in href: continue
+                anc=None
+                for xp in [
+                    "./ancestor::article[1]",
+                    "./ancestor::div[contains(.,'Dorosły od')][1]",
+                    "./ancestor::div[contains(.,'All Inclusive')][1]",
+                ]:
+                    try:
+                        anc=a.find_element(By.XPATH,xp); break
+                    except: pass
+                if anc is None: continue
+                txt=compact(anc.text)
+                if len(txt)<50 or len(txt)>2500: continue
+                if "Dorosły od" not in txt and "All Inclusive" not in txt and "All inclusive" not in txt: continue
+                key=(href,txt[:500])
+                if key not in candidates:
+                    candidates.append(key)
+            except: pass
+        for href,txt in candidates[:20]:
+            print("EXIM_CARD",repr({"href":href[:1500],"text":txt[:1200]}))
+
+        chosen=None
+        for href,txt in candidates:
+            low=txt.lower()
+            if "all inclusive" not in low: continue
+            if any(x in txt for x in ["24.09.2026","25.09.2026","26.09.2026","24.09","25.09","26.09"]):
+                chosen=(href,txt); break
+        if chosen is None and candidates:
+            chosen=candidates[0]
+        print("EXIM_CHOSEN",repr(chosen))
+        if chosen:
+            d.get(chosen[0])
+            WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete")
+            time.sleep(5)
+            print("EXIM_DETAIL_URL",d.current_url)
+            body2=d.find_element(By.TAG_NAME,"body").text
+            print("EXIM_DETAIL_RELEVANT")
+            for line in [x.strip() for x in body2.splitlines() if x.strip()]:
+                lo=line.lower()
+                if any(k in lo for k in ["cena","razem","łącznie","doros","dzieci","wiek","zł","all inclusive","uczest","24.09","25.09","26.09"]):
+                    print(line[:800])
 
         # Open custom party editor too, for exact child ages.
         click_text(d,"Liczba uczestników")
