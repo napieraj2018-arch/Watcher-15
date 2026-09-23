@@ -109,3 +109,16 @@ Aktualny stan: **11 kanałów production**. Cel pozostaje **15**.
 ### Kanał nr 11 — TanieTravel production
 
 TanieTravel został awansowany po trzech niezależnych dowodach. Oficjalny skrypt wyszukiwarki serializuje dzieci jako `ages/childAges=5,7`, All Inclusive jako `meal=ai`, a filtr 4★+ jako `stars=4plus`. Bieżąca strona wynikowa pokazała jednocześnie `2 + 2 (5, 7 lat)`, osobną `Cena za 1 osobę` oraz `Cena za 2+2 (5, 7 lat) / Kup za ... zł`, bez oznaczenia `zł/os.` przy family total. Bezpośrednie API znalazło 20 identycznych pakietów 2+2 vs 2+0 z różnymi totalami, a drugi świeży odczyt 2+2 odtworzył te same pakiety i ceny. Adapter produkcyjny wykonuje dwa odczyty rodzinne oraz osobną kontrolę 2+0 i pozostaje fail-closed dla ceny, jakości, terminu i lotniska. Aktualna pula: **11 kanałów production**.
+
+### Dwa profile wyszukiwania + ścisłe okno wyjazdu
+
+Aktualny monitoring 2+2 działa równolegle w dwóch profilach:
+
+- `OKAZJA ≤7K` — cena rodzinna do 7000 PLN, hotel >=4★, ocena >=8.0/10, co najmniej 30 opinii.
+- `SUPER ≤11K` — cena rodzinna 7001–11000 PLN, hotel >=4★, ocena >=8.8/10, co najmniej 100 opinii.
+
+W obu profilach obowiązuje exact 2 dorosłych + dzieci 5 i 7 lat, All Inclusive, 5–8 nocy, właściwe lotniska i ponowna kontrola końcowej ceny rodzinnej. Aktualne okno wylotu to czwartek 24.09.2026 **od 17:00**, cały piątek 25.09.2026 oraz cała sobota 26.09.2026. Czwartkowa oferta bez potwierdzonej godziny wylotu jest fail-closed i nie może wygenerować alarmu.
+
+Każdy alarm musi zawierać link zachowujący możliwie dokładny stan pakietu. Jeżeli źródło nie daje stabilnego deep-linku do pojedynczego pakietu, link prowadzi do dokładnie przefiltrowanego wyniku exact 2+2; nie wolno podmieniać go na luźną stronę hotelu ani ofertę 2+0.
+
+ITAKA ma dodatkową bramkę: zachowanie konkretnego tokenu `id[0]`, obu dat urodzenia dzieci, terminu w page state oraz końcowego `Łącznie`. Wylot czwartkowy wymaga dodatkowo potwierdzonej godziny.
