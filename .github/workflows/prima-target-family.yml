@@ -5,6 +5,8 @@ on:
   push:
     paths:
       - "src/probe_prima_target_family.py"
+      - "src/probe_prima_introspection.py"
+      - "src/probe_prima_filters.py"
       - ".github/workflows/prima-target-family.yml"
 
 permissions:
@@ -33,6 +35,8 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           set +e
+          python src/probe_prima_introspection.py > prima-introspection.log 2>&1 || true
+          python src/probe_prima_filters.py > prima-filters.log 2>&1 || true
           timeout 240s python src/probe_prima_target_family.py > target.log 2>&1
           rc=$?
           {
@@ -43,6 +47,11 @@ jobs:
             echo "- exit_code: $rc"
             echo
             echo '~~~text'
+            echo '## GraphQL search schema'
+            grep -E '^PRIMAINT_' prima-introspection.log | tail -n 260 || true
+            grep -E '^PRIMAFILTER_' prima-filters.log | tail -n 120 || true
+            echo
+            echo '## Target proof'
             grep -E "^PRIMATARGET_" target.log | tail -n 700 || true
             echo '~~~'
           } > report.md
