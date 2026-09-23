@@ -96,6 +96,17 @@ def main():
         if expected==q and full:
             exact_rows.append(x)
     print("GRECOS_EXACT_LIVE_ROWS_WITH_FULL_PRICE",len(exact_rows))
+    target = next((x for x in exact_rows if str(x.get("Merlin_FlightFrom") or "").lower().startswith("warszawa")), None)
+    if target:
+        print("GRECOS_WARSAW_ROW_KEYS", sorted(target.keys()))
+        interesting = {
+            k: v for k, v in target.items()
+            if any(t in k.lower() for t in [
+                "rating","review","opini","score","trust","trip","star","standard",
+                "offer","code","url","link","query","price","hotel","flight","avail"
+            ])
+        }
+        print("GRECOS_WARSAW_ROW_INTERESTING", repr(interesting))
     if exact_rows:
         sample=exact_rows[0]
         qfields={k:v for k,v in sample.items() if any(t in k.lower() for t in ["rating","review","opini","score","star","standard","flight","price","full","url","name"])}
