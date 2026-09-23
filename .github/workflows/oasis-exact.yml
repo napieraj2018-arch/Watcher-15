@@ -6,6 +6,7 @@ on:
     paths:
       - "src/probe_oasis_party.py"
       - "src/probe_oasis_confirm.py"
+      - "src/probe_oasis_api.py"
       - "src/validate_oasis_exact.py"
       - ".github/workflows/oasis-exact.yml"
 
@@ -33,6 +34,11 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: python src/probe_oasis_confirm.py > oasis-focus.log 2>&1
+      - name: Probe Oasis BlueVendo API
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python src/probe_oasis_api.py > oasis-api.log 2>&1
       - name: Publish compact Oasis report
         shell: bash
         env:
@@ -46,6 +52,9 @@ jobs:
             echo
             echo '~~~text'
             grep -E "^OASIS2_" oasis-focus.log | tail -n 180
+            echo
+            echo "## BlueVendo API"
+            grep -E "^OASIS_API_" oasis-api.log | tail -n 260
             echo '~~~'
           } > report.md
           gh issue edit 7 --repo "$GITHUB_REPOSITORY" --body-file report.md
