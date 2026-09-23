@@ -97,13 +97,29 @@ def main():
         dump_people(d,"FLY_PEOPLE_BEFORE")
         print("FLY_OPENED",open_people(d));dump_people(d,"FLY_PEOPLE_AFTER_OPEN")
 
+        # Adults default to 2. Change children through the real counter UI so
+        # Fly's frontend creates the DOB controls and serializes the party.
         a=set_numeric(d,"doros",2)
-        c=set_numeric(d,"dzieci",2)
+        child_box=d.find_elements(By.CSS_SELECTOR,"[data-counter='child']")
+        c=False
+        if child_box:
+            plus=child_box[0].find_elements(By.CSS_SELECTOR,"button.plus")
+            if plus:
+                for i in range(2):
+                    d.execute_script("arguments[0].click()",plus[0]);time.sleep(.8)
+                    hidden=d.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
+                    print("FLY_CHILD_PLUS",i+1,hidden[0].get_attribute("value") if hidden else None)
+                c=True
         print("FLY_COUNTS_SET",a,c)
         time.sleep(1);dump_people(d,"FLY_AFTER_COUNTS")
+        childlists=d.find_elements(By.CSS_SELECTOR,"[data-childlist]")
+        if childlists:
+            print("FLY_CHILDLIST_HTML",(childlists[0].get_attribute("outerHTML") or "")[:18000])
 
         age_controls=[]
-        for el in d.find_elements(By.XPATH,"//select|//input"):
+        roots=d.find_elements(By.CSS_SELECTOR,"[data-childlist]")
+        scan=(roots[0].find_elements(By.XPATH,".//select|.//input") if roots else d.find_elements(By.XPATH,"//select|//input"))
+        for el in scan:
             try:
                 blob=" ".join(filter(None,[el.get_attribute("name"),el.get_attribute("id"),el.get_attribute("placeholder"),el.get_attribute("aria-label"),compact(el.text)])).lower()
                 if "wiek" in blob or "age" in blob:
