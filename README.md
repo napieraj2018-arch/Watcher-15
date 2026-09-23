@@ -87,3 +87,11 @@ Oasis został awansowany do `production` po potwierdzeniu exact 2+2, żywej dost
 ### Prima Holiday — twardy dowód ceny rodzinnej
 
 GraphQL `BluevendoFastCalculation` został sprawdzony bez polegania na cenach `/os.`. Dla dokładnej grupy `[18,18,5,7]` zwraca cztery ceny uczestników i ich sumę jako cenę wyjazdu; kontrola tego samego `tripId` dla `[18,18]` daje inny, niższy total (m.in. 1036 vs 678 PLN oraz 7476 vs 3738 PLN). Prima pozostaje `diagnostic` do czasu spięcia tego kalkulatora z żywym pakietem lotniczym 1–3 dni / 5–8 nocy oraz końcowym recheckiem dostępności, lotniska i jakości hotelu.
+
+### Coral Travel — potwierdzony blocker pakietowy
+
+Właściwe strony pakietowe `coraltravel.pl/tours/*` zwracają w środowisku GitHub/headless interstitial Imperva `Pardon Our Interruption`. Dostępny `booking.coraltravel.pl` ujawnia schemat wieku dzieci, etykietę `CAŁKOWITY` i GDS, ale nie jest dowodem ceny pakietu Coral. Kanał pozostaje blokowany, dopóki nie będzie można potwierdzić na powierzchni pakietowej exact 2+2 (5/7), live availability i final family total.
+
+### Odporność Grecos na timeouty
+
+Po rzeczywistym `ReadTimeout` w produkcyjnym teście API adapter dostał ograniczone retry dla błędów sieciowych i nadal działa fail-closed. Kolejne produkcyjne przebiegi Grecosa zakończyły się sukcesem; zasady exact 2+2 i family total nie zostały poluzowane.
