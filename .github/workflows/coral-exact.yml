@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "src/validate_coral_exact.py"
+      - "src/probe_coral_backend.py"
       - ".github/workflows/coral-exact.yml"
 
 permissions:
@@ -33,6 +34,8 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           set +e
+          python src/probe_coral_backend.py > coral-backend.log 2>&1
+          rc0=$?
           python src/validate_coral_exact.py > coral.log 2>&1
           rc=$?
           {
@@ -43,9 +46,14 @@ jobs:
             echo "- exit_code: $rc"
             echo
             echo '~~~text'
+            echo '## Backend/schema probe'
+            grep -E '^CORALBACK_' coral-backend.log | tail -n 420 || true
+            echo
+            echo '## Browser exact-family probe'
             tail -n 460 coral.log
             echo '~~~'
           } > report.md
           gh issue edit 12 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat coral.log
+          if [ "$rc0" -ne 0 ]; then exit "$rc0"; fi
           exit "$rc"
