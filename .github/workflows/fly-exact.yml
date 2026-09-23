@@ -6,6 +6,7 @@ on:
     paths:
       - "src/validate_fly_exact.py"
       - "src/inspect_fly_party_html.py"
+      - "src/inspect_fly_schema.py"
       - "src/inspect_fly_person_js.py"
       - ".github/workflows/fly-exact.yml"
 
@@ -28,6 +29,11 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Inspect Fly child schema
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python src/inspect_fly_schema.py > fly-schema.log 2>&1 || true
+
       - name: Run Fly exact family
         shell: bash
         env:
@@ -52,8 +58,16 @@ jobs:
             echo '```'
             echo
             echo "## Exact family UI"
+            echo "## Child schema"
+            echo
             echo '```text'
-            tail -n 420 fly.log
+            tail -n 260 fly-schema.log
+            echo '```'
+            echo
+            echo "## Exact-family UI"
+            echo
+            echo '```text'
+            tail -n 300 fly.log
             echo '```'
           } > report.md
           gh issue edit 8 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
