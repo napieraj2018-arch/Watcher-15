@@ -5,10 +5,12 @@ on:
   push:
     paths:
       - "src/validate_tanietravel_exact.py"
+      - "src/probe_tanietravel_api.py"
       - ".github/workflows/tanietravel-exact.yml"
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: tanietravel-exact-family
@@ -28,6 +30,30 @@ jobs:
       - name: Probe TanieTravel exact family
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           PYTHONUNBUFFERED: "1"
         run: |
-          python src/validate_tanietravel_exact.py
+          set +e
+          python src/validate_tanietravel_exact.py > tanie-ui.log 2>&1
+          rc1=$?
+          python src/probe_tanietravel_api.py > tanie-api.log 2>&1
+          rc2=$?
+          {
+            echo "# TanieTravel exact-family API proof"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- ui_exit: $rc1"
+            echo "- api_exit: $rc2"
+            echo
+            echo '~~~text'
+            grep -E '^TANIE_' tanie-ui.log | tail -n 180 || true
+            echo
+            echo "## Direct API"
+            grep -E '^TANIEAPI_' tanie-api.log | tail -n 420 || true
+            echo '~~~'
+          } > report.md
+          gh issue edit 26 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat report.md
+          if [ "$rc2" -ne 0 ]; then exit "$rc2"; fi
+          exit "$rc1"
