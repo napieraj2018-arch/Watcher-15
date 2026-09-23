@@ -67,3 +67,7 @@ Workflowy diagnostyczne dla głównych i drugorzędnych adapterów mają osobne 
 ### Grecos — production gate
 
 Grecos jest kanałem `production`, ale alarmy pozostają fail-closed. Adapter wymaga exact 2+2 (5/7), żywej ceny rodzinnej zależnej od składu, terminu 1–3 dni, 5–8 nocy, All Inclusive, właściwego lotniska i ponownego sprawdzenia API. Brak wiarygodnej oceny >=8.0 lub liczby opinii >=30 oznacza brak alarmu, a nie obchodzenie filtra. Workflow kanału działa niezależnie co 15 minut.
+
+### Kontrola bezpieczeństwa Fly.pl — 2026-09-23
+
+Fly.pl nie został dopuszczony do produkcji. Zapytanie przyjmuje `filter[person]=2`, `filter[child]=2` i wiek dzieci 5/7, ale wynik ofertowy nadal zachowuje się jak `2+0`. Kontrola trybu „Cena za wszystkich” wykazała te same kwoty dla 2+2 i dla 2 dorosłych (np. 1 017 zł/os. → 2 034 zł w obu przypadkach). Kanał pozostaje diagnostyczny i nie może alarmować, dopóki detal/rezerwacja nie potwierdzi ceny zależnej od obojga dzieci.
