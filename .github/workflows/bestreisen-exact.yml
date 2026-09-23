@@ -7,6 +7,7 @@ on:
       - "src/validate_bestreisen_exact.py"
       - "src/inspect_bestreisen_schema.py"
       - "src/probe_bestreisen_api.py"
+      - "src/probe_bestreisen_family_matrix.py"
       - ".github/workflows/bestreisen-exact.yml"
 
 permissions:
@@ -41,6 +42,8 @@ jobs:
           rc2=$?
           python src/probe_bestreisen_api.py > best-api.log 2>&1
           rc3=$?
+          python src/probe_bestreisen_family_matrix.py > best-matrix.log 2>&1
+          rc4=$?
           {
             echo "# Best Reisen exact-family diagnostic"
             echo
@@ -56,10 +59,14 @@ jobs:
             echo
             echo "## Exact-family API control"
             grep -E "^BESTAPI_" best-api.log | tail -n 420 || true
+            echo
+            echo "## Broad live family matrix"
+            grep -E '^BESTMATRIX_' best-matrix.log | tail -n 360 || true
             echo '~~~'
           } > report.md
           gh issue edit 21 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           if [ "$rc2" -ne 0 ]; then exit "$rc2"; fi
-          exit "$rc3"
+          if [ "$rc3" -ne 0 ]; then exit "$rc3"; fi
+          exit "$rc4"
