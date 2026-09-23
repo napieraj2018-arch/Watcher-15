@@ -1,4 +1,4 @@
-import json,time
+import json,time\nimport requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -75,14 +75,32 @@ def main():
         else:
             print("OASIS2_SEARCH_CLICKED",False)
 
+        family_payload=None
         for row in d.get_log("performance"):
             try:
                 msg=json.loads(row["message"])["message"]
                 if msg.get("method")!="Network.requestWillBeSent":continue
                 req=msg["params"]["request"]
                 if "/api-bv/search-search" in req.get("url",""):
-                    print("OASIS2_FAMILY_PAYLOAD",req.get("postData") or "")
+                    raw=req.get("postData") or ""
+                    print("OASIS2_FAMILY_PAYLOAD",raw)
+                    try:
+                        p=json.loads(raw)
+                        if str(p.get("adults"))=="2" and str(p.get("infants"))=="5,7":
+                            family_payload=p
+                    except: pass
             except: pass
+
+        if family_payload:
+            sess=requests.Session()
+            for cookie in d.get_cookies():
+                sess.cookies.set(cookie["name"],cookie["value"])
+            headers={"User-Agent":d.execute_script("return navigator.userAgent"),
+                     "Referer":"https://oasis.pl/","Content-Type":"application/json"}
+            for label,payload in [("FAMILY",dict(family_payload)),("ADULTS",{k:v for k,v in family_payload.items() if k!="infants"})]:
+                r=sess.post("https://oasis.pl/api-bv/search-search",json=payload,headers=headers,timeout=35)
+                print("OASIS2_API_STATUS",label,r.status_code,len(r.content))
+                print("OASIS2_API_HEAD",label,compact(r.text)[:16000])
     finally:
         d.quit()
 
