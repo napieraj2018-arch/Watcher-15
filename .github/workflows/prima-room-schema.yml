@@ -1,0 +1,43 @@
+name: Prima room input schema
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/probe_prima_room_schema.py"
+      - ".github/workflows/prima-room-schema.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Inspect input schema
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          python src/probe_prima_room_schema.py > room.log 2>&1
+          rc=$?
+          {
+            echo "# Prima room input schema"
+            echo
+            echo '~~~text'
+            grep -E '^PRIMAROOM_' room.log | tail -n 260 || true
+            echo '~~~'
+          } > report.md
+          gh issue edit 24 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat report.md
+          exit "$rc"
