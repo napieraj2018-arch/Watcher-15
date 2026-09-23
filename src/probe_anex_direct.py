@@ -70,18 +70,27 @@ def main():
             # Decode that transport wrapper before parsing tr.price_info.
             try:
                 decoded=r.json()
-                if isinstance(decoded,str):
-                    payload_text=decoded
-                elif isinstance(decoded,dict):
-                    # SAMO installations use different wrapper keys. Trust the
-                    # actual content signature rather than a guessed field name.
-                    for key,value in decoded.items():
-                        if isinstance(value,str) and "price_info" in value:
-                            payload_text=value
-                            print("ANEXDIR_HTML_KEY",AIRPORTS[town],label,key)
-                            break
-            except Exception:
-                pass
+                print("ANEXDIR_JSON_TYPE",AIRPORTS[town],label,type(decoded).__name__,
+                      list(decoded.keys())[:40] if isinstance(decoded,dict) else "")
+                def find_html(x,path="",depth=0):
+                    if depth>8:return None
+                    if isinstance(x,str):
+                        return (path,x) if "price_info" in x else None
+                    if isinstance(x,dict):
+                        for key,value in x.items():
+                            hit=find_html(value,(path+"."+str(key)).strip("."),depth+1)
+                            if hit:return hit
+                    if isinstance(x,list):
+                        for idx,value in enumerate(x):
+                            hit=find_html(value,f"{path}[{idx}]",depth+1)
+                            if hit:return hit
+                    return None
+                hit=find_html(decoded)
+                if hit:
+                    print("ANEXDIR_HTML_PATH",AIRPORTS[town],label,hit[0])
+                    payload_text=hit[1]
+            except Exception as e:
+                print("ANEXDIR_JSON_ERR",AIRPORTS[town],label,type(e).__name__,str(e)[:180])
             print("ANEXDIR_DECODED",AIRPORTS[town],label,len(payload_text),"price_info" in payload_text)
             rows=read_rows(payload_text,town,family)
             sets[label]=rows
