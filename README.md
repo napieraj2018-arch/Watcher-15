@@ -79,3 +79,7 @@ Zweryfikowany stan `main`: **8 kanałów production** — Wakacje.pl, TUI Poland
 ### Rozszerzenie puli źródeł — Rego-Bis
 
 Do puli dodano niezależny kanał `regobis_pl`. Serwis ma dedykowany przepływ „rodzina 2+2”, wymaga wieku/dat urodzenia dzieci i przed finalizacją ponownie sprawdza cenę oraz dostępność dla wybranego składu. Status pozostaje `diagnostic` do czasu technicznego potwierdzenia dokładnego 2+2 (5/7) i końcowej ceny rodzinnej.
+
+### Postęp — Oasis i ANEX
+
+Oasis ma już twardy dowód exact 2+2: UI potwierdza `2 dorosłych, 2 dzieci`, a rzeczywisty request BlueVendo wysyła `adults=2` oraz `infants=5,7`. Kanał pozostaje diagnostic do czasu potwierdzenia party-sensitive final total na żywym wyniku. Dodano także ANEX Tour jako 16. niezależne źródło: żywe wiersze SAMO zawierają `adult-2 child-2`, `AGES=5,7`, wariant pokoju 2+2, dostępność i jawny PLN price. ANEX pozostaje diagnostic, dopóki kontrola tej samej oferty 2+0 nie dowiedzie, że kwota jest końcową ceną rodzinną.
