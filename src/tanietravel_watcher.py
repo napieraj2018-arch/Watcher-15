@@ -85,6 +85,23 @@ def _reviews(x):
     try:return int(x.get("reviewsCountAll"))
     except:return None
 
+def _clock(v):
+    raw=re.sub(r"\D","",str(v or ""))
+    if len(raw)==3: raw="0"+raw
+    if len(raw)!=4:return None
+    hh,mm=int(raw[:2]),int(raw[2:])
+    if not (0<=hh<=23 and 0<=mm<=59):return None
+    return f"{hh:02d}:{mm:02d}"
+
+def _stars(x):
+    raw=re.sub(r"\D","",str(x.get("category") or ""))
+    if not raw:return None
+    # TanieTravel returns categories such as 40 / 50 for 4★ / 5★.
+    n=int(raw)
+    if n in range(1,6):return n
+    if n%10==0 and 10<=n<=50:return n//10
+    return None
+
 def _results_url(cfg):
     p=_payload(cfg,True)
     q={"type":"tours","dest":p["destinationId"],"dateFrom":p["dateFrom"],"dateTo":p["dateTo"],
@@ -106,6 +123,9 @@ def _certified_rows(cfg):
     for x in f1:
         k=_key(x)
         if not all(k[:7]) or k not in amap or k not in rmap:continue
+        if str(x.get("status") or "").upper() not in ("OK","AVAILABLE","DOSTEPNE","DOSTĘPNE"):continue
+        service=str(x.get("serviceDesc") or x.get("serviceGroup") or "")
+        if "all inclusive" not in service.lower():continue
         fp1=_price(x);aprice=_price(amap[k]);fp2=_price(rmap[k])
         if fp1 is None or aprice is None or fp2!=fp1 or not(fp1>aprice>0):continue
         dep=_date(x.get("departureDate"));ret=_date(x.get("returnDate"))
@@ -121,8 +141,9 @@ def _certified_rows(cfg):
         rec={"key":hashlib.sha1(stable.encode()).hexdigest()[:16],"hotel":hotel,
              "href":_results_url(cfg),"verified_href":_results_url(cfg),"price":fp1,
              "departure":dep,"return":ret,"nights":nights,"airport":airport,
-             "meal":"All Inclusive","operator":"TanieTravel","stars":4,
+             "meal":service,"operator":"TanieTravel","stars":_stars(x),
              "rating":_rating(x),"reviews":_reviews(x),"offer_hash":x.get("offerHash"),
+             "departure_time":_clock(x.get("depTime")),
              "room":x.get("roomDesc"),"adult_only_total":aprice,
              "family_price_proof":"same package offerHash/hotel/date/room/airport 2+2 vs 2+0; exact childAges=5,7; identical second 2+2 API total",
              "live_availability_proof":"same exact-family package returned by two fresh search_offers.php calls"}
