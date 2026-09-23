@@ -70,7 +70,6 @@ def read_rows(d,label,family):
             avail=[x.get_attribute("title") for x in tr.find_elements(By.CSS_SELECTOR,".hotel_availability") if x.get_attribute("title")]
             flights=[x.get_attribute("title") for x in tr.find_elements(By.CSS_SELECTOR,".fr_place_r,.fr_place_l") if x.get_attribute("title")]
             live=any(x in ("Dostępne","Ostatnie miejsca") for x in avail) and any("Miejsca dostępne" in x for x in flights)
-            if family and not live: continue
             room=""
             for td in cells:
                 t=compact(td.text)
