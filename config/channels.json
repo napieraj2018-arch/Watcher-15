@@ -226,7 +226,7 @@
       "priority": 18,
       "exact_party": false,
       "final_total": false,
-      "note": "Current hotel pages expose adult/child URL parameters and an explicit 'Całkowita' price alongside adult price. Exact 2+2 ages 5/7 and party-sensitive total are being validated."
+      "note": "BlueVendo proxy is reachable, but exact-family validation is not complete. Broad search accepted the flat adults=2 + infants='5,7' payload yet returned an inconsistent empty item array with total=1; nested family payload returned total=0. No concrete live family row or party-sensitive final total was produced, so channel remains diagnostic."
     }
   ]
 }
