@@ -6,6 +6,7 @@ on:
     paths:
       - "src/validate_tanietravel_exact.py"
       - "src/probe_tanietravel_api.py"
+      - "src/validate_tanietravel_family_surface.py"
       - ".github/workflows/tanietravel-exact.yml"
 
 permissions:
@@ -38,6 +39,8 @@ jobs:
           rc1=$?
           python src/probe_tanietravel_api.py > tanie-api.log 2>&1
           rc2=$?
+          python src/validate_tanietravel_family_surface.py > tanie-surface.log 2>&1
+          rc3=$?
           {
             echo "# TanieTravel exact-family API proof"
             echo
@@ -51,9 +54,13 @@ jobs:
             echo
             echo "## Direct API"
             grep -E '^TANIEAPI_' tanie-api.log | tail -n 420 || true
+            echo
+            echo "## Exact-family result surface"
+            grep -E '^TANIESURF_' tanie-surface.log | tail -n 260 || true
             echo '~~~'
           } > report.md
           gh issue edit 26 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
           if [ "$rc2" -ne 0 ]; then exit "$rc2"; fi
+          if [ "$rc3" -ne 0 ]; then exit "$rc3"; fi
           exit "$rc1"
