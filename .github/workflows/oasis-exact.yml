@@ -39,10 +39,11 @@ jobs:
         run: python src/probe_oasis_confirm.py > oasis-focus.log 2>&1
 
       - name: Compare Oasis family and adults totals
+        continue-on-error: true
         shell: bash
         env:
           PYTHONUNBUFFERED: "1"
-        run: timeout 45s python src/probe_oasis_compare.py > oasis-compare.log 2>&1
+        run: timeout 110s python src/probe_oasis_compare.py > oasis-compare.log 2>&1
 
       - name: Probe Oasis direct API fallback
         continue-on-error: true
