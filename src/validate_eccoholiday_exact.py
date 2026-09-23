@@ -75,6 +75,54 @@ def main():
                 if any(k in lo for k in ["2 doros","dzieci","5 lat","7 lat","all inclusive","cena","zł","dostęp"]):
                     print("ECCO_RESULT",line[:1000])
         except:pass
+        # Inspect one concrete result card. Listing prices are per-person and
+        # must never be treated as family totals; only a detail/availability
+        # surface tied to children 5/7 may certify the source.
+        detail_clicked=False
+        availability_nodes=[x for x in d.find_elements(By.XPATH,"//*[contains(normalize-space(.),'Dostępność')]") if x.is_displayed()]
+        availability_nodes.sort(key=lambda x:len(compact(x.text)))
+        for node in availability_nodes[:12]:
+            try:
+                anc=node
+                for _ in range(7):
+                    txt=compact(anc.text)
+                    if "zł/os" in txt.lower() and len(txt)<5000:
+                        print("ECCO_RESULT_CARD",txt[:2500],(anc.get_attribute("outerHTML") or "")[:10000])
+                        links=[a for a in anc.find_elements(By.TAG_NAME,"a") if a.is_displayed() and a.get_attribute("href")]
+                        if links:
+                            href=links[0].get_attribute("href")
+                            print("ECCO_DETAIL_HREF",href)
+                            try:d.get_log("performance")
+                            except:pass
+                            d.get(href)
+                            WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete")
+                            time.sleep(7);detail_clicked=True
+                        else:
+                            try:
+                                d.execute_script("arguments[0].click()",node);time.sleep(7);detail_clicked=True
+                            except:pass
+                        break
+                    anc=anc.find_element(By.XPATH,"..")
+                if detail_clicked:break
+            except:pass
+        print("ECCO_DETAIL_CLICKED",detail_clicked)
+        if detail_clicked:
+            print("ECCO_DETAIL_URL",d.current_url)
+            try:
+                bd=d.find_element(By.TAG_NAME,"body").text
+                for line in [x.strip() for x in bd.splitlines() if x.strip()]:
+                    lo=line.lower()
+                    if any(k in lo for k in ["2 doros","2 dzieci","5 lat","7 lat","cena","całkow","razem","zł","dostęp"]):
+                        print("ECCO_DETAIL_SIGNAL",line[:1200])
+            except:pass
+            for row in d.get_log("performance"):
+                try:
+                    m=json.loads(row["message"])["message"]
+                    if m.get("method")!="Network.requestWillBeSent":continue
+                    req=m["params"]["request"];u=req.get("url","");post=req.get("postData") or "";blob=(u+" "+post).lower()
+                    if "eccoholiday.com" in u and any(k in blob for k in ["price","total","child","offer","avail","booking","reservation","calculate"]):
+                        print("ECCO_DETAIL_REQ",req.get("method"),u[:5000],"POST",post[:5000])
+                except:pass
         for e in d.find_elements(By.XPATH,"//input|//select|//button"):
             try:
                 txt=compact(e.text);blob=" ".join(filter(None,[txt,e.get_attribute("name"),e.get_attribute("id"),e.get_attribute("value"),e.get_attribute("placeholder"),e.get_attribute("aria-label"),e.get_attribute("class")]))
