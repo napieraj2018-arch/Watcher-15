@@ -73,9 +73,13 @@ def main():
                 if isinstance(decoded,str):
                     payload_text=decoded
                 elif isinstance(decoded,dict):
-                    for key in ("html","data","result","content"):
-                        if isinstance(decoded.get(key),str) and "price_info" in decoded.get(key):
-                            payload_text=decoded.get(key);break
+                    # SAMO installations use different wrapper keys. Trust the
+                    # actual content signature rather than a guessed field name.
+                    for key,value in decoded.items():
+                        if isinstance(value,str) and "price_info" in value:
+                            payload_text=value
+                            print("ANEXDIR_HTML_KEY",AIRPORTS[town],label,key)
+                            break
             except Exception:
                 pass
             print("ANEXDIR_DECODED",AIRPORTS[town],label,len(payload_text),"price_info" in payload_text)
