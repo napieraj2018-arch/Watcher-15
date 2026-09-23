@@ -51,8 +51,14 @@ def main():
     d=webdriver.Chrome(options=o)
     try:
         d.get(URL);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(5)
-        for t in ["Zaakceptuj wszystko","Akceptuję","Akceptuj","Zgadzam się","OK"]:
-            if click_candidates(d,[t],"cookies"):break
+        # Cookie handling must not use substring "OK" (it matched "Dokąd?").
+        for b in d.find_elements(By.TAG_NAME,"button"):
+            try:
+                txt=compact(b.text).strip().lower()
+                if b.is_displayed() and txt in ["zaakceptuj wszystko","akceptuję","akceptuj","zgadzam się","ok"]:
+                    print("PRIMA_COOKIE_CLICK",txt)
+                    d.execute_script("arguments[0].click()",b);time.sleep(.6);break
+            except: pass
         print("PRIMA_START",d.current_url,"TITLE",d.title)
         body=d.find_element(By.TAG_NAME,"body").text
         for line in [x.strip() for x in body.splitlines() if x.strip()]:
