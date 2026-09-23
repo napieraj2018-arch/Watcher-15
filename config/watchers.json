@@ -11,8 +11,8 @@
       ],
       "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
@@ -30,7 +30,30 @@
       "second_check": true,
       "max_extra_pages": 8,
       "significant_price_drop_pln": 250,
-      "notify_github_user": "napieraj2018-arch"
+      "notify_github_user": "napieraj2018-arch",
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     },
     {
       "id": "tui-last-minute-2plus2",
@@ -42,8 +65,8 @@
         7
       ],
       "max_total_price_pln": 11000,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "min_stars": 4,
       "require_stars": false,
       "depart_in_days": [
@@ -60,7 +83,30 @@
       "priority_airport_contains": "Radom",
       "second_check": true,
       "significant_price_drop_pln": 250,
-      "notify_github_user": "napieraj2018-arch"
+      "notify_github_user": "napieraj2018-arch",
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     },
     {
       "id": "itaka-last-minute-2plus2",
@@ -73,8 +119,8 @@
       ],
       "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
@@ -93,7 +139,30 @@
       "significant_price_drop_pln": 250,
       "notify_github_user": "napieraj2018-arch",
       "max_listing_per_person_pln": 5000,
-      "max_detail_checks": 15
+      "max_detail_checks": 15,
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     },
     {
       "id": "rainbow-last-minute-2plus2",
@@ -106,8 +175,8 @@
       ],
       "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
@@ -126,7 +195,30 @@
       "significant_price_drop_pln": 250,
       "notify_github_user": "napieraj2018-arch",
       "max_listing_per_person_pln": 5000,
-      "max_detail_checks": 15
+      "max_detail_checks": 15,
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     },
     {
       "id": "sunfun-last-minute-2plus2",
@@ -139,8 +231,8 @@
       ],
       "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
@@ -155,7 +247,30 @@
       "priority_airport_contains": "Radom",
       "second_check": true,
       "significant_price_drop_pln": 250,
-      "notify_github_user": "napieraj2018-arch"
+      "notify_github_user": "napieraj2018-arch",
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     },
     {
       "id": "exim-last-minute-2plus2",
@@ -168,8 +283,8 @@
       ],
       "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
@@ -186,7 +301,30 @@
       "priority_airport_contains": "Radom",
       "second_check": true,
       "significant_price_drop_pln": 250,
-      "notify_github_user": "napieraj2018-arch"
+      "notify_github_user": "napieraj2018-arch",
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     },
     {
       "id": "grecos-last-minute-2plus2",
@@ -199,8 +337,8 @@
       ],
       "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
@@ -220,7 +358,30 @@
       "priority_airport_contains": "Radom",
       "second_check": true,
       "significant_price_drop_pln": 250,
-      "notify_github_user": "napieraj2018-arch"
+      "notify_github_user": "napieraj2018-arch",
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     },
     {
       "id": "travelplanet-last-minute-2plus2",
@@ -233,8 +394,8 @@
       ],
       "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
@@ -251,7 +412,30 @@
       "priority_airport_contains": "Radom",
       "second_check": true,
       "significant_price_drop_pln": 250,
-      "notify_github_user": "napieraj2018-arch"
+      "notify_github_user": "napieraj2018-arch",
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     },
     {
       "id": "oasis-last-minute-2plus2",
@@ -264,8 +448,8 @@
       ],
       "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
@@ -284,7 +468,30 @@
       "priority_airport_contains": "Radom",
       "second_check": true,
       "significant_price_drop_pln": 250,
-      "notify_github_user": "napieraj2018-arch"
+      "notify_github_user": "napieraj2018-arch",
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     },
     {
       "id": "prima-last-minute-2plus2",
@@ -297,8 +504,8 @@
       ],
       "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
@@ -316,7 +523,30 @@
       "priority_airport_contains": "Radom",
       "second_check": true,
       "significant_price_drop_pln": 250,
-      "notify_github_user": "napieraj2018-arch"
+      "notify_github_user": "napieraj2018-arch",
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     },
     {
       "id": "tanietravel-last-minute-2plus2",
@@ -335,8 +565,8 @@
       ],
       "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8.8,
-      "min_reviews": 100,
+      "min_rating": 8,
+      "min_reviews": 30,
       "depart_in_days": [
         1,
         2,
@@ -353,7 +583,30 @@
       "priority_airport_contains": "Radom",
       "second_check": true,
       "significant_price_drop_pln": 250,
-      "notify_github_user": "napieraj2018-arch"
+      "notify_github_user": "napieraj2018-arch",
+      "first_day_not_before": "17:00",
+      "deal_profiles": [
+        {
+          "id": "okazja_7k",
+          "label": "OKAZJA ≤7K",
+          "min_total_price_pln": 0,
+          "max_total_price_pln": 7000,
+          "min_rating": 8,
+          "min_reviews": 30,
+          "min_stars": 4,
+          "require_stars": true
+        },
+        {
+          "id": "super_11k",
+          "label": "SUPER ≤11K",
+          "min_total_price_pln": 7001,
+          "max_total_price_pln": 11000,
+          "min_rating": 8.8,
+          "min_reviews": 100,
+          "min_stars": 4,
+          "require_stars": true
+        }
+      ]
     }
   ]
 }
