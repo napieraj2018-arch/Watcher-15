@@ -26,7 +26,7 @@ CALC="""query C($persons:[PersonsGroupInput!]!,$trips:[TripInput!]!){
 def calc(t,ages,label):
     v={"persons":[{"person":[{"age":a} for a in ages]}],
        "trips":[{"tripid":int(t["id"]),"departureid":int(t["departureid"]),"arrivalid":int(t["arrivalid"])}]}
-    d=gql(CALC,v,label)
+    d=gql(CALC,v,"C")
     rows=(((d.get("data") or {}).get("bluevendoFastCalculation") or {}).get("trips") or [])
     if not isinstance(rows,list):rows=[rows] if rows else []
     return next((x for x in rows if str(x.get("tripId"))==str(t["id"])),rows[0] if rows else None)
