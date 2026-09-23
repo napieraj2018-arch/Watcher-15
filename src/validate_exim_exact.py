@@ -11,8 +11,8 @@ def compact(s): return " ".join((s or "").split())
 def main():
     q=[
       ("ac1","2"),("kc1","2"),("ka1","5|7"),
-      ("dd","2026-09-24"),("rd","2026-09-26"),
-      ("nn","5|6|7|8"),("tt","1")
+      ("dd","2026-09-23"),("rd","2026-11-23"),
+      ("nn","7|8|9|10"),("tt","1")
     ]
     url=BASE+"?"+urlencode(q)
     o=Options();o.add_argument("--headless=new");o.add_argument("--no-sandbox");o.add_argument("--disable-dev-shm-usage");o.add_argument("--window-size=1440,3000");o.add_argument("--lang=pl-PL")
@@ -35,7 +35,7 @@ def main():
           if "Warszawa" not in t and "Radom" not in t: continue
           md=re.search(r"(\d{1,2}\.\d{1,2}\.\d{4}).*?(\d+)\s+nocy",t)
           if not md: continue
-          if md.group(1) not in ["24.09.2026","25.09.2026","26.09.2026"]: continue
+          
           mr=re.search(r"(?:trustYouRating\s*)?(\d[,.]\d)\s+(?:Bardzo dobra|Znakomita|Dobra)",t,re.I)
           rating=float(mr.group(1).replace(",",".")) if mr else None
           if rating is not None and rating<8.0: continue
@@ -62,3 +62,5 @@ def main():
           print(line[:800])
     finally:d.quit()
 if __name__=="__main__":main()
+
+# validation-wide-range-v2
