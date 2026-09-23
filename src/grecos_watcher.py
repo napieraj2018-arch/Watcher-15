@@ -1,6 +1,7 @@
 import hashlib
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -155,11 +156,28 @@ def _fetch_pages(params, label, max_pages=6):
     for page in range(0, max_pages):
         page_params = dict(params)
         page_params["pageFrom"] = str(page)
-        response = requests.get(API, params=page_params, headers=HEADERS, timeout=35)
-        print("GRECOS_LIVE_REQUEST", label, page, response.url)
-        print("GRECOS_LIVE_STATUS", label, page, response.status_code, response.headers.get("content-type"), len(response.content))
-        response.raise_for_status()
-        data = response.json()
+        response = None
+        last_error = None
+        for attempt in range(3):
+            try:
+                response = requests.get(API, params=page_params, headers=HEADERS, timeout=35)
+                print("GRECOS_LIVE_REQUEST", label, page, "attempt", attempt + 1, response.url)
+                print("GRECOS_LIVE_STATUS", label, page, response.status_code, response.headers.get("content-type"), len(response.content))
+                response.raise_for_status()
+                break
+            except requests.RequestException as exc:
+                last_error = exc
+                print("GRECOS_REQUEST_RETRY", label, page, attempt + 1, type(exc).__name__, str(exc)[:220])
+                if attempt < 2:
+                    time.sleep(1.5 * (attempt + 1))
+        if response is None or last_error is not None and not response.ok:
+            print("GRECOS_SOURCE_FAIL_CLOSED", label, page, type(last_error).__name__ if last_error else "unknown")
+            return []
+        try:
+            data = response.json()
+        except ValueError as exc:
+            print("GRECOS_FAIL_CLOSED_BAD_JSON", label, page, type(exc).__name__)
+            return []
         if not isinstance(data, list):
             print("GRECOS_FAIL_CLOSED_NON_LIST", label, page, type(data).__name__)
             return []
