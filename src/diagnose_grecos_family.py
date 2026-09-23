@@ -10,9 +10,10 @@ def compact(s): return " ".join((s or "").split())
 def main():
     o=Options(); o.add_argument("--headless=new");o.add_argument("--no-sandbox")
     o.add_argument("--disable-dev-shm-usage");o.add_argument("--window-size=1440,3000");o.add_argument("--lang=pl-PL")
+    o.set_capability('goog:loggingPrefs', {'performance':'ALL'})
     d=webdriver.Chrome(options=o)
     try:
-        d.get(URL); WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete"); time.sleep(4)
+        d.get(URL); WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete"); time.sleep(5)
         for t in ["Akceptuję","Akceptuj","Zgadzam się","Zaakceptuj wszystkie","OK"]:
             try:
                 els=d.find_elements(By.XPATH,f"//button[contains(normalize-space(.),'{t}')]")
@@ -20,34 +21,36 @@ def main():
             except: pass
 
         print("START_URL",d.current_url)
-        print("FAMILY_RELATED_BEFORE")
-        candidates=[]
-        for el in d.find_elements(By.XPATH,"//button|//input|//select|//*[@role='button']"):
+        print("TITLE",d.title)
+        print("IFRAMES")
+        for i,f in enumerate(d.find_elements(By.TAG_NAME,'iframe')):
+            print(i,repr({'src':f.get_attribute('src'),'title':f.get_attribute('title'),'name':f.get_attribute('name'),'id':f.get_attribute('id')}))
+
+        print("VISIBLE_CONTROLS")
+        n=0
+        for el in d.find_elements(By.XPATH,"//button|//input|//select|//*[@role='button']|//a"):
             try:
                 if not el.is_displayed():continue
-                txt=compact(el.text); attrs=" ".join(filter(None,[txt,el.get_attribute("aria-label"),el.get_attribute("name"),el.get_attribute("placeholder"),el.get_attribute("id"),el.get_attribute("class")]))
-                if any(k in attrs.lower() for k in ["doros","dzie","osob","uczest","pokoj","pokój","wiek","adult","child","person","room"]):
-                    print(repr({"tag":el.tag_name,"text":txt[:250],"name":el.get_attribute("name"),"value":el.get_attribute("value"),"aria":el.get_attribute("aria-label"),"id":el.get_attribute("id"),"html":el.get_attribute("outerHTML")[:1200]}))
-                    candidates.append(el)
+                txt=compact(el.text); attrs=" ".join(filter(None,[txt,el.get_attribute("aria-label"),el.get_attribute("name"),el.get_attribute("placeholder"),el.get_attribute("id"),el.get_attribute("class"),el.get_attribute('href'),el.get_attribute('data-testid')]))
+                if txt or el.get_attribute('value') or el.get_attribute('placeholder'):
+                    print(repr({"tag":el.tag_name,"text":txt[:300],"name":el.get_attribute("name"),"value":el.get_attribute("value"),"aria":el.get_attribute("aria-label"),"id":el.get_attribute("id"),"href":(el.get_attribute('href') or '')[:600],"testid":el.get_attribute('data-testid'),"html":el.get_attribute("outerHTML")[:1600]}));n+=1
+                    if n>=260:break
             except:pass
 
-        clicked=False
-        for el in candidates:
-            try:
-                blob=(" ".join(filter(None,[compact(el.text),el.get_attribute("aria-label"),el.get_attribute("class")]))).lower()
-                if any(k in blob for k in ["doros","osob","uczest","person"]):
-                    d.execute_script("arguments[0].click();",el);time.sleep(1);clicked=True;break
-            except:pass
-        print("PICKER_CLICKED",clicked)
+        print('FORMS')
+        for i,f in enumerate(d.find_elements(By.TAG_NAME,'form')):
+            try: print('FORM',i,f.get_attribute('outerHTML')[:16000])
+            except: pass
 
-        print("FAMILY_RELATED_AFTER_OPEN")
-        for el in d.find_elements(By.XPATH,"//button|//input|//select"):
-            try:
-                if not el.is_displayed():continue
-                txt=compact(el.text); attrs=" ".join(filter(None,[txt,el.get_attribute("aria-label"),el.get_attribute("name"),el.get_attribute("placeholder"),el.get_attribute("id"),el.get_attribute("class")]))
-                if any(k in attrs.lower() for k in ["doros","dzie","osob","uczest","pokoj","pokój","wiek","adult","child","person","room","lat"]):
-                    print(repr({"tag":el.tag_name,"text":txt[:300],"name":el.get_attribute("name"),"value":el.get_attribute("value"),"aria":el.get_attribute("aria-label"),"id":el.get_attribute("id"),"html":el.get_attribute("outerHTML")[:1600]}))
-            except:pass
+        print('BODY_SIGNAL_LINES')
+        for line in [x.strip() for x in d.find_element(By.TAG_NAME,'body').text.splitlines() if x.strip()]:
+            lo=line.lower()
+            if any(k in lo for k in ['doros','dzie','osob','uczest','wylot','warszaw','radom','all inclusive','cena','szukaj','filtr']): print(line[:800])
+
+        print('STORAGE')
+        for kind,expr in [('local','return JSON.stringify(localStorage)'),('session','return JSON.stringify(sessionStorage)')]:
+            try: print(kind,d.execute_script(expr)[:25000])
+            except Exception as e: print(kind,'ERR',type(e).__name__)
 
         d.save_screenshot("grecos-family.png")
     finally:d.quit()
