@@ -2,6 +2,8 @@ name: Autonomous adapter diagnostics
 
 on:
   workflow_dispatch:
+  issue_comment:
+    types: [created]
   push:
     paths:
       - "src/validate_exim_exact.py"
@@ -20,6 +22,9 @@ concurrency:
 
 jobs:
   diagnose:
+    if: >
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.number == 2 && contains(github.event.comment.body, '/diagnose'))
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
