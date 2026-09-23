@@ -8,6 +8,7 @@ on:
     paths:
       - "src/inspect_dynamic_picker.py"
       - "src/diagnose_family_surface.py"
+      - "config/channels.json"
       - ".github/workflows/secondary-diagnostics.yml"
 
 permissions:
