@@ -34,14 +34,21 @@ def exact_departure(driver, expected_dep):
     return (qs.get('date') or [''])[0]==expected_dep.isoformat()
 
 def _offer_ancestor(driver, anchor):
+    # Price rows are nested below the hotel header. Walk upwards and retain
+    # the widest ancestor that still contains exactly ONE family total.
+    # This binds stars/rating/reviews from the same hotel card without
+    # accidentally borrowing quality metadata from a neighbouring offer.
     return driver.execute_script(r"""
-      let el=arguments[0];
-      for(let i=0;i<12 && el && el!==document.body;i++,el=el.parentElement){
+      let el=arguments[0], best=null;
+      for(let i=0;i<15 && el && el!==document.body;i++,el=el.parentElement){
         const t=(el.innerText||'').replace(/\s+/g,' ').trim();
-        if(t.length<80 || t.length>2800) continue;
-        if(/Cena całkowita\s*[0-9][0-9 .]*\s*zł/i.test(t) && /Dorosły\s*[0-9][0-9 .]*\s*zł/i.test(t) && /dziecko\s*[0-9][0-9 .]*\s*zł/i.test(t)) return el;
+        if(t.length<80 || t.length>6500) continue;
+        const totals=(t.match(/Cena całkowita\s*[0-9][0-9 .]*\s*zł/gi)||[]).length;
+        const family=/Dorosły\s*[0-9][0-9 .]*\s*zł/i.test(t) && /dziecko\s*[0-9][0-9 .]*\s*zł/i.test(t);
+        if(totals===1 && family){best=el; continue;}
+        if(totals>1 && best) break;
       }
-      return null;
+      return best;
     """,anchor)
 
 def parse_cards(driver):
@@ -73,7 +80,10 @@ def parse_cards(driver):
                 if pct:rating=round(int(pct.group(1))/10,1)
             mn=re.search(r'([0-9][0-9 ]*)\s+opini',text,re.I)
             reviews=int(mn.group(1).replace(' ','')) if mn else None
-            cards.append({'key':key,'name':name,'total':total,'meal':meal,'stars':stars,'rating':rating,'reviews':reviews,'text':text,'href':href})
+            card={'key':key,'name':name,'total':total,'meal':meal,'stars':stars,'rating':rating,'reviews':reviews,'text':text,'href':href}
+            cards.append(card)
+            if stars is not None or rating is not None or reviews is not None:
+                print('SUNFUN_CARD_PROOF', {'name':name,'total':total,'stars':stars,'rating':rating,'reviews':reviews,'href':href,'text':text[:2200]})
         except Exception as e:print('SUNFUN_CARD_ERR',type(e).__name__,str(e)[:160])
     return cards
 
@@ -121,11 +131,14 @@ def run_sunfun_watcher(cfg):
                 verified_family_total=True;print('SUNFUN_FAMILY_TOTAL_VERIFIED',dep,cards[0]['total'],len(cards));print('SUNFUN_CARD_SAMPLE',cards[0]['text'][:1800])
             print('SUNFUN_CARDS',dep,len(cards),[(x['name'],x['total'],x['stars'],x['rating'],x['reviews'],x['meal']) for x in cards[:12]])
             for x in cards:
-                if qualifies(x,cfg):matches.append((dep,url,x))
+                if qualifies(x,cfg):
+                    print('SUNFUN_QUALIFIED', {'date':dep.isoformat(),'name':x['name'],'total':x['total'],'stars':x['stars'],'rating':x['rating'],'reviews':x['reviews'],'href':x['href']})
+                    matches.append((dep,url,x))
         print('SUNFUN_VERIFIED_FAMILY_TOTAL',verified_family_total);print('SUNFUN_MATCHES',len(matches))
         for dep,url,x in matches[:10]:
             if not load_exact(driver,url,cfg['children_ages'],dep):continue
             fresh=parse_cards(driver);confirm=next((y for y in fresh if y['total']==x['total'] and y['name']==x['name'] and qualifies(y,cfg)),None)
             if not confirm:print('SUNFUN_RECHECK_REJECT',x['total']);continue
+            print('SUNFUN_RECHECK_VERIFIED', {'date':dep.isoformat(),'name':confirm['name'],'total':confirm['total'],'stars':confirm['stars'],'rating':confirm['rating'],'reviews':confirm['reviews']})
             create_issue(token,repo,confirm,dep,cfg)
     finally:driver.quit()
