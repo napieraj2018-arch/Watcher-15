@@ -213,9 +213,9 @@
       "status": "diagnostic",
       "kind": "operator",
       "priority": 17,
-      "exact_party": false,
-      "final_total": false,
-      "note": "Independent operator added as fallback path toward 10+ production channels. Exact 2+2 ages 5/7, live availability and final family total are not yet proven."
+      "exact_party": true,
+      "final_total": true,
+      "note": "GraphQL BluevendoFastCalculation directly prices persons [18,18,5,7] and returns per-person totals whose sum equals trip price; same trip control for [18,18] proved party-sensitive family totals (e.g. 1036 vs 678 PLN; 7476 vs 3738 PLN). Still diagnostic until a live 1–3 day, 5–8 night flight package is bridged to this calculator and rechecked for availability/airport/quality."
     },
     {
       "id": "bestreisen_pl",
