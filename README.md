@@ -63,3 +63,4 @@ Najważniejsze ustalenia:
 ### Stabilność diagnostyki
 
 Workflowy diagnostyczne dla głównych i drugorzędnych adapterów mają osobne grupy `concurrency` zależne od typu zdarzenia i numeru issue. Dzięki temu raport z jednego kanału nie anuluje poprawnego testu innego źródła tylko dlatego, że oba zostały uruchomione niemal jednocześnie.
+\n### Postęp 2026-09-23 — Grecos API\n\nŻywy test API zwrócił 29 rekordów dla `Adults=2&Children=2&Child1=20210101&Child2=20190101` z `Merlin_FullPriceParsed`. Porównanie z osobnym zapytaniem `Adults=2&Children=0` dla tych samych ofert potwierdziło, że cena pełna jest zależna od składu rodziny (25 wspólnych ofert z różnymi totalami), więc nie jest to cena `/os.` ani cena dwóch dorosłych. Grecos nie jest jeszcze promowany do `production`: obecne rekordy nie dają wystarczająco pewnego, kompletnego sygnału oceny/opinii i priorytetowego lotniska dla każdej oferty.\n
