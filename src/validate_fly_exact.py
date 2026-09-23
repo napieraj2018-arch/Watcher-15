@@ -1,7 +1,7 @@
 import json,re,time
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
-from urllib.parse import urlsplit,parse_qs
+from urllib.parse import urlsplit,parse_qs,urlencode
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -223,6 +223,40 @@ def main():
             "body_party":summary["body_party"],
             "childlist_snip":compact(summary["childlist"])[:3500]
         },ensure_ascii=False))
+        # Direct GET proof using the exact field names exposed by Fly's own
+        # form. This avoids relying on a fragile dropdown close/apply event.
+        direct_params=[
+            ("filter[person]","2"),("filter[child]","2"),
+            ("filter[childAge][1]",dobs[0]),("filter[childAge][2]",dobs[1]),
+            ("filter[addTransport]","F"),("filter[forceFilter]","1")
+        ]
+        direct=URL+"?"+urlencode(direct_params)
+        print("FLY_DIRECT_URL",direct)
+        d.get(direct);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(7)
+        print("FLY_DIRECT_FINAL",d.current_url)
+        direct_q=parse_qs(urlsplit(d.current_url).query)
+        print("FLY_DIRECT_QUERY",json.dumps(direct_q,ensure_ascii=False,sort_keys=True))
+        vals={}
+        for sel,key in [
+            ("input[name='filter[person]']","person"),
+            ("input[name='filter[child]']","child"),
+            ("input[name='filter[childAge][1]']","age1"),
+            ("input[name='filter[childAge][2]']","age2")]:
+            es=d.find_elements(By.CSS_SELECTOR,sel)
+            vals[key]=es[0].get_attribute("value") if es else None
+        print("FLY_DIRECT_FIELDS",vals)
+        body_direct=d.find_element(By.TAG_NAME,"body").text
+        lines=[x.strip() for x in body_direct.splitlines() if x.strip()]
+        for line in lines:
+            lo=line.lower()
+            if any(k in lo for k in ["2 dzieci","2 osoby dorosłe","za wszystkich","zł/os","all inclusive"]):
+                print("FLY_DIRECT_SIGNAL",line[:1000])
+        exact_direct=(
+            vals.get("person")=="2" and vals.get("child")=="2"
+            and vals.get("age1")==dobs[0] and vals.get("age2")==dobs[1]
+        )
+        print("FLY_DIRECT_EXACT_2PLUS2",exact_direct)
+
         d.save_screenshot("fly-exact.png")
     finally:d.quit()
 
