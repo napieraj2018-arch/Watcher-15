@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
-from watcher import chrome, create_alert, dismiss_cookies
+from watcher import chrome, create_alert, dismiss_cookies, configured_departure_dates
 
 TZ=ZoneInfo("Europe/Warsaw")
 BASE="https://www.travelplanet.pl/wakacje/"
@@ -55,9 +55,8 @@ def _token_exact_family(token):
     return ages==[5,7],p
 
 def _search_url(cfg, adults_only=False):
-    today=datetime.now(TZ).date()
-    ds=sorted(int(x) for x in cfg["depart_in_days"])
-    start=today+timedelta(days=ds[0]); end=today+timedelta(days=ds[-1])
+    dates=configured_departure_dates(cfg)
+    start=dates[0]; end=dates[-1]
     q=[
       ("s_action","SEARCH_FORM_SEPARATED"),
       ("d_start_from",start.strftime("%d.%m.%Y")),("d_end_to",end.strftime("%d.%m.%Y")),
@@ -70,7 +69,7 @@ def _search_url(cfg, adults_only=False):
         q.append(("nl_occupancy_children","0"))
     else:
         q += [("nl_occupancy_children","2"),("nl_ages_children[]","5"),("nl_ages_children[]","7")]
-    return BASE+"?"+urlencode(q,doseq=True),{today+timedelta(days=d) for d in ds}
+    return BASE+"?"+urlencode(q,doseq=True),set(dates)
 
 def _read_items(driver,url,label):
     try:driver.execute_script("localStorage.removeItem('ga4_serp_items_last');localStorage.removeItem('ga4_serp_filters_last');")
