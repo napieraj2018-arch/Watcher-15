@@ -1,14 +1,26 @@
-name: Travelplanet family diagnostic
+name: Travelplanet exact-family diagnostic
+
 on:
   workflow_dispatch:
   push:
     paths:
       - "src/diagnose_travelplanet_family.py"
+      - "src/diagnose_travelplanet_state.py"
+      - "src/inspect_travelplanet_js.py"
       - ".github/workflows/travelplanet-family.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: travelplanet-exact-family
+  cancel-in-progress: false
+
 jobs:
   diagnostic:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,7 +28,38 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python src/diagnose_travelplanet_family.py
+      - name: Run Travelplanet exact-family diagnostics
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          {
+            echo "## Frontend occupancy schema"
+            timeout 180s python src/inspect_travelplanet_js.py
+            echo
+            echo "## Exact-family UI/detail"
+            timeout 240s python src/diagnose_travelplanet_family.py
+            echo
+            echo "## State/network serialization"
+            timeout 240s python src/diagnose_travelplanet_state.py
+          } > travelplanet.log 2>&1
+          rc=$?
+          {
+            echo "# Travelplanet exact-family diagnostic"
+            echo
+            echo "- commit: \`$GITHUB_SHA\`"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- exit_code: \`$rc\`"
+            echo
+            echo '\`\`\`text'
+            tail -n 520 travelplanet.log
+            echo '\`\`\`'
+          } > report.md
+          gh issue edit 9 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat travelplanet.log
+          exit 0
       - if: always()
         uses: actions/upload-artifact@v4
         with:
