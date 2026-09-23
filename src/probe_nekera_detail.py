@@ -46,6 +46,42 @@ for a in soup.find_all("a",href=True):
     if ("szczeg" in blob or "/hotel" in href or "/offer" in href or "rezerw" in href) and "zł" in block:
         rec=(exactify(href),txt,block[:2200])
         if rec not in candidates:candidates.append(rec)
+# Inspect the offer CTA itself before following links. Nekera currently
+# uses the same /offers/ route for many cards, so the per-offer identifier may
+# live in data-* attributes, a surrounding form, or hidden inputs.
+detail_anchors=[]
+for a in soup.find_all("a",href=True):
+    txt=compact(a.get_text(" ",strip=True))
+    if "szczegó" not in txt.lower():
+        continue
+    detail_anchors.append(a)
+print("NEKERA_EXACT_DETAIL_ANCHOR_COUNT",len(detail_anchors))
+for i,a in enumerate(detail_anchors[:12]):
+    print("NEKERA_EXACT_DETAIL_ANCHOR",i,compact(str(a))[:5000])
+    node=a
+    for level in range(1,5):
+        node=node.parent if node else None
+        if not node: break
+        html=compact(str(node))
+        if level<=3:
+            print("NEKERA_EXACT_DETAIL_PARENT",i,level,html[:9000])
+    form=a.find_parent("form")
+    if form is not None:
+        print("NEKERA_EXACT_DETAIL_FORM",i,compact(str(form))[:12000])
+    hidden=[]
+    root=a
+    for _ in range(5):
+        root=root.parent if root else None
+        if root is None: break
+        hs=root.find_all(["input","button"],limit=80)
+        for h in hs:
+            nm=h.get("name");val=h.get("value");did=h.get("data-id") or h.get("data-offer-id")
+            if nm or val or did:
+                rec=(h.name,nm,val,did,h.get("type"),h.get("class"))
+                if rec not in hidden:hidden.append(rec)
+        if hidden: break
+    print("NEKERA_EXACT_DETAIL_FIELDS",i,hidden[:40])
+
 print("NEKERA_DETAIL_CANDIDATES",len(candidates))
 for i,(u,t,b) in enumerate(candidates[:20]):
     print("NEKERA_DETAIL_LINK",i,u,"TEXT",t[:300],"BLOCK",b[:1700])
