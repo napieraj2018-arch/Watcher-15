@@ -1,0 +1,51 @@
+name: Prima live family bridge
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/probe_prima_family_bridge.py"
+      - ".github/workflows/prima-family-bridge.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prima-live-family-bridge
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Prove live family pricing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          timeout 180s python src/probe_prima_family_bridge.py > bridge.log 2>&1
+          rc=$?
+          {
+            echo "# Prima live family bridge"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            grep -E "^PRIMABRIDGE_" bridge.log | tail -n 650 || true
+            echo '~~~'
+          } > report.md
+          gh issue edit 23 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat report.md
+          exit "$rc"
