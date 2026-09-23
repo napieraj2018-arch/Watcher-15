@@ -11,6 +11,11 @@ HEADERS = {
 }
 KEYWORDS = [
     "nl_occupancy",
+    "nl_occupancy_adults",
+    "nl_occupancy_children",
+    "nl_occupancy_child",
+    "occupancyAdults",
+    "occupancyChildren",
     "searchPreferencesOccupancy",
     "occupancy_children",
     "occupancy_child",
@@ -41,6 +46,16 @@ def main():
     soup=BeautifulSoup(r.text,"html.parser")
     scripts=[urljoin(r.url,x.get("src")) for x in soup.find_all("script") if x.get("src")]
     picked=[u for u in scripts if any(k in u.lower() for k in ["search","invia2020/js/app","invia2020/js/helpers"])]
+    # These chunks are observed in the live SERP network after submitting the
+    # family picker; they are not all present as direct <script> tags on the
+    # landing page.
+    dynamic=[
+      "https://www.travelplanet.pl/assets/invia2020/js/app/search-form-boot.f7c3a2f495099d35a386.js",
+      "https://www.travelplanet.pl/assets/invia2020/js/app/search-results.c7735ac948995e3e3b9f.js",
+      "https://www.travelplanet.pl/assets/invia2020/js/helpers/searchFormSerp.e53c2fe176807516a99c.chunk.js",
+    ]
+    for u in dynamic:
+        if u not in picked: picked.append(u)
     print("TP_JS_SCRIPT_COUNT",len(scripts),"PICKED",len(picked))
     print("TP_JS_SCRIPTS")
     for u in picked[:80]: print(u)
