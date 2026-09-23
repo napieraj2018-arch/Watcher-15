@@ -11,10 +11,11 @@ QC="""query C($persons:[PersonsGroupInput!]!,$trips:[TripInput!]!){
 }"""
 
 def gql(q,v,op):
+    wire_op="O" if op.startswith("O") else ("C" if op.startswith(("F","A")) else op)
     last=None
     for a in range(4):
         try:
-            r=requests.post(GQL,json={"operationName":op,"variables":v,"query":q},headers=H,timeout=45)
+            r=requests.post(GQL,json={"operationName":wire_op,"variables":v,"query":q},headers=H,timeout=45)
             print("PRIMAKNOWN_STATUS",op,a+1,r.status_code,len(r.content))
             r.raise_for_status();d=r.json()
             if d.get("errors"):
