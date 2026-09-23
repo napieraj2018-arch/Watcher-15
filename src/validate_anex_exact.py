@@ -129,6 +129,31 @@ def main():
             lo=line.lower()
             if any(k in lo for k in ["dorośli","dzieci","all inclusive","dostępne","ostatnie","cena","razem","zł","warszawa","radom"]):
                 print("ANEX_RESULT",line[:1000])
+        # Inspect concrete result rows. ANEX/SAMO renders price and
+        # availability in table-cell markup that may not survive body.innerText.
+        family_rows=[]
+        for tr in d.find_elements(By.CSS_SELECTOR,"tr"):
+            try:
+                txt=compact(tr.text)
+                if "2+2" not in txt or "All Inclusive" not in txt:
+                    continue
+                cells=[compact(td.text) for td in tr.find_elements(By.CSS_SELECTOR,"td")]
+                html=(tr.get_attribute("outerHTML") or "")
+                nums=re.findall(r"(?<!\\d)(\\d{3,6})(?!\\d)",txt)
+                meta=[]
+                for e in tr.find_elements(By.XPATH,".//*"):
+                    title=e.get_attribute("title") or e.get_attribute("alt") or ""
+                    cls=e.get_attribute("class") or ""
+                    if title or any(k in cls.lower() for k in ["price","avail","place","flight","seat"]):
+                        meta.append({"tag":e.tag_name,"title":title,"class":cls,"text":compact(e.text)[:120]})
+                rec={"text":txt[:2200],"cells":cells[:30],"numbers":nums[-20:],"meta":meta[:40],"html":html[:12000]}
+                family_rows.append(rec)
+                print("ANEX_FAMILY_ROW",json.dumps(rec,ensure_ascii=False))
+                if len(family_rows)>=12: break
+            except Exception as ex:
+                print("ANEX_ROW_ERR",type(ex).__name__,str(ex)[:180])
+        print("ANEX_FAMILY_ROW_COUNT",len(family_rows))
+
         seen=set()
         for row in d.get_log("performance"):
             try:
