@@ -89,6 +89,7 @@ def main():
     o.add_argument("--window-size=1440,3400");o.add_argument("--lang=pl-PL")
     o.set_capability("goog:loggingPrefs",{"performance":"ALL"})
     d=webdriver.Chrome(options=o)
+    summary={"child_count":None,"childlist":"","age_fields":[],"applied":False,"final_query":{},"body_party":""}
     try:
         d.get(URL);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(5);dismiss(d)
         print("FLY_START",d.current_url)
@@ -108,13 +109,16 @@ def main():
                 for i in range(2):
                     d.execute_script("arguments[0].click()",plus[0]);time.sleep(.8)
                     hidden=d.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
-                    print("FLY_CHILD_PLUS",i+1,hidden[0].get_attribute("value") if hidden else None)
+                    val=hidden[0].get_attribute("value") if hidden else None
+                    summary["child_count"]=val
+                    print("FLY_CHILD_PLUS",i+1,val)
                 c=True
         print("FLY_COUNTS_SET",a,c)
         time.sleep(1);dump_people(d,"FLY_AFTER_COUNTS")
         childlists=d.find_elements(By.CSS_SELECTOR,"[data-childlist]")
         if childlists:
-            print("FLY_CHILDLIST_HTML",(childlists[0].get_attribute("outerHTML") or "")[:18000])
+            summary["childlist"]=(childlists[0].get_attribute("outerHTML") or "")
+            print("FLY_CHILDLIST_HTML",summary["childlist"][:9000])
 
         age_controls=[]
         roots=d.find_elements(By.CSS_SELECTOR,"[data-childlist]")
@@ -135,29 +139,27 @@ def main():
                     print("FLY_CHILD_OPTIONS",idx,opts[:80])
                 except: pass
 
-        # Dump all form fields after party editing, including hidden serialization.
-        for i,f in enumerate(d.find_elements(By.TAG_NAME,"form")):
-            try:
-                html=f.get_attribute("outerHTML") or ""
-                if any(k in html.lower() for k in ["doros","dziec","child","adult","filter[person","filter[age"]):
-                    print("FLY_FORM",i,html[:30000])
-            except: pass
-        print("FLY_URL_BEFORE_SUBMIT",d.current_url)
-
-        # Prefer a visible primary search/submit control.
-        submits=d.find_elements(By.XPATH,"//button[contains(normalize-space(.),'Szukaj')]|//input[@type='submit']")
-        clicked=False
-        for b in submits:
-            try:
-                if b.is_displayed() and b.is_enabled():
-                    print("FLY_SUBMIT",compact(b.text),(b.get_attribute("outerHTML") or "")[:1200])
-                    d.execute_script("arguments[0].click()",b);clicked=True;break
-            except: pass
-        print("FLY_SUBMIT_CLICKED",clicked)
+        # Apply the participant dropdown. Fly uses live-search/AJAX; there is
+        # no reliable primary "Szukaj" button on this results surface.
+        applied=False
+        roots=d.find_elements(By.CSS_SELECTOR,"[data-drop='person']")
+        if roots:
+            oks=roots[0].find_elements(By.CSS_SELECTOR,"button[data-ok]")
+            for b in oks:
+                try:
+                    if b.is_displayed() and b.is_enabled():
+                        d.execute_script("arguments[0].click()",b);applied=True;break
+                except: pass
+        summary["applied"]=applied
+        print("FLY_PARTY_APPLIED",applied)
         time.sleep(8)
         print("FLY_FINAL_URL",d.current_url)
-        print("FLY_FINAL_QUERY",json.dumps(parse_qs(urlsplit(d.current_url).query),ensure_ascii=False,sort_keys=True))
+        q=parse_qs(urlsplit(d.current_url).query)
+        summary["final_query"]=q
+        print("FLY_FINAL_QUERY",json.dumps(q,ensure_ascii=False,sort_keys=True))
         body=d.find_element(By.TAG_NAME,"body").text
+        party_lines=[x.strip() for x in body.splitlines() if x.strip() and ("doros" in x.lower() or "dzieci" in x.lower())]
+        summary["body_party"]=" | ".join(party_lines[:8])
         for line in [x.strip() for x in body.splitlines() if x.strip()]:
             lo=line.lower()
             if any(k in lo for k in ["doros","dzieci","5 lat","7 lat","za wszystkich","zł/os","all inclusive","warszawa - radom","warszawa - modlin","warszawa - okęcie"]):
@@ -172,6 +174,14 @@ def main():
                     if (u,post) not in seen:
                         seen.add((u,post));print("FLY_REQ",req.get("method"),u[:5000],"POST",post[:5000])
             except: pass
+        print("FLY_EXACT_SUMMARY",json.dumps({
+            "child_count":summary["child_count"],
+            "age_fields":summary["age_fields"],
+            "applied":summary["applied"],
+            "final_query":summary["final_query"],
+            "body_party":summary["body_party"],
+            "childlist_snip":compact(summary["childlist"])[:3500]
+        },ensure_ascii=False))
         d.save_screenshot("fly-exact.png")
     finally:d.quit()
 
