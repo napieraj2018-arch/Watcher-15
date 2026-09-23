@@ -1,0 +1,81 @@
+name: Secondary source diagnostics
+
+on:
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+  push:
+    paths:
+      - "src/inspect_dynamic_picker.py"
+      - "src/diagnose_family_surface.py"
+      - ".github/workflows/secondary-diagnostics.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: secondary-source-diagnostics
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    if: >
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.number == 3 && contains(github.event.comment.body, '/probe-secondary'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Probe Fly, Nekera and Oasis
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          {
+            echo "# Secondary source diagnostics"
+            echo
+            echo "- commit: \`${GITHUB_SHA}\`"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo
+          } > secondary-report.md
+
+          publish() {
+            gh issue edit 3 --repo "${GITHUB_REPOSITORY}" --body-file secondary-report.md >/dev/null 2>&1 || true
+          }
+
+          run_one() {
+            channel="$1"
+            script="$2"
+            label="$3"
+            out="$(mktemp)"
+            CHANNEL_ID="$channel" timeout 180s python "$script" >"$out" 2>&1
+            rc=$?
+            {
+              echo "## ${label}"
+              echo
+              echo "exit_code: \`${rc}\`"
+              echo
+              echo '\`\`\`text'
+              tail -n 230 "$out"
+              echo '\`\`\`'
+              echo
+            } >> secondary-report.md
+            rm -f "$out"
+            publish
+          }
+
+          publish
+          for c in fly_pl nekera_pl oasis_pl; do
+            run_one "$c" src/inspect_dynamic_picker.py "${c} dynamic picker"
+            run_one "$c" src/diagnose_family_surface.py "${c} family surface"
+          done
+          echo "## Completed" >> secondary-report.md
+          publish
