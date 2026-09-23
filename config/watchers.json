@@ -317,6 +317,43 @@
       "second_check": true,
       "significant_price_drop_pln": 250,
       "notify_github_user": "napieraj2018-arch"
+    },
+    {
+      "id": "tanietravel-last-minute-2plus2",
+      "enabled": true,
+      "provider": "tanietravel_pl",
+      "adults": 2,
+      "children_ages": [
+        5,
+        7
+      ],
+      "destination_id": 11,
+      "airport_codes": [
+        "WAW",
+        "WMI",
+        "RDO"
+      ],
+      "max_total_price_pln": 7000,
+      "min_stars": 4,
+      "min_rating": 8,
+      "min_reviews": 30,
+      "depart_in_days": [
+        1,
+        2,
+        3
+      ],
+      "min_nights": 5,
+      "max_nights": 8,
+      "meal_contains": "All Inclusive",
+      "airports": [
+        "Warszawa - Radom",
+        "Warszawa - Modlin",
+        "Warszawa"
+      ],
+      "priority_airport_contains": "Radom",
+      "second_check": true,
+      "significant_price_drop_pln": 250,
+      "notify_github_user": "napieraj2018-arch"
     }
   ]
 }
