@@ -9,6 +9,7 @@ on:
       - "src/inspect_dynamic_picker.py"
       - "src/diagnose_family_surface.py"
       - "src/validate_fly_exact.py"
+      - "src/inspect_secondary_js.py"
       - "config/channels.json"
       - ".github/workflows/secondary-diagnostics.yml"
 
@@ -76,6 +77,9 @@ jobs:
 
           publish
           run_one "fly_pl" src/validate_fly_exact.py "fly_pl exact family"
+          for c in fly_pl nekera_pl oasis_pl; do
+            run_one "$c" src/inspect_secondary_js.py "$c secondary JS serialization"
+          done
           for c in fly_pl nekera_pl oasis_pl; do
             run_one "$c" src/inspect_dynamic_picker.py "${c} dynamic picker"
             run_one "$c" src/diagnose_family_surface.py "${c} family surface"
