@@ -1,0 +1,51 @@
+name: Coral exact-family diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/validate_coral_exact.py"
+      - ".github/workflows/coral-exact.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: coral-exact-family
+  cancel-in-progress: true
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run Coral exact-family diagnostic
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          python src/validate_coral_exact.py > coral.log 2>&1
+          rc=$?
+          {
+            echo "# Coral exact-family diagnostic"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            tail -n 460 coral.log
+            echo '~~~'
+          } > report.md
+          gh issue edit 12 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat coral.log
+          exit "$rc"
