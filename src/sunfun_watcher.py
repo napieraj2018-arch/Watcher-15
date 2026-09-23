@@ -38,20 +38,31 @@ def exact_party(driver, ages):
     body=driver.find_element(By.TAG_NAME,'body').text.lower()
     return room==wanted and '2 doros' in body and '2 dzieci' in body
 
+def _card_for_total_label(driver, lab):
+    # Walking with Selenium's '..' reached HTMLDocument on some Sun&Fun layouts.
+    # Resolve the smallest useful ancestor in JS and never climb above <body>.
+    return driver.execute_script("""
+        let el = arguments[0];
+        let best = null;
+        for (let i = 0; i < 10 && el && el !== document.body; i++, el = el.parentElement) {
+            const t = (el.innerText || '').replace(/\s+/g, ' ').trim();
+            if (!t.includes('Cena całkowita')) continue;
+            if (t.length < 80 || t.length > 6000) continue;
+            best = el;
+            const hasLink = !!el.querySelector('a[href]');
+            const hasPrice = /Cena całkowita\s*[0-9][0-9 .]*\s*zł/i.test(t);
+            if (hasLink && hasPrice) break;
+        }
+        return best;
+    """, lab)
+
 def parse_cards(driver):
     cards=[];seen=set()
     labels=driver.find_elements(By.XPATH,"//*[contains(normalize-space(.),'Cena całkowita')]")
     for lab in labels:
         try:
             if not lab.is_displayed(): continue
-            anc=lab; chosen=None
-            for _ in range(8):
-                anc=anc.find_element(By.XPATH,'..')
-                txt=compact(anc.text)
-                if 100 < len(txt) < 5000 and 'Cena całkowita' in txt:
-                    chosen=anc
-                    cls=(anc.get_attribute('class') or '').lower()
-                    if any(k in cls for k in ('tour','offer','result','card','item')): break
+            chosen=_card_for_total_label(driver,lab)
             if chosen is None: continue
             text=compact(chosen.text)
             key=hashlib.sha1(text.encode('utf-8')).hexdigest()[:16]
@@ -63,6 +74,8 @@ def parse_cards(driver):
             meal='All Inclusive' if 'ALL INCLUSIVE' in text.upper() else ''
             # Sun&Fun may express category as stars or a numeric hotel category.
             ms=re.search(r'\b([1-5])\s*(?:\*|gwiazdk)',text,re.I)
+            if not ms:
+                ms=re.search(r'(?:hotel|kategoria)\s*([1-5])\b',text,re.I)
             stars=int(ms.group(1)) if ms else None
             mr=re.search(r'\b([0-9](?:[.,][0-9])?)\s*/\s*10\b',text)
             if not mr:
@@ -117,15 +130,21 @@ def run_sunfun_watcher(cfg):
     if cfg.get('adults')!=2 or cfg.get('children_ages')!=[5,7]: raise RuntimeError('SunFun production adapter is locked to exact 2+2 ages 5/7.')
     token=os.environ.get('GITHUB_TOKEN','');repo=os.environ.get('GITHUB_REPOSITORY','napieraj2018-arch/Watcher-15')
     if not token: raise RuntimeError('GITHUB_TOKEN missing')
-    driver=chrome(); matches=[]
+    driver=chrome(); matches=[]; verified_family_total=False
     try:
         today=datetime.now(TZ).date()
         for delta in cfg['depart_in_days']:
             dep=today+timedelta(days=int(delta));url=exact_url(dep,cfg['children_ages']);print('SUNFUN_SEARCH',url)
             if not load_exact(driver,url,cfg['children_ages']): continue
-            cards=parse_cards(driver);print('SUNFUN_CARDS',dep,len(cards),[(x['total'],x['stars'],x['rating'],x['reviews'],x['meal']) for x in cards[:12]])
+            cards=parse_cards(driver)
+            if cards:
+                verified_family_total=True
+                print('SUNFUN_FAMILY_TOTAL_VERIFIED',dep,cards[0]['total'],len(cards))
+                print('SUNFUN_CARD_SAMPLE',cards[0]['text'][:1200])
+            print('SUNFUN_CARDS',dep,len(cards),[(x['total'],x['stars'],x['rating'],x['reviews'],x['meal']) for x in cards[:12]])
             for x in cards:
                 if qualifies(x,cfg): matches.append((dep,url,x))
+        print('SUNFUN_VERIFIED_FAMILY_TOTAL',verified_family_total)
         print('SUNFUN_MATCHES',len(matches))
         for dep,url,x in matches[:10]:
             # Mandatory second live check. Same exact family URL and same total must still exist.
