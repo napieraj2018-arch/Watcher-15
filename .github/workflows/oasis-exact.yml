@@ -31,19 +31,12 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
 
-      - name: Probe Oasis confirmed browser session
-        continue-on-error: true
-        shell: bash
-        env:
-          PYTHONUNBUFFERED: "1"
-        run: python src/probe_oasis_confirm.py > oasis-focus.log 2>&1
-
       - name: Compare Oasis family and adults totals
         continue-on-error: true
         shell: bash
         env:
           PYTHONUNBUFFERED: "1"
-        run: timeout 110s python src/probe_oasis_compare.py > oasis-compare.log 2>&1
+        run: timeout 160s python src/probe_oasis_compare.py > oasis-compare.log 2>&1
 
       - name: Probe Oasis direct API fallback
         continue-on-error: true
@@ -65,8 +58,6 @@ jobs:
             echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo
             echo '~~~text'
-            if [ -f oasis-focus.log ]; then grep -E "^OASIS2_" oasis-focus.log | tail -n 240 || true; fi
-            echo
             echo "## Family vs adults total"
             if [ -f oasis-compare.log ]; then grep -E "^OASISCMP_" oasis-compare.log | tail -n 220 || true; fi
             echo
