@@ -10,7 +10,7 @@ import requests
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
-from watcher import chrome, dismiss_cookies
+from watcher import chrome, dismiss_cookies, create_alert, configured_departure_dates
 
 TZ = ZoneInfo('Europe/Warsaw')
 BASE = 'https://www.sunfun.pl/wyniki-wyszukiwania-wycieczek/'
@@ -122,9 +122,8 @@ def run_sunfun_watcher(cfg):
     if not token:raise RuntimeError('GITHUB_TOKEN missing')
     driver=chrome();matches=[];verified_family_total=False
     try:
-        today=datetime.now(TZ).date()
-        for delta in cfg['depart_in_days']:
-            dep=today+timedelta(days=int(delta));url=exact_url(dep,cfg['children_ages']);print('SUNFUN_SEARCH',url)
+        for dep in configured_departure_dates(cfg):
+            url=exact_url(dep,cfg['children_ages']);print('SUNFUN_SEARCH',url)
             if not load_exact(driver,url,cfg['children_ages'],dep):continue
             cards=parse_cards(driver)
             if cards:
@@ -140,5 +139,30 @@ def run_sunfun_watcher(cfg):
             fresh=parse_cards(driver);confirm=next((y for y in fresh if y['total']==x['total'] and y['name']==x['name'] and qualifies(y,cfg)),None)
             if not confirm:print('SUNFUN_RECHECK_REJECT',x['total']);continue
             print('SUNFUN_RECHECK_VERIFIED', {'date':dep.isoformat(),'name':confirm['name'],'total':confirm['total'],'stars':confirm['stars'],'rating':confirm['rating'],'reviews':confirm['reviews']})
-            create_issue(token,repo,confirm,dep,cfg)
+            qs=parse_qs(urlparse(confirm['href']).query)
+            try:
+                nights=int((qs.get('duration') or ['7'])[0])
+            except Exception:
+                nights=7
+            departure_time=None
+            mt=re.search(r'\b([0-2]?\d:[0-5]\d)\b',confirm.get('text') or '')
+            if mt:
+                departure_time=mt.group(1)
+            offer={
+                'hotel':confirm['name'],
+                'stars':confirm['stars'],
+                'departure':dep,
+                'departure_time':departure_time,
+                'return':dep+timedelta(days=nights),
+                'nights':nights,
+                'price':confirm['total'],
+                'rating':confirm['rating'],
+                'reviews':confirm['reviews'],
+                'airport':'Warszawa',
+                'meal':confirm['meal'],
+                'operator':'Sun & Fun',
+                'href':confirm['href'],
+                'verified_href':confirm['href'],
+            }
+            create_alert(token,repo,cfg,offer,'Sun&Fun exact 2+2 ages 5/7 + explicit Cena całkowita + second live page recheck')
     finally:driver.quit()
