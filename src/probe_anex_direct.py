@@ -65,16 +65,30 @@ def main():
             r=s.get(BASE,params=params(town,family),timeout=40)
             print("ANEXDIR_STATUS",AIRPORTS[town],label,r.status_code,r.url,len(r.content))
             r.raise_for_status()
-            rows=read_rows(r.text,town,family)
+            payload_text=r.text
+            # SAMO PRICES returns the result table as a JSON-encoded HTML string.
+            # Decode that transport wrapper before parsing tr.price_info.
+            try:
+                decoded=r.json()
+                if isinstance(decoded,str):
+                    payload_text=decoded
+                elif isinstance(decoded,dict):
+                    for key in ("html","data","result","content"):
+                        if isinstance(decoded.get(key),str) and "price_info" in decoded.get(key):
+                            payload_text=decoded.get(key);break
+            except Exception:
+                pass
+            print("ANEXDIR_DECODED",AIRPORTS[town],label,len(payload_text),"price_info" in payload_text)
+            rows=read_rows(payload_text,town,family)
             sets[label]=rows
             print("ANEXDIR_ROWS",AIRPORTS[town],label,len(rows))
             if not rows:
-                low=r.text.lower()
+                low=payload_text.lower()
                 for needle in ["price_info","data-converted-price-number","adult-2","child-2","td_price","samo_action"]:
                     pos=low.find(needle.lower())
                     print("ANEXDIR_SIGNAL",AIRPORTS[town],label,needle,pos)
                     if pos>=0:
-                        print("ANEXDIR_SNIP",AIRPORTS[town],label,needle,compact(r.text[max(0,pos-500):pos+1800]))
+                        print("ANEXDIR_SNIP",AIRPORTS[town],label,needle,compact(payload_text[max(0,pos-500):pos+1800]))
             for x in list(rows.values())[:6]:print("ANEXDIR_ROW",label,json.dumps(x,ensure_ascii=False))
         common=set(sets["FAMILY"]) & set(sets["ADULTS"])
         print("ANEXDIR_COMMON",AIRPORTS[town],len(common))
