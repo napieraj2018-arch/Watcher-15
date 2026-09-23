@@ -202,10 +202,23 @@ def _fetch(cfg):
 
         comparison_key = _comparison_key(row)
         adults_only_total = adult_totals.get(comparison_key)
-        if adults_only_total is None or adults_only_total == total:
-            print("GRECOS_FAMILY_PRICE_PROOF_REJECT", comparison_key, total, adults_only_total)
-            continue
-        print("GRECOS_FAMILY_PRICE_PROOF", comparison_key, "family", total, "adults_only", adults_only_total)
+        if adults_only_total is not None:
+            if adults_only_total == total:
+                print("GRECOS_FAMILY_PRICE_PROOF_REJECT", comparison_key, total, adults_only_total)
+                continue
+            family_price_proof = "same-offer-adults-only-comparison"
+            print("GRECOS_FAMILY_PRICE_PROOF", comparison_key, "family", total, "adults_only", adults_only_total)
+        else:
+            # If the adults-only result set does not expose the same package,
+            # still refuse any value that could merely be the two-adult total.
+            # Exact Children=2 is already required above; this arithmetic guard
+            # deliberately sacrifices child-free edge cases rather than risk a
+            # false family price.
+            if total <= (2 * adult_unit):
+                print("GRECOS_FAMILY_PRICE_PROOF_REJECT_NO_COMPARISON", comparison_key, total, adult_unit)
+                continue
+            family_price_proof = "exact-party-plus-greater-than-two-adult-units"
+            print("GRECOS_FAMILY_PRICE_PROOF_FALLBACK", comparison_key, "family", total, "adult_unit", adult_unit)
 
         dep = _departure(row.get("Merlin_ParsedStartFullDate") or row.get("Merlin_ParsedStartDate"))
         if dep not in allowed:
@@ -242,7 +255,7 @@ def _fetch(cfg):
             "verified_href": href,
             "price": total,
             "adult_only_total": adults_only_total,
-            "family_price_proof": True,
+            "family_price_proof": family_price_proof,
             "departure": dep,
             "return": dep + timedelta(days=nights),
             "nights": nights,
