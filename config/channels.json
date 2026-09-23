@@ -7,7 +7,7 @@
     "alert_requires_live_availability": true,
     "no_per_person_price_as_total": true,
     "production_goal": 10,
-    "total_registered": 17,
+    "total_registered": 18,
     "alert_only_from_production": true,
     "block_unverified_family_totals": true
   },
@@ -205,6 +205,17 @@
       "final_total": true,
       "live_availability": true,
       "note": "Exact-family diagnostic found live SAMO rows carrying adult-2 child-2, AGES=5,7, room occupancy 2+2, explicit PLN price and availability markers. Not production yet: must prove the displayed row price is the final 2+2 family total via same-package 2+0 control and wire strict 1–3 day/5–8 night/airport/quality recheck."
+    },
+    {
+      "id": "prima_holiday_pl",
+      "name": "Prima Holiday",
+      "url": "https://www.primaholiday.pl/",
+      "status": "diagnostic",
+      "kind": "operator",
+      "priority": 17,
+      "exact_party": false,
+      "final_total": false,
+      "note": "Independent operator added as fallback path toward 10+ production channels. Exact 2+2 ages 5/7, live availability and final family total are not yet proven."
     }
   ]
 }
