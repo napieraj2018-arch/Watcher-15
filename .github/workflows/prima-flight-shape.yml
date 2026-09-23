@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "src/probe_prima_flight_shape.py"
+      - "src/probe_prima_flight_family_matrix.py"
       - ".github/workflows/prima-flight-shape.yml"
 
 permissions:
@@ -35,6 +36,8 @@ jobs:
           set +e
           timeout 240s python src/probe_prima_flight_shape.py > shape.log 2>&1
           rc=$?
+          timeout 240s python src/probe_prima_flight_family_matrix.py > matrix.log 2>&1
+          rcm=$?
           {
             echo "# Prima flight mintrip shape"
             echo
@@ -44,8 +47,12 @@ jobs:
             echo
             echo '~~~text'
             grep -E '^PRIMASHAPE_' shape.log | tail -n 500 || true
+            echo
+            echo "## Exact-family live flight matrix"
+            grep -E '^PRIMAMATRIX_' matrix.log | tail -n 420 || true
             echo '~~~'
           } > report.md
           gh issue edit 24 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
           cat report.md
-          exit "$rc"
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          exit "$rcm"
