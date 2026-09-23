@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'src/diagnose_family_surface.py'
+      - 'config/channels.json'
       - '.github/workflows/family-surface.yml'
 
 jobs:
