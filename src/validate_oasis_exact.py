@@ -145,6 +145,28 @@ def main():
                     }))
                 except: pass
 
+        # Oasis renders two controlled DOB text fields only after the child
+        # counter reaches 2. Fill those exact React controls first.
+        age_inputs=[e for e in d.find_elements(By.CSS_SELECTOR,".participants input.ageInput") if e.is_displayed()]
+        print("OASIS_EXACT_AGE_INPUT_COUNT",len(age_inputs))
+        for i,(e,target) in enumerate(zip(age_inputs,["01.01.2021","01.01.2019"])):
+            try:
+                e.click()
+                from selenium.webdriver.common.keys import Keys
+                e.send_keys(Keys.CONTROL,"a");e.send_keys(target);e.send_keys(Keys.TAB);time.sleep(.7)
+                print("OASIS_EXACT_DOB",i,target,"=>",e.get_attribute("value"))
+            except Exception as ex:
+                print("OASIS_EXACT_DOB_ERR",i,type(ex).__name__,str(ex)[:180])
+        confirms=[e for e in d.find_elements(By.CSS_SELECTOR,".participants button.confirmButton") if e.is_displayed()]
+        if confirms:
+            print("OASIS_CONFIRM_STATE",{"disabled":confirms[0].get_attribute("disabled"),"html":(confirms[0].get_attribute("outerHTML") or "")[:1800]})
+            if not confirms[0].get_attribute("disabled"):
+                d.execute_script("arguments[0].click()",confirms[0]);time.sleep(1.2);print("OASIS_EXACT_PARTY_CONFIRMED",True)
+            else:
+                print("OASIS_EXACT_PARTY_CONFIRMED",False)
+        else:
+            print("OASIS_EXACT_PARTY_CONFIRMED",False)
+
         ages=[]
         for e in d.find_elements(By.XPATH,"//input|//select"):
             try:
@@ -168,9 +190,8 @@ def main():
         for needle in ["2 doros","2 dzieci","5 lat","7 lat"]:
             print("OASIS_BODY_PARTY",needle,needle.lower() in body.lower())
 
-        # Try common local apply buttons but do not click main search yet.
-        for t in ["Wybierz","Gotowe","Zastosuj","OK"]:
-            if click_text(d,t,"apply_party"):break
+        # Party confirmation is handled exclusively by .confirmButton
+        # above. Never use broad text matching here (e.g. "OK" matched KOCHAJ).
         time.sleep(1)
         print("OASIS_BEFORE_SEARCH",d.current_url)
         clicked=click_text(d,"Wyszukaj","search")
