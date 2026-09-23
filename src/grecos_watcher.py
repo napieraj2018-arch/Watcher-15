@@ -87,9 +87,24 @@ def _offer_url(row):
 
 def _airport_ok(name, configured):
     value = " ".join(str(name or "").lower().replace("-", " ").split())
-    for wanted in configured:
-        w = " ".join(str(wanted).lower().replace("-", " ").split())
-        if w and (w in value or value in w):
+    if not value:
+        return None
+
+    normalized = [
+        (wanted, " ".join(str(wanted).lower().replace("-", " ").split()))
+        for wanted in configured
+    ]
+
+    # Exact match first. In particular raw "Warszawa" must never be upgraded
+    # to "Warszawa-Radom" merely because it is a substring of that label.
+    for wanted, w in normalized:
+        if w == value:
+            return wanted
+
+    # Then allow only a configured name contained in a more descriptive raw
+    # airport label, never the reverse.
+    for wanted, w in normalized:
+        if w and w in value:
             return wanted
     return None
 
