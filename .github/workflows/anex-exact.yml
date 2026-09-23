@@ -7,6 +7,7 @@ on:
       - "src/validate_anex_exact.py"
       - "src/probe_anex_control.py"
       - "src/probe_anex_direct.py"
+      - "src/probe_anex_session_compare.py"
       - ".github/workflows/anex-exact.yml"
 
 permissions:
