@@ -29,32 +29,38 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Probe Oasis participant DOM
-        shell: bash
-        env:
-          PYTHONUNBUFFERED: "1"
-        run: python src/probe_oasis_confirm.py > oasis-focus.log 2>&1
+
       - name: Probe Oasis BlueVendo API
+        continue-on-error: true
         shell: bash
         env:
           PYTHONUNBUFFERED: "1"
         run: python src/probe_oasis_api.py > oasis-api.log 2>&1
+
+      - name: Probe Oasis participant DOM
+        continue-on-error: true
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python src/probe_oasis_confirm.py > oasis-focus.log 2>&1
+
       - name: Publish compact Oasis report
+        if: always()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           {
-            echo "# Oasis focused participant diagnostic"
+            echo "# Oasis exact-family / BlueVendo diagnostic"
             echo
             echo "- commit: $GITHUB_SHA"
             echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo
             echo '~~~text'
-            grep -E "^OASIS2_" oasis-focus.log | tail -n 180
+            if [ -f oasis-focus.log ]; then grep -E "^OASIS2_" oasis-focus.log | tail -n 180 || true; fi
             echo
             echo "## BlueVendo API"
-            grep -E "^OASIS_API_" oasis-api.log | tail -n 260
+            if [ -f oasis-api.log ]; then grep -E "^OASIS_API_" oasis-api.log | tail -n 320 || true; fi
             echo '~~~'
           } > report.md
           gh issue edit 7 --repo "$GITHUB_REPOSITORY" --body-file report.md
