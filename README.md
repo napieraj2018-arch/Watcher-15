@@ -75,3 +75,7 @@ Fly.pl nie został dopuszczony do produkcji. Zapytanie przyjmuje `filter[person]
 ### Stan kanałów — 2026-09-23 09:40 CEST
 
 Zweryfikowany stan `main`: **8 kanałów production** — Wakacje.pl, TUI Poland, ITAKA, Rainbow, EXIM tours, Travelplanet, Grecos i Sun & Fun. Fly.pl pozostaje diagnostic, ponieważ backend zeruje dzieci mimo parametrów 2+2; Nekera zachowuje dokładne dzieci 5/7, ale kontrola 2+2 vs 2+0 nie potwierdziła rodzinnego totalu. Oasis ma aktywną diagnostykę BlueVendo/React; eSky pozostaje zablokowany HTTP 403. Statusów nie podnosimy bez exact 2+2 + live availability + końcowego family total.
+
+### Rozszerzenie puli źródeł — Rego-Bis
+
+Do puli dodano niezależny kanał `regobis_pl`. Serwis ma dedykowany przepływ „rodzina 2+2”, wymaga wieku/dat urodzenia dzieci i przed finalizacją ponownie sprawdza cenę oraz dostępność dla wybranego składu. Status pozostaje `diagnostic` do czasu technicznego potwierdzenia dokładnego 2+2 (5/7) i końcowej ceny rodzinnej.
