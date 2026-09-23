@@ -2,6 +2,15 @@ name: Channel 12 — Oasis Tours
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "11,26,41,56 * * * *"
+  push:
+    paths:
+      - "src/oasis_watcher.py"
+      - "src/channel_runner.py"
+      - "config/channels.json"
+      - "config/watchers.json"
+      - ".github/workflows/source-12-oasis_pl.yml"
 
 permissions:
   contents: read
@@ -16,21 +25,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+      - run: pip install -r requirements.txt
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run Oasis Tours channel
+      - name: Run Oasis production channel and publish smoke result
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PYTHONUNBUFFERED: "1"
           WATCHER_CHANNEL: oasis_pl
-        run: python src/channel_runner.py
+        run: |
+          set +e
+          python src/channel_runner.py > oasis-run.log 2>&1
+          rc=$?
+          {
+            echo "# Oasis production smoke"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            tail -n 320 oasis-run.log
+            echo '~~~'
+          } > oasis-smoke.md
+          gh issue edit 16 --repo "$GITHUB_REPOSITORY" --body-file oasis-smoke.md >/dev/null 2>&1 || true
+          cat oasis-run.log
+          exit "$rc"
