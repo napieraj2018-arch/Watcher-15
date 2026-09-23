@@ -86,3 +86,77 @@ print("NEKERA_OFFER_FAMILY_TOTAL_ROWS",family_total_rows)
 print("NEKERA_OFFER_COMPARE_COUNT",compared)
 print("NEKERA_OFFER_PARTY_SENSITIVE_COUNT",party_sensitive)
 print("NEKERA_OFFER_FAMILY_TOTAL_VERIFIED",party_sensitive>0)
+
+
+# Browser-level detail repricing. The detail page does not honor child query
+# parameters until its own passenger chooser is updated, so verify the actual
+# offer calculator instead of trusting URL state.
+def browser_reprice(native,label):
+    import time,json
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.support.ui import WebDriverWait
+    o=Options();o.add_argument("--headless=new");o.add_argument("--no-sandbox");o.add_argument("--disable-dev-shm-usage")
+    o.add_argument("--window-size=1440,3200");o.add_argument("--lang=pl-PL")
+    o.set_capability("goog:loggingPrefs",{"performance":"ALL"})
+    d=webdriver.Chrome(options=o)
+    try:
+        adult_url=with_party(native,ADULTS)
+        d.get(adult_url);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(5)
+        body0=" ".join(d.find_element(By.TAG_NAME,"body").text.split())
+        before=explicit_totals(body0)
+        print("NEKERA_UI_REPRICE_BEFORE",label,{"url":d.current_url,"totals":before})
+        btns=[x for x in d.find_elements(By.CSS_SELECTOR,".offer_chooser__passengers_button") if x.is_displayed()]
+        if not btns:
+            print("NEKERA_UI_REPRICE_FAIL",label,"no passenger button");return
+        d.execute_script("arguments[0].click()",btns[0]);time.sleep(.7)
+        child_count=d.find_element(By.ID,"children-input")
+        add=d.find_element(By.ID,"child-add")
+        for _ in range(4):
+            try:
+                n=int(child_count.get_attribute("value") or "0")
+            except:n=0
+            if n>=2:break
+            d.execute_script("arguments[0].click()",add);time.sleep(.4)
+        print("NEKERA_UI_CHILD_COUNT",label,child_count.get_attribute("value"))
+        for eid,val in [("child_1","2021-01-01"),("child_2","2019-01-01")]:
+            e=d.find_element(By.ID,eid)
+            d.execute_script("""
+              const e=arguments[0],v=arguments[1];
+              const p=Object.getPrototypeOf(e),desc=Object.getOwnPropertyDescriptor(p,'value');
+              if(desc&&desc.set)desc.set.call(e,v);else e.value=v;
+              for(const n of ['input','change','blur'])e.dispatchEvent(new Event(n,{bubbles:true}));
+            """,e,val)
+            time.sleep(.3)
+            print("NEKERA_UI_CHILD_DOB",label,eid,e.get_attribute("value"))
+        updates=[x for x in d.find_elements(By.CSS_SELECTOR,".offer_chooser_update_button") if x.is_displayed()]
+        if not updates:
+            print("NEKERA_UI_REPRICE_FAIL",label,"no update button");return
+        d.get_log("performance")
+        d.execute_script("arguments[0].click()",updates[0]);time.sleep(8)
+        body=" ".join(d.find_element(By.TAG_NAME,"body").text.split())
+        after=explicit_totals(body)
+        print("NEKERA_UI_REPRICE_AFTER",label,{"url":d.current_url,"totals":after,
+          "two_children":"2 dzieci" in body.lower(),
+          "dob1":"2021-01-01" in body,"dob2":"2019-01-01" in body,
+          "unavailable":"oferta chwilowo niedostępna" in body.lower()})
+        for needle in ["2 dzieci","Dziecko","Razem","do zapłaty","Dostępna","niedostępna"]:
+            i=body.lower().find(needle.lower())
+            if i>=0:print("NEKERA_UI_SIGNAL",label,needle,body[max(0,i-250):i+900])
+        for row in d.get_log("performance"):
+            try:
+                m=json.loads(row["message"])["message"]
+                if m.get("method")!="Network.requestWillBeSent":continue
+                req=m["params"]["request"];u=req.get("url","");post=req.get("postData") or ""
+                blob=(u+" "+post).lower()
+                if any(k in blob for k in ["child","passenger","offer","price","booking"]):
+                    print("NEKERA_UI_REQ",label,req.get("method"),u[:5000],"POST",post[:5000])
+            except:pass
+        changed=bool(before and after and before!=after)
+        print("NEKERA_UI_PARTY_SENSITIVE",label,changed)
+    finally:d.quit()
+
+for i,(native,_) in enumerate(anchors[:2]):
+    try: browser_reprice(native,f"UI-{i}")
+    except Exception as e: print("NEKERA_UI_REPRICE_ERR",i,type(e).__name__,str(e)[:300])
