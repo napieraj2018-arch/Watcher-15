@@ -3,7 +3,7 @@ from datetime import datetime,timedelta
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 import requests
-from watcher import create_alert
+from watcher import create_alert, configured_departure_dates
 
 TZ=ZoneInfo("Europe/Warsaw")
 API="https://www.katowice-travel.pl/api/search_offers.php"
@@ -12,12 +12,11 @@ HEADERS={"User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome
          "Accept":"application/json,text/plain,*/*","Referer":BASE,"Content-Type":"application/json"}
 
 def _payload(cfg,family):
-    today=datetime.now(TZ).date()
-    ds=sorted(int(x) for x in cfg["depart_in_days"])
+    dates=configured_departure_dates(cfg)
     return {
       "type":"tours","destinationId":int(cfg.get("destination_id",11)),"favoritesOnly":False,
-      "dateFrom":(today+timedelta(days=ds[0])).isoformat(),
-      "dateTo":(today+timedelta(days=ds[-1])).isoformat(),
+      "dateFrom":dates[0].isoformat(),
+      "dateTo":dates[-1].isoformat(),
       "stars":"4plus","adults":2,"children":2 if family else 0,
       "childAges":"5,7" if family else "",
       "meal":"ai","limit":500,
@@ -102,7 +101,7 @@ def _certified_rows(cfg):
     print("TANIE_PROD_ROWS",len(f1),len(ad),len(f2))
     amap={_key(x):x for x in ad if all(_key(x)[:7])}
     rmap={_key(x):x for x in f2 if all(_key(x)[:7])}
-    today=datetime.now(TZ).date();allowed={today+timedelta(days=int(d)) for d in cfg["depart_in_days"]}
+    allowed=set(configured_departure_dates(cfg))
     out=[]
     for x in f1:
         k=_key(x)
