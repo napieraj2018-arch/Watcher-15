@@ -8,6 +8,7 @@ on:
     paths:
       - "src/validate_exim_exact.py"
       - "src/diagnose_grecos_family.py"
+      - "src/validate_grecos_exact.py"
       - "src/diagnose_travelplanet_family.py"
       - "src/diagnose_travelplanet_state.py"
       - "src/inspect_travelplanet_js.py"
@@ -80,6 +81,7 @@ jobs:
           publish
           run_diag "EXIM exact family" python src/validate_exim_exact.py
           run_diag "Grecos family" python src/diagnose_grecos_family.py
+          run_diag "Grecos exact family" python src/validate_grecos_exact.py
           run_diag "Travelplanet family" python src/diagnose_travelplanet_family.py
           run_diag "Travelplanet state/network" python src/diagnose_travelplanet_state.py
           run_diag "Travelplanet frontend serialization" python src/inspect_travelplanet_js.py
