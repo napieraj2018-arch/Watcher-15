@@ -2,6 +2,14 @@ name: Channel 13 — Sun & Fun
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "13,28,43,58 * * * *"
+  push:
+    paths:
+      - "src/sunfun_watcher.py"
+      - "src/run_sunfun.py"
+      - "config/watchers.json"
+      - ".github/workflows/source-13-sunfun_pl.yml"
 
 permissions:
   contents: read
@@ -28,9 +36,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Sun & Fun channel
+      - name: Run Sun & Fun exact-family channel
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHONUNBUFFERED: "1"
-          WATCHER_CHANNEL: sunfun_pl
-        run: python src/channel_runner.py
+        run: python src/run_sunfun.py
