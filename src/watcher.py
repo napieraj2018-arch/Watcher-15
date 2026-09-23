@@ -1206,18 +1206,50 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
 
             airport="Warszawa"
             departure_time=None
+            rawtxt=tile.text or ""
             for ap in ["Warszawa-Radom","Warszawa-Modlin","Warszawa-Okęcie","Warszawa"]:
                 if ap.lower() in txt.lower():
                     airport=ap
-                    tm=re.search(re.escape(ap)+r"[^\d]{0,80}([0-2]?\d:[0-5]\d)",txt,re.I)
-                    if tm:
-                        departure_time=tm.group(1)
+                    # Prefer the same visible line as the departure airport.
+                    for line in rawtxt.splitlines():
+                        if ap.lower() in line.lower():
+                            tm=re.search(r"\b([0-2]?\d:[0-5]\d)\b",line)
+                            if tm:
+                                departure_time=tm.group(1)
+                                break
+                    if departure_time is None:
+                        tm=re.search(re.escape(ap)+r"[^\d]{0,100}([0-2]?\d:[0-5]\d)",txt,re.I)
+                        if tm:
+                            departure_time=tm.group(1)
                     break
+
+            stars=None
+            try:
+                for el in tile.find_elements(By.XPATH,".//*[@aria-label or @title or @alt]"):
+                    blob=" ".join(filter(None,[
+                        el.get_attribute("aria-label"),
+                        el.get_attribute("title"),
+                        el.get_attribute("alt"),
+                    ]))
+                    ms=re.search(r"\b([1-5])\s*(?:gwiaz|star)",blob,re.I)
+                    if ms:
+                        stars=max(stars or 0,int(ms.group(1)))
+                if stars is None:
+                    html=tile.get_attribute("outerHTML") or ""
+                    for pat in [
+                        r'(?:stars?|gwiazd(?:ki|ek)?)[-_\s:=\"\']{0,12}([1-5])',
+                        r'([1-5])[-_\s]*(?:stars?|gwiazdk)',
+                    ]:
+                        ms=re.search(pat,html,re.I)
+                        if ms:
+                            stars=int(ms.group(1));break
+            except Exception:
+                pass
 
             offer_token=(parse_qs(urlsplit(href).query).get("id[0]") or [None])[0]
             offers.append({
                 "hotel":hotel or "Hotel ITAKA",
-                "stars":None,
+                "stars":stars,
                 "departure":dep,
                 "return":ret,
                 "nights":nights,
@@ -1240,7 +1272,7 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
     offers.sort(key=lambda x:(x["listing_pp"] or 999999,-(x["rating"] or 0),-(x["reviews"] or 0)))
     print("ITAKA_CANDIDATES",len(offers))
     for x in offers[:20]:
-        print("ITAKA_CANDIDATE",x["hotel"],x["departure"],x["nights"],x["listing_pp"],x["rating"],x["reviews"],x["href"])
+        print("ITAKA_CANDIDATE",x["hotel"],x["departure"],x["departure_time"],x["nights"],x["listing_pp"],x["rating"],x["reviews"],x["stars"],x["href"])
     return offers
 
 def itaka_parse_total(body):
@@ -1321,8 +1353,17 @@ def itaka_verify_offer(driver, offer, cfg, child_dobs):
     if total is None:
         return None,"itaka_no_family_total",None
 
-    stars=page_stars(driver)
-    # ITAKA sometimes renders category as graphics without accessible star labels.
+    stars=offer.get("stars") or page_stars(driver)
+    if stars is None:
+        src=driver.page_source
+        for pat in [
+            r'"(?:hotelCategory|category|standard|stars)"\s*:\s*"?([1-5])',
+            r'(?:hotelCategory|hotel-category|stars?)[^0-9]{0,30}([1-5])',
+        ]:
+            ms=re.search(pat,src,re.I)
+            if ms:
+                stars=int(ms.group(1));break
+    # ITAKA sometimes renders category as graphics or hydrated JSON.
     if stars is not None and stars < cfg.get("min_stars",4):
         return None,f"itaka_hotel_stars_{stars}",stars
 
