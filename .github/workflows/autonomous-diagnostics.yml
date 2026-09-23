@@ -20,7 +20,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: autonomous-adapter-diagnostics
+  group: autonomous-adapter-diagnostics-${{ github.event_name }}-${{ github.event.issue.number || 'none' }}
   cancel-in-progress: true
 
 jobs:
