@@ -36,7 +36,7 @@ def row_key(tr):
     attrs=lambda n: tr.get_attribute(n) or ""
     return (
       attrs("data-checkin"),attrs("data-nights"),attrs("data-hotel"),
-      attrs("data-tour"),attrs("data-room"),attrs("data-meal"),attrs("data-townfrom")
+      attrs("data-tour"),attrs("data-meal"),attrs("data-townfrom")
     )
 
 def read_rows(d,label,family):
