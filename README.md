@@ -63,3 +63,7 @@ Najważniejsze ustalenia:
 ### Stabilność diagnostyki
 
 Workflowy diagnostyczne dla głównych i drugorzędnych adapterów mają osobne grupy `concurrency` zależne od typu zdarzenia i numeru issue. Dzięki temu raport z jednego kanału nie anuluje poprawnego testu innego źródła tylko dlatego, że oba zostały uruchomione niemal jednocześnie.
+
+### Grecos — production gate
+
+Grecos jest kanałem `production`, ale alarmy pozostają fail-closed. Adapter wymaga exact 2+2 (5/7), żywej ceny rodzinnej zależnej od składu, terminu 1–3 dni, 5–8 nocy, All Inclusive, właściwego lotniska i ponownego sprawdzenia API. Brak wiarygodnej oceny >=8.0 lub liczby opinii >=30 oznacza brak alarmu, a nie obchodzenie filtra. Workflow kanału działa niezależnie co 15 minut.
