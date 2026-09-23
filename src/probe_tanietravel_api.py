@@ -53,12 +53,17 @@ def key_from(rec):
             if n in rec and rec[n] not in (None,""):return str(rec[n])
         return ""
     return (
-      pick("hotelId","hotel_id","hotelCode","hotel_code","idHotel","hotelXCode","hotel_xcode"),
-      pick("dateFrom","departureDate","startDate","date_from","start"),
+      pick("offerHash","offer_hash","providerOfferHash"),
+      pick("htlCode","hotelCode","hotel_code","hotelId","hotel_id","idHotel","hotelXCode","hotel_xcode","xCode"),
+      pick("hotel_name","hotelName"),
+      pick("departureDate","dateFrom","startDate","date_from","start"),
+      pick("returnDate","dateTo","endDate","date_to","end"),
       pick("nights","duration","stayLength","stay_length"),
-      pick("roomId","room_id","roomCode","room_code"),
-      pick("mealId","meal_id","mealCode","meal_code","boardCode","board_code"),
-      pick("departureCode","depCode","airportCode","airport_code","departureAirport")
+      pick("roomDesc","roomName","roomId","room_id","roomCode","room_code"),
+      pick("meal","mealName","mealId","meal_id","mealCode","meal_code","boardCode","board_code"),
+      pick("depCode","departureCode","airportCode","airport_code","departureAirport"),
+      pick("desCode","destinationCode","arrivalCode"),
+      pick("xServiceId","serviceId","providerId")
     )
 
 def price_from(rec):
@@ -126,10 +131,10 @@ def main():
 
     amap={}
     for path,rec,pk,pv,k in adrecs:
-        if any(k):amap.setdefault(k,(path,rec,pk,pv))
+        if sum(bool(x) for x in k) >= 6:amap.setdefault(k,(path,rec,pk,pv))
     proofs=[]
     for path,rec,pk,pv,k in famrecs:
-        if not any(k) or k not in amap:continue
+        if sum(bool(x) for x in k) < 6 or k not in amap:continue
         apath,arec,apk,apv=amap[k]
         if pv!=apv:
             proofs.append({"key":k,"family_total":pv,"adult_total":apv,"family_price_field":pk,"adult_price_field":apk,"family_path":path,"adult_path":apath})
