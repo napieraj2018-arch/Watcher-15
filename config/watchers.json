@@ -9,14 +9,16 @@
         5,
         7
       ],
-      "max_total_price_pln": 7000,
+      "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -41,15 +43,17 @@
         5,
         7
       ],
-      "max_total_price_pln": 7000,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "max_total_price_pln": 11000,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "min_stars": 4,
       "require_stars": false,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -71,14 +75,16 @@
         5,
         7
       ],
-      "max_total_price_pln": 7000,
+      "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -92,7 +98,7 @@
       "priority_airport_contains": "Radom",
       "significant_price_drop_pln": 250,
       "notify_github_user": "napieraj2018-arch",
-      "max_listing_per_person_pln": 3200,
+      "max_listing_per_person_pln": 5000,
       "max_detail_checks": 15
     },
     {
@@ -104,14 +110,16 @@
         5,
         7
       ],
-      "max_total_price_pln": 7000,
+      "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -125,7 +133,7 @@
       "priority_airport_contains": "Radom",
       "significant_price_drop_pln": 250,
       "notify_github_user": "napieraj2018-arch",
-      "max_listing_per_person_pln": 3000,
+      "max_listing_per_person_pln": 5000,
       "max_detail_checks": 15
     },
     {
@@ -137,14 +145,16 @@
         5,
         7
       ],
-      "max_total_price_pln": 7000,
+      "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -166,14 +176,16 @@
         5,
         7
       ],
-      "max_total_price_pln": 7000,
+      "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -197,14 +209,16 @@
         5,
         7
       ],
-      "max_total_price_pln": 7000,
+      "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -231,14 +245,16 @@
         5,
         7
       ],
-      "max_total_price_pln": 7000,
+      "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -262,14 +278,16 @@
         5,
         7
       ],
-      "max_total_price_pln": 7000,
+      "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -295,14 +313,16 @@
         5,
         7
       ],
-      "max_total_price_pln": 7000,
+      "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -333,14 +353,16 @@
         "WMI",
         "RDO"
       ],
-      "max_total_price_pln": 7000,
+      "max_total_price_pln": 11000,
       "min_stars": 4,
-      "min_rating": 8,
-      "min_reviews": 30,
+      "min_rating": 8.8,
+      "min_reviews": 100,
       "depart_in_days": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "min_nights": 5,
       "max_nights": 8,
