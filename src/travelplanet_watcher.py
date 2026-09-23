@@ -140,9 +140,19 @@ def _parse_family_items(items,cfg,allowed,url):
         stars,rating,reviews=_quality(item.get("item_parameter_4"))
         hotel=str(item.get("item_name") or "").strip()
         if not hotel:continue
+        departure_time=None
+        raw_departure=str(payload.get("outboundFlightDepartureDate") or "")
+        mt=re.fullmatch(r"(\d{8})T(\d{2})(\d{2})",raw_departure)
+        if mt:
+            try:
+                token_dep=datetime.strptime(mt.group(1),"%Y%m%d").date()
+                if token_dep==dep:
+                    departure_time=f"{mt.group(2)}:{mt.group(3)}"
+            except Exception:
+                departure_time=None
         offer={
           "key":_stable_key(item,dep,ret,airport),"hotel":hotel,"href":url,"verified_href":url,
-          "price":int(round(total)),"departure":dep,"return":ret,"nights":nights,"airport":airport,
+          "price":int(round(total)),"departure":dep,"departure_time":departure_time,"return":ret,"nights":nights,"airport":airport,
           "meal":meal,"operator":"Travelplanet / "+str(item.get("item_brand") or "operator"),
           "rating":rating,"reviews":reviews,"stars":stars,
           "travelplanet_item_id":str(item.get("item_id") or ""),"offer_token":token,
