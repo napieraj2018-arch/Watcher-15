@@ -93,8 +93,10 @@ def main():
     try:
         d.get(URL);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete");time.sleep(5);dismiss(d)
         print("FLY_START",d.current_url)
-        dump_people(d,"FLY_PEOPLE_BEFORE")
-        print("FLY_OPENED",open_people(d));dump_people(d,"FLY_PEOPLE_AFTER_OPEN")
+        print("FLY_OPENED",open_people(d))
+        p=d.find_elements(By.CSS_SELECTOR,"input[name='filter[person]']")
+        ch=d.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
+        print("FLY_PARTY_HIDDEN_BEFORE",p[0].get_attribute("value") if p else None,ch[0].get_attribute("value") if ch else None)
 
         # Adults default to 2. Change children through the real counter UI so
         # Fly's frontend creates the DOB controls and serializes the party.
@@ -114,7 +116,10 @@ def main():
                     print("FLY_CHILD_PLUS",i+1,val)
                 c=True
         print("FLY_COUNTS_SET",a,c)
-        time.sleep(1);dump_people(d,"FLY_AFTER_COUNTS")
+        time.sleep(1)
+        p=d.find_elements(By.CSS_SELECTOR,"input[name='filter[person]']")
+        ch=d.find_elements(By.CSS_SELECTOR,"input[name='filter[child]']")
+        print("FLY_PARTY_HIDDEN_AFTER",p[0].get_attribute("value") if p else None,ch[0].get_attribute("value") if ch else None)
         childlists=d.find_elements(By.CSS_SELECTOR,"[data-childlist]")
         if childlists:
             summary["childlist"]=(childlists[0].get_attribute("outerHTML") or "")
@@ -206,7 +211,7 @@ def main():
                 m=json.loads(row["message"])["message"]
                 if m.get("method")!="Network.requestWillBeSent":continue
                 req=m["params"]["request"];u=req.get("url","");post=req.get("postData") or ""; blob=(u+" "+post).lower()
-                if any(k in blob for k in ["search","filter","adult","child","person","dziec","occup"]):
+                if "fly.pl" in u and any(k in blob for k in ["search","filter","adult","child","person","dziec","occup"]):
                     if (u,post) not in seen:
                         seen.add((u,post));print("FLY_REQ",req.get("method"),u[:5000],"POST",post[:5000])
             except: pass
