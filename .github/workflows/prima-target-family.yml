@@ -1,0 +1,51 @@
+name: Prima target family proof
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/probe_prima_target_family.py"
+      - ".github/workflows/prima-target-family.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prima-target-family-proof
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Prove strict target family trip
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          timeout 240s python src/probe_prima_target_family.py > target.log 2>&1
+          rc=$?
+          {
+            echo "# Prima target family proof"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            grep -E "^PRIMATARGET_" target.log | tail -n 700 || true
+            echo '~~~'
+          } > report.md
+          gh issue edit 25 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat report.md
+          exit "$rc"
