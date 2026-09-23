@@ -1137,18 +1137,36 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
     if "children%5b0%5d" not in current and "children[0]" not in current:
         raise RuntimeError("ITAKA lost child parameters")
 
-    # Load more tiles by scrolling.
+    # Load a deep result set. ITAKA can keep later departures behind a
+    # "show more" control, so plain scrolling may stop after only a few cards.
     last=-1
     stable=0
-    for _ in range(14):
+    for step in range(32):
         tiles=driver.find_elements(By.CSS_SELECTOR,"[data-testid='offer-list-item']")
         n=len(tiles)
-        stable = stable+1 if n==last else 0
-        last=n
-        if stable>=2:
-            break
+        clicked_more=False
+        for b in driver.find_elements(By.XPATH,"//button|//a"):
+            try:
+                if not b.is_displayed():
+                    continue
+                label=compact(b.text).lower()
+                if any(t in label for t in ["pokaż więcej","więcej ofert","załaduj więcej","zobacz więcej"]):
+                    driver.execute_script("arguments[0].scrollIntoView({block:'center'});",b)
+                    driver.execute_script("arguments[0].click();",b)
+                    clicked_more=True
+                    print("ITAKA_LOAD_MORE",step,n,label[:120])
+                    time.sleep(1.2)
+                    break
+            except Exception:
+                pass
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(0.8)
+        time.sleep(1.0 if clicked_more else 0.7)
+        n2=len(driver.find_elements(By.CSS_SELECTOR,"[data-testid='offer-list-item']"))
+        stable = stable+1 if n2==last and not clicked_more else 0
+        last=n2
+        if stable>=4:
+            break
+    print("ITAKA_LOADED_TILES",len(driver.find_elements(By.CSS_SELECTOR,"[data-testid='offer-list-item']")))
 
     targets={d.strftime("%d.%m") for d in target_days}
     offers=[]
