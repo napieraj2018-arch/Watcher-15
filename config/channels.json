@@ -7,7 +7,7 @@
     "alert_requires_live_availability": true,
     "no_per_person_price_as_total": true,
     "production_goal": 10,
-    "total_registered": 19,
+    "total_registered": 20,
     "alert_only_from_production": true,
     "block_unverified_family_totals": true
   },
@@ -228,6 +228,18 @@
       "exact_party": false,
       "final_total": false,
       "note": "BlueVendo proxy is reachable, but exact-family validation is not complete. Broad search accepted the flat adults=2 + infants='5,7' payload yet returned an inconsistent empty item array with total=1; nested family payload returned total=0. No concrete live family row or party-sensitive final total was produced, so channel remains diagnostic."
+    },
+    {
+      "id": "tanietravel_pl",
+      "name": "TanieTravel",
+      "url": "https://www.katowice-travel.pl/",
+      "status": "diagnostic",
+      "kind": "aggregator",
+      "priority": 19,
+      "exact_party": false,
+      "final_total": false,
+      "live_availability": false,
+      "note": "New candidate: public search surface exposes 2 adults + 2 children composition, child-age controls, All Inclusive, 4★+, rating/review count and a whole-offer 'Kup za ... zł' presentation. Exact ages 5/7, live availability and party-sensitive final total still require repository diagnostics."
     }
   ]
 }
