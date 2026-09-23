@@ -15,12 +15,13 @@ def compact(s): return " ".join((s or "").split())
 def make_url(family):
     today=datetime.now(TZ).date()
     q=[
-      ("ADULT","2"),("CHILD","2" if family else "0"),("LANG","pol"),
+      ("ADULT","2"),("LANG","pol"),
       ("CHECKIN_BEG",(today+timedelta(days=1)).strftime("%Y%m%d")),
       ("CHECKIN_END",(today+timedelta(days=60)).strftime("%Y%m%d")),
       ("NIGHTS_FROM","5"),("NIGHTS_TILL","8")
     ]
-    if family:q += [("AGE1","5"),("AGE2","7")]
+    if family:
+        q += [("CHILD","2"),("AGE1","5"),("AGE2","7")]
     return BASE+"?"+urlencode(q)
 
 def click_search(d):
