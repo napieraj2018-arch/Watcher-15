@@ -1,17 +1,29 @@
-import requests
+import re,requests
 from bs4 import BeautifulSoup
 
 URL='https://www.nekera.pl/hotels/'
-params=[('adults','2'),('child','01.01.2021'),('child','01.01.2019'),('product','F')]
-r=requests.get(URL,params=params,headers={'User-Agent':'Mozilla/5.0'},timeout=30)
-print('NEKERA_DIRECT_STATUS',r.status_code,r.url,len(r.content))
-print('NEKERA_DIRECT_CHILD_QUERY','child=01.01.2021' in r.url and 'child=01.01.2019' in r.url)
-soup=BeautifulSoup(r.text,'html.parser')
-for el in soup.select('input[name], select[name]'):
-    name=el.get('name','')
-    if any(k in name.lower() for k in ['adult','child','birth','passenger']):
-        print('NEKERA_DIRECT_FIELD',name,el.get('value',''),str(el)[:900])
-text=' '.join(soup.get_text(' ',strip=True).split())
-for needle in ['2 doros','2 dzieci','2021','2019','Cena','zł','All Inclusive']:
-    i=text.lower().find(needle.lower())
-    if i>=0: print('NEKERA_DIRECT_SNIP',needle,text[max(0,i-250):i+900])
+BASE=[('adults','2'),('child','2021-01-01'),('child','2019-01-01'),('product','F')]
+VARIANTS=[
+    ('base',[]),
+    ('priceView',[('priceView','2')]),
+    ('filter_priceView',[('filter[priceView]','2')]),
+    ('price_type',[('price_type','2')]),
+]
+HEAD={'User-Agent':'Mozilla/5.0'}
+for label,extra in VARIANTS:
+    r=requests.get(URL,params=BASE+extra,headers=HEAD,timeout=30)
+    print('NEKERA_VARIANT',label,r.status_code,r.url,len(r.content))
+    soup=BeautifulSoup(r.text,'html.parser')
+    for b in soup.select('[data-to="priceView"]'):
+        print('NEKERA_PRICE_BUTTON',label,b.get('data-value'),b.get('data-checked'),str(b)[:700])
+    for el in soup.select('input[name]'):
+        n=el.get('name','')
+        if 'price' in n.lower() or 'view' in n.lower():
+            print('NEKERA_PRICE_FIELD',label,n,el.get('value',''))
+    text=' '.join(soup.get_text(' ',strip=True).split())
+    for m in re.finditer(r'\b\d[\d ]{1,8}\s*zł(?:\s*/os\.)?',text,re.I):
+        sn=text[max(0,m.start()-180):m.start()+420]
+        if 'Athenaeum' in sn or 'Centrale' in sn or '/os.' not in m.group(0).lower():
+            print('NEKERA_PRICE_SNIP',label,m.group(0),sn[:650])
+            break
+    print('NEKERA_HAS_EXACT_CHILDREN',label,'child=2021-01-01' in r.url and 'child=2019-01-01' in r.url)
