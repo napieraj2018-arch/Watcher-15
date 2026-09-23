@@ -7,6 +7,7 @@ on:
       - "src/validate_nekera_exact.py"
       - "src/probe_nekera_query.py"
       - "src/inspect_secondary_js.py"
+      - "src/inspect_nekera_price_js.py"
       - ".github/workflows/nekera-exact.yml"
 
 permissions:
@@ -43,6 +44,9 @@ jobs:
         run: |
           set +e
           {
+            echo "## Price serializer probe"
+            python src/inspect_nekera_price_js.py
+            echo
             echo "## Direct query probe"
             python src/probe_nekera_query.py
             echo
