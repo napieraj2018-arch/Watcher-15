@@ -33,6 +33,7 @@ def read_rows(html,town,family):
         cls=" ".join(tr.get("class",[]))
         if "adult-2" not in cls: continue
         if family and "child-2" not in cls: continue
+        if (not family) and "child-0" not in cls: continue
         checkin=tr.get("data-checkin") or ""; nights=tr.get("data-nights") or ""
         try:n=int(nights)
         except:continue
@@ -52,7 +53,7 @@ def read_rows(html,town,family):
         flights=[x.get("title") for x in tr.select(".fr_place_r,.fr_place_l") if x.get("title")]
         live=any(x in ("Dostępne","Ostatnie miejsca") for x in av) and any("Miejsca dostępne" in x for x in flights)
         if not live:continue
-        key=(checkin,nights,tr.get("data-hotel") or "",tr.get("data-tour") or "",tr.get("data-room") or "",tr.get("data-meal") or "",town)
+        key=(checkin,nights,tr.get("data-hotel") or "",tr.get("data-tour") or "",tr.get("data-meal") or "",town)
         out[key]={"key":key,"hotel":hotel,"price":int(raw),"meal":meal,"room":room,"availability":av,"flights":flights,"airport":AIRPORTS[town]}
     return out
 
