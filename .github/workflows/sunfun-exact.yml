@@ -1,0 +1,28 @@
+name: SunFun exact 2+2 validation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/validate_sunfun_exact.py'
+      - '.github/workflows/sunfun-exact.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python src/validate_sunfun_exact.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunfun-exact
+          path: sunfun-exact.png
+          if-no-files-found: ignore
+          retention-days: 2
