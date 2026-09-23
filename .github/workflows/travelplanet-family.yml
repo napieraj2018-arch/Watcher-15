@@ -6,6 +6,7 @@ on:
     paths:
       - "src/diagnose_travelplanet_family.py"
       - "src/inspect_travelplanet_js.py"
+      - "src/probe_travelplanet_query.py"
       - "src/diagnose_travelplanet_state.py"
       - "src/inspect_travelplanet_js.py"
       - ".github/workflows/travelplanet-family.yml"
@@ -37,6 +38,9 @@ jobs:
         run: |
           set +e
           {
+            echo "## Direct occupancy query variants"
+            timeout 180s python src/probe_travelplanet_query.py
+            echo
             echo "## Frontend occupancy schema"
             timeout 180s python src/inspect_travelplanet_js.py
             echo
