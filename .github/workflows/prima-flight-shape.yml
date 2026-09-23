@@ -1,0 +1,51 @@
+name: Prima flight mintrip shape
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/probe_prima_flight_shape.py"
+      - ".github/workflows/prima-flight-shape.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prima-flight-mintrip-shape
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Probe flight mintrips
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set +e
+          timeout 240s python src/probe_prima_flight_shape.py > shape.log 2>&1
+          rc=$?
+          {
+            echo "# Prima flight mintrip shape"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- exit_code: $rc"
+            echo
+            echo '~~~text'
+            grep -E '^PRIMASHAPE_' shape.log | tail -n 500 || true
+            echo '~~~'
+          } > report.md
+          gh issue edit 24 --repo "$GITHUB_REPOSITORY" --body-file report.md >/dev/null 2>&1 || true
+          cat report.md
+          exit "$rc"
