@@ -30,6 +30,10 @@ for u in urls:
         rr=requests.get(u,headers=UA,timeout=30)
         if rr.status_code!=200 or len(rr.content)>6000000:continue
         t=rr.text
+        ops=sorted(set(re.findall(r'operationName\\s*[:=]\\s*["\\\']([^"\\\']+)',t)))
+        defs=sorted(set(re.findall(r'\\b(?:query|mutation)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*[({]',t)))
+        for op in ops[:120]: print("PRIMASCHEMA_OPERATION",u,op)
+        for op in defs[:120]: print("PRIMASCHEMA_DEFINITION",u,op)
         hits=[x for x in TERMS if x.lower() in t.lower()]
         if not hits:continue
         print("PRIMASCHEMA_FILE",u,"LEN",len(t),"HITS",hits)
