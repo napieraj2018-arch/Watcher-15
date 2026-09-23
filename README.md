@@ -28,7 +28,6 @@ Watcher działa co 15 minut z przesunięciem względem pełnych kwadransów, prz
 
 Reguły są w `config/watchers.json`. Ten sam mechanizm może później służyć do monitorowania lotów, cen produktów, samochodów, nieruchomości i innych wyszukiwań.
 
-
 ## Architektura wielu źródeł
 
 Watcher-15 ma rejestr **15 niezależnych kanałów** w `config/channels.json`.
@@ -46,3 +45,15 @@ Reguła bezpieczeństwa: cena `/os.`, cena dla 2 dorosłych albo cena z listingu
 Wakacje.pl, TUI Poland, ITAKA, Rainbow, Coral Travel, Travelplanet, Fly.pl, EXIM tours, Join UP! Polska, Nekera, Grecos, Sun & Fun, eSky Wakacje, TraveliGo oraz Oasis Tours.
 
 Co godzinę działa lekki health-check wszystkich źródeł. Raz dziennie uruchamia się diagnostyka struktury formularzy dla kanałów nieprodukcyjnych. Produkcyjne adaptery ofertowe działają niezależnie i mogą być uruchamiane co 15 minut.
+
+## Diagnostyka 2026-09-23
+
+Stan produkcyjny pozostaje celowo konserwatywny: **4 kanały produkcyjne** — Wakacje.pl, TUI Poland, ITAKA i Rainbow. Kanał jest promowany dopiero po zachowaniu dokładnego składu 2+2, potwierdzeniu dostępności i odczytaniu końcowej ceny całej rodziny.
+
+Najważniejsze ustalenia:
+- **EXIM tours** — rozpoznano parametry dokładnej rodziny: `ac1=2`, `kc1=2`, `ka1=5|7`. Rozpoznano też identyfikatory lotnisk: Warszawa `3850`, Warszawa-Modlin `4380`, Warszawa-Radom `4381`. Aktualne zapytanie 2+2 dla tych lotnisk nie zwraca jeszcze rekordu wycieczki z możliwą do potwierdzenia ceną końcową, więc kanał pozostaje diagnostyczny.
+- **Travelplanet** — interfejs przyjmuje 2 dorosłych i dzieci 5/7, ale podczas przejścia do wyników obecny przepływ automatyczny gubi dzieci i serializuje wyszukiwanie jak dla samych dorosłych. Taki wynik jest blokowany jako niebezpieczny dla alarmów.
+- **Sun & Fun** — zmapowano strukturę formularza: `rooms[0].adults=2`, a dzieci mają jawne pola `rooms[0].children[n].age`. Automat potrafi już utworzyć dwoje dzieci; trwa walidacja ustawienia wieku 5/7, wylotu i końcowej ceny rodziny.
+- **Grecos** — ciężka diagnostyka DOM potrafi zawisnąć; kolejny adapter powinien używać lżejszej ścieżki formularza/API zamiast skanowania całej strony.
+- **Fly.pl, Nekera, Oasis Tours** — strony są dostępne, lecz potrzebują dedykowanych selektorów uczestników; ogólne heurystyki nie są wystarczająco wiarygodne do awansu na produkcję.
+- **Coral Travel, Join UP!, eSky, TraveliGo** — nadal wymagają alternatywnej drogi dostępu z powodu blokad lub braku użytecznej treści w środowisku headless.
