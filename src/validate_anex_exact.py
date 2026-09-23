@@ -61,6 +61,17 @@ def main():
         print("ANEX_QUERY",json.dumps(qnow,ensure_ascii=False,sort_keys=True))
         print("ANEX_EXACT_PARTY_QUERY",qnow.get("ADULT")==["2"] and qnow.get("CHILD")==["2"] and qnow.get("AGE1")==["5"] and qnow.get("AGE2")==["7"])
         dump_selects(d,"ANEX_SELECTS_BEFORE")
+        town=d.find_elements(By.CSS_SELECTOR,"select[name='TOWNFROMINC']")
+        if town:
+            for i,oel in enumerate(town[0].find_elements(By.TAG_NAME,"option")):
+                print("ANEX_TOWNFROM_OPTION",i,json.dumps({
+                  "value":oel.get_attribute("value"),
+                  "text":compact(oel.text),
+                  "label":oel.get_attribute("label"),
+                  "title":oel.get_attribute("title"),
+                  "data":oel.get_attribute("data-name"),
+                  "html":(oel.get_attribute("outerHTML") or "")[:1200]
+                },ensure_ascii=False))
         body=d.find_element(By.TAG_NAME,"body").text
         for line in [x.strip() for x in body.splitlines() if x.strip()]:
             lo=line.lower()
