@@ -44,14 +44,15 @@ def _token_payload(token):
         return json.loads(base64.urlsafe_b64decode(part.encode()).decode())
     except:return {}
 
-def _token_exact_family(token,total):
+def _token_exact_family(token):
     p=_token_payload(token)
     passengers=str(p.get("passengers") or "")
     if not re.fullmatch(r"AA(?:C\d+){2}",passengers):
         return False,p
     ages=sorted(int(x) for x in re.findall(r"C(\d+)",passengers))
-    original=_number(p.get("originalTotalPrice"))
-    return ages==[5,7] and original is not None and abs(original-total)<0.01,p
+    # originalTotalPrice is not the final family total on this endpoint.
+    # It must never be used as one. JWT is only an independent party proof.
+    return ages==[5,7],p
 
 def _search_url(cfg, adults_only=False):
     today=datetime.now(TZ).date()
@@ -124,9 +125,9 @@ def _parse_family_items(items,cfg,allowed,url):
         # two adult unit prices is too ambiguous for this watcher.
         if total <= (2*per):continue
         token=str(item.get("item_offer_id") or "")
-        exact,payload=_token_exact_family(token,total)
+        exact,payload=_token_exact_family(token)
         if not exact:
-            print("TP_PROD_REJECT_TOKEN",item.get("item_id"),payload.get("passengers"),payload.get("originalTotalPrice"),total)
+            print("TP_PROD_REJECT_TOKEN",item.get("item_id"),payload.get("passengers"),total)
             continue
         dep,ret=_dates(item.get("item_parameter_7"))
         if not dep or not ret or dep not in allowed:continue
@@ -159,10 +160,35 @@ def _quality_ok(x,cfg):
       x["reviews"] is not None and x["reviews"]>=cfg["min_reviews"]
     )
 
+def _adult_totals(items,cfg,allowed):
+    out={}
+    for item in items.values():
+        if not isinstance(item,dict): continue
+        if str(item.get("item_parameter_9") or "")!="adult:_2_child:_0": continue
+        prices=_item_price_fields(item.get("item_parameter_1"))
+        if not prices: continue
+        per,room,total=prices
+        dep,ret=_dates(item.get("item_parameter_7"))
+        if not dep or not ret or dep not in allowed: continue
+        nights=(ret-dep).days
+        if not (cfg["min_nights"]<=nights<=cfg["max_nights"]): continue
+        airport=_airport(item)
+        if not airport: continue
+        if not _meal(item): continue
+        key=_stable_key(item,dep,ret,airport)
+        out[key]=total
+    print("TP_PROD_ADULT_CONTROL_COUNT",len(out))
+    return out
+
 def _fetch(driver,cfg):
     url,allowed=_search_url(cfg,False)
     items=_read_items(driver,url,"FAMILY")
     return _parse_family_items(items,cfg,allowed,url)
+
+def _fetch_adult_controls(driver,cfg):
+    url,allowed=_search_url(cfg,True)
+    items=_read_items(driver,url,"ADULTS")
+    return _adult_totals(items,cfg,allowed)
 
 def run_travelplanet_watcher(cfg):
     if cfg.get("adults")!=2 or cfg.get("children_ages")!=[5,7]:
@@ -170,17 +196,28 @@ def run_travelplanet_watcher(cfg):
     driver=chrome()
     try:
         first=_fetch(driver,cfg)
-        qualified=[x for x in first if _quality_ok(x,cfg)]
+        adult_controls=_fetch_adult_controls(driver,cfg)
+        proven=[]
+        for x in first:
+            adult_total=adult_controls.get(x["key"])
+            if adult_total is None or abs(float(adult_total)-float(x["price"]))<0.01:
+                print("TP_PROD_REJECT_ADULT_CONTROL",x["hotel"],x["price"],adult_total)
+                continue
+            x["adult_only_total"]=adult_total
+            x["family_price_proof"] += " + same-package 2+0 total differs"
+            proven.append(x)
+        qualified=[x for x in proven if _quality_ok(x,cfg)]
+        print("TP_PROD_PARTY_SENSITIVE",len(proven))
         print("TP_PROD_QUALIFIED",len(qualified))
-        if first and not qualified:print("TP_PROD_QUALITY_OR_PRICE_FAIL_CLOSED")
+        if first and not qualified:print("TP_PROD_QUALITY_PRICE_OR_CONTROL_FAIL_CLOSED")
         token=os.getenv("GITHUB_TOKEN","");repo=os.getenv("GITHUB_REPOSITORY","")
         for cand in qualified[:10]:
             fresh=_fetch(driver,cfg)
-            confirmed=next((x for x in fresh if x["key"]==cand["key"] and _quality_ok(x,cfg)),None)
+            confirmed=next((x for x in fresh if x["key"]==cand["key"] and x["price"]==cand["price"] and _quality_ok(x,cfg)),None)
             if not confirmed:
                 print("TP_PROD_RECHECK_REJECT",cand["key"]);continue
             print("TP_PROD_RECHECK_VERIFIED",confirmed["hotel"],confirmed["price"],confirmed["family_price_proof"])
             if token and repo:
-                create_alert(token,repo,cfg,confirmed,"Travelplanet exact 2+2 ages 5/7; live result item; total_summary bound to adult:_2_child:_2, age:_5,7 and AAC5C7 offer token; second live recheck")
+                create_alert(token,repo,cfg,confirmed,"Travelplanet exact 2+2 ages 5/7; live total_summary bound to adult:_2_child:_2, age:_5,7 and AAC5C7 token; same-package 2+0 total differs; second live recheck")
             else:print("TP_PROD_DRY_ALERT",confirmed)
     finally:driver.quit()
