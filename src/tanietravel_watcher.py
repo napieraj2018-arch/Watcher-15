@@ -1,6 +1,6 @@
 import hashlib,json,os,re,time
 from datetime import datetime,timedelta
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, parse_qs
 from zoneinfo import ZoneInfo
 import requests
 from watcher import create_alert, configured_departure_dates
