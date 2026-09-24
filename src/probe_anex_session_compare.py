@@ -164,3 +164,5 @@ def main():
         print("ANEXSESS_FAMILY_TOTAL_VERIFIED",bool(proofs))
     finally:d.quit()
 if __name__=="__main__":main()
+
+# proof-rerun-2026-09-24
