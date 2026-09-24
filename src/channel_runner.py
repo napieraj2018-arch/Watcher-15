@@ -83,31 +83,14 @@ def deal_profiles(base_cfg):
 
 
 def strict_runtime_cfg(base_cfg):
-    """Apply the active monitoring request without stale fixed-date overrides."""
-    cfg = dict(base_cfg)
-    cfg["departure_dates"] = []
-    cfg["depart_in_days"] = [2, 3]
-    cfg["max_total_price_pln"] = 7000
-    profiles = cfg.get("deal_profiles") or []
-    strict_profiles = [
-        dict(p) for p in profiles
-        if int(p.get("max_total_price_pln", 10**9)) <= 7000
-    ]
-    if strict_profiles:
-        cfg["deal_profiles"] = strict_profiles
-    else:
-        cfg["deal_profiles"] = [{
-            "id": "okazja_7k",
-            "label": "OKAZJA ≤7K",
-            "min_total_price_pln": 0,
-            "max_total_price_pln": 7000,
-            "min_rating": max(8, float(cfg.get("min_rating", 8))),
-            "min_reviews": max(30, int(cfg.get("min_reviews", 30))),
-            "min_stars": max(4, int(cfg.get("min_stars", 4))),
-            "require_stars": True,
-        }]
-    return cfg
+    """Use the active request exactly as stored in config/watchers.json.
 
+    Never silently shift dates, collapse the two price tiers, or replace
+    the user's family/quality constraints at runtime.
+    """
+    cfg = dict(base_cfg)
+    cfg["deal_profiles"] = [dict(p) for p in (base_cfg.get("deal_profiles") or [])]
+    return cfg
 
 def main():
     channel_id = os.getenv("WATCHER_CHANNEL", "").strip()
