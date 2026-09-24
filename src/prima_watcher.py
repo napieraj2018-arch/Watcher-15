@@ -182,6 +182,25 @@ def _fetch(cfg):
             if c:
                 out.append(c);print("PRIMA_PROD_EXACT_CARD",c)
     print("PRIMA_PROD_EXACT_LIVE",len(out))
+    if not out:
+        shown=0
+        for oid,base in bases.items():
+            try:
+                offer=_offer(oid)
+                for t in _trips(offer):
+                    print("PRIMA_PROD_TRIP_SAMPLE",{
+                      "hotel":base.get("hotelname"),"start":t.get("start"),"end":t.get("end"),
+                      "length":t.get("length"),"transport":t.get("transporttypeid"),
+                      "onrequest":t.get("onrequest"),"maxroom":t.get("maxroom"),
+                      "meal":t.get("maintenancestandardname") or t.get("maintenancename"),
+                      "airport":t.get("departurecityname"),"tripid":t.get("id")
+                    })
+                    shown+=1
+                    if shown>=18: break
+                if shown>=18: break
+            except Exception as e:
+                print("PRIMA_PROD_SAMPLE_ERR",type(e).__name__,str(e)[:160])
+        print("PRIMA_PROD_TRIP_SAMPLES",shown)
     return out
 
 def _quality_ok(x,cfg):
