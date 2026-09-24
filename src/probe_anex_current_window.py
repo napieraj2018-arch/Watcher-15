@@ -13,8 +13,11 @@ CFG={
   "min_rating":8,
   "min_reviews":30,
 }
-
-rows=_read(CFG)
+rows=[]
+for town_id,label in [(1885,"WARSZAWA"),(2200,"RADOM")]:
+    part=_read(CFG,town_id)
+    print("ANEX_CURRENT_AIRPORT",label,town_id,"COUNT",len(part))
+    rows.extend(part)
 print("ANEX_CURRENT_COUNT",len(rows))
 for x in sorted(rows,key=lambda y:y["price"]):
     print("ANEX_CURRENT",x)
