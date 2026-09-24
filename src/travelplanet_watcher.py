@@ -215,7 +215,10 @@ def _parse_family_items(items,cfg,allowed,url):
                     "airport":item.get("item_parameter_3"),
                     "meal":item.get("item_parameter_8"),
                     "quality":item.get("item_parameter_4"),
-                    "price":item.get("item_parameter_1"),
+                    "price_blob":item.get("item_parameter_1"),
+                    "value":item.get("value"),
+                    "price_field":item.get("price"),
+                    "brand":item.get("item_brand"),
                     "token_head":str(item.get("item_offer_id") or "")[:80],
                 })
         print("TP_PROD_FAMILY_SAMPLE",samples)
