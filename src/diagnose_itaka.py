@@ -80,7 +80,7 @@ def main():
         for tile in d.find_elements(By.CSS_SELECTOR,"[data-testid='offer-list-item']"):
             try:
                 txt=compact(tile.text)
-                if not any(day in txt for day in ["24.09","25.09","26.09"]):
+                if not any(day in txt for day in ["24.09","25.09","26.09","27.09"]):
                     continue
                 if "All inclusive" not in txt:
                     continue
