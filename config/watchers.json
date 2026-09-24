@@ -88,7 +88,8 @@
       "max_nights": 8,
       "meal_contains": "All Inclusive",
       "airports": [
-        "Warszawa-Chopina"
+        "Warszawa-Chopina",
+        "Warszawa-Modlin"
       ],
       "priority_airport_contains": "Radom",
       "second_check": true,
@@ -124,7 +125,11 @@
         "2026-09-27"
       ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 3
+      "run_revision": 4,
+      "airport_codes": [
+        "WAW",
+        "WMI"
+      ]
     },
     {
       "id": "itaka-last-minute-2plus2",
