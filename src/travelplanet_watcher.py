@@ -37,6 +37,15 @@ def _dates(text):
     if not m:return None,None
     return datetime.strptime(m.group(1),"%Y-%m-%d").date(),datetime.strptime(m.group(2),"%Y-%m-%d").date()
 
+def _duration_nights(item):
+    # Travelplanet's analytics field item_parameter_5 carries package duration
+    # as d:_N, where the public UI labels N as "dni". Package nights are N-1.
+    # item_parameter_7 is not reliable for stay length in the analytics batch.
+    m=re.search(r"(?:^|_)d:_([0-9]+)(?:_|$)",str(item.get("item_parameter_5") or ""))
+    if not m:return None
+    days=int(m.group(1))
+    return days-1 if days>=2 else None
+
 def _token_payload(token):
     try:
         part=token.split(".")[1]
@@ -61,8 +70,8 @@ def _search_url(cfg, adults_only=False):
       ("s_action","SEARCH_FORM_SEPARATED"),
       ("d_start_from",start.strftime("%d.%m.%Y")),("d_end_to",end.strftime("%d.%m.%Y")),
       ("nl_transportation_id[]","3"),("b_online_sale_customer","1"),
-      ("duration",f"{cfg['min_nights']}-{cfg['max_nights']} days"),
-      ("nl_length_from",str(cfg["min_nights"])),("nl_length_to",str(cfg["max_nights"])),
+      ("duration",f"{int(cfg['min_nights'])+1}-{int(cfg['max_nights'])+1} days"),
+      ("nl_length_from",str(int(cfg["min_nights"])+1)),("nl_length_to",str(int(cfg["max_nights"])+1)),
       ("nl_occupancy_adults","2"),("sort","nl_sell")
     ]
     if adults_only:
@@ -181,10 +190,11 @@ def _parse_family_items(items,cfg,allowed,url):
         if not exact:
             print("TP_PROD_REJECT_TOKEN",item.get("item_id"),payload.get("passengers"),total)
             continue
-        dep,ret=_dates(item.get("item_parameter_7"))
-        if not dep or not ret or dep not in allowed:continue
-        nights=(ret-dep).days
-        if not (cfg["min_nights"]<=nights<=cfg["max_nights"]):continue
+        dep,_raw_ret=_dates(item.get("item_parameter_7"))
+        if not dep or dep not in allowed:continue
+        nights=_duration_nights(item)
+        if nights is None or not (cfg["min_nights"]<=nights<=cfg["max_nights"]):continue
+        ret=dep+timedelta(days=nights)
         airport=_airport(item)
         if not airport:continue
         meal=_meal(item)
@@ -231,10 +241,11 @@ def _adult_totals(items,cfg,allowed):
         prices=_item_price_fields(item.get("item_parameter_1"))
         if not prices: continue
         per,room,total=prices
-        dep,ret=_dates(item.get("item_parameter_7"))
-        if not dep or not ret or dep not in allowed: continue
-        nights=(ret-dep).days
-        if not (cfg["min_nights"]<=nights<=cfg["max_nights"]): continue
+        dep,_raw_ret=_dates(item.get("item_parameter_7"))
+        if not dep or dep not in allowed: continue
+        nights=_duration_nights(item)
+        if nights is None or not (cfg["min_nights"]<=nights<=cfg["max_nights"]): continue
+        ret=dep+timedelta(days=nights)
         airport=_airport(item)
         if not airport: continue
         if not _meal(item): continue
