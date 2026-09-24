@@ -98,6 +98,20 @@ def participant_value(driver):
     except Exception:
         return ""
 
+def wakacje_family_token_present(url, child_dobs):
+    """Independent exact-party proof for Wakacje.pl detail URLs.
+    The current UI sometimes removes CalculatorPerson on detail pages even
+    though the canonical URL still carries the exact 2+2 child DOB token.
+    """
+    try:
+        host=(urlsplit(url).netloc or "").lower()
+        if "wakacje.pl" not in host:
+            return False
+        token="2dorosle-2dzieci-"+"-".join(d.strftime("%Y%m%d") for d in child_dobs)
+        return token.lower() in (url or "").lower()
+    except Exception:
+        return False
+
 def ensure_family(driver, child_dobs):
     value = participant_value(driver).lower()
     if "2 doros" in value and "2 dzieci" in value:
@@ -335,11 +349,17 @@ def load_page(driver, url, child_dobs):
     dismiss_cookies(driver)
     try:
         if not ensure_family(driver, child_dobs):
-            print("REJECT_PAGE family not confirmed:", participant_value(driver))
-            return False
+            if wakacje_family_token_present(driver.current_url, child_dobs):
+                print("FAMILY_CONFIRMED_BY_EXACT_URL_TOKEN", driver.current_url)
+            else:
+                print("REJECT_PAGE family not confirmed:", participant_value(driver))
+                return False
     except WebDriverException as e:
-        print("FAMILY_CHECK_ERROR", type(e).__name__, str(e)[:160])
-        return False
+        if wakacje_family_token_present(driver.current_url, child_dobs):
+            print("FAMILY_CONFIRMED_BY_EXACT_URL_TOKEN_AFTER_UI_ERROR", driver.current_url)
+        else:
+            print("FAMILY_CHECK_ERROR", type(e).__name__, str(e)[:160])
+            return False
     return True
 
 def parse_current_page(driver, requested_dep: date, cfg):
@@ -525,7 +545,9 @@ def verify_offer(driver, offer, cfg, family, child_dobs):
             if any(p in low for p in UNAVAILABLE_PHRASES):
                 return None, "unavailable_after_price_check", stars
             if not ("2 doros" in participant_value(driver).lower() and "2 dzieci" in participant_value(driver).lower()):
-                return None, "family_lost_after_price_check", stars
+                if not wakacje_family_token_present(driver.current_url, child_dobs):
+                    return None, "family_lost_after_price_check", stars
+                print("FAMILY_STILL_CONFIRMED_BY_EXACT_URL_TOKEN_AFTER_PRICE_CHECK")
     except Exception as e:
         print("PRICE_CHECK_CLICK_WARN", type(e).__name__, str(e)[:120])
 
