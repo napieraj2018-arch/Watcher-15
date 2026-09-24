@@ -65,6 +65,8 @@ def _get(session,p,label):
     data=r.json()
     rows=_rows(data)
     print("OASIS_PROD_ROWS",label,len(rows))
+    if not rows:
+        print("OASIS_PROD_EMPTY_PAYLOAD",label,str(data)[:1800])
     return rows
 
 def _stable(x):
