@@ -202,6 +202,23 @@ def _parse_family_items(items,cfg,allowed,url):
         }
         out.append(offer)
         print("TP_PROD_EXACT_CARD",offer)
+    if not out:
+        samples=[]
+        for item in list(items.values())[:12]:
+            if isinstance(item,dict):
+                samples.append({
+                    "id":item.get("item_id"),
+                    "party":item.get("item_parameter_9"),
+                    "ages":item.get("item_parameter_10"),
+                    "duration":item.get("item_parameter_5"),
+                    "date":item.get("item_parameter_7"),
+                    "airport":item.get("item_parameter_3"),
+                    "meal":item.get("item_parameter_8"),
+                    "quality":item.get("item_parameter_4"),
+                    "price":item.get("item_parameter_1"),
+                    "token_head":str(item.get("item_offer_id") or "")[:80],
+                })
+        print("TP_PROD_FAMILY_SAMPLE",samples)
     return out
 
 def _quality_ok(x,cfg):
