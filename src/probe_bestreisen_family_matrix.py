@@ -107,3 +107,5 @@ def main():
     if not proofs: raise SystemExit("FAIL_CLOSED: no party-sensitive live Best Reisen family total")
 
 if __name__=="__main__":main()
+
+# proof-rerun-2026-09-24
