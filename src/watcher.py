@@ -906,11 +906,13 @@ def tui_build_search_url(cfg, child_dobs):
     dates = configured_departure_dates(cfg)
     start_date = dates[0].strftime("%d.%m.%Y")
     end_date = dates[-1].strftime("%d.%m.%Y")
+    airport_codes=cfg.get("airport_codes") or ["WAW"]
+    airport_facets="".join(f":a:{code}" for code in airport_codes)
     q = (
         ":price:byPlane:T"
         ":additionalType:GT03%23TUZ-LAST25"
-        ":a:WAW"
-        f":dF:{cfg['min_nights']}"
+        + airport_facets
+        + f":dF:{cfg['min_nights']}"
         f":dT:{cfg['max_nights']}"
         f":startDate:{start_date}"
         f":endDate:{end_date}"
