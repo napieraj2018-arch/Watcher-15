@@ -714,9 +714,7 @@ def create_alert(token, repo, cfg, offer, verification):
         f"{offer['departure'].strftime('%d.%m')}"
     )
     stars_text = f"{offer.get('stars')}★" if offer.get("stars") else "kategoria hotelu nieodczytana"
-    body = f"""@{profile_cfg['notify_github_user']}
-
-**{drop_note}**
+    body = f"""**{drop_note}**
 
 - **Hotel:** {offer['hotel']} ({stars_text})
 - **Profil:** {profile_cfg.get('deal_label') or profile_cfg.get('deal_profile') or 'OFERTA'}
@@ -740,7 +738,6 @@ Watcher potwierdził konfigurację **2 dorosłych + 2 dzieci** oraz cenę rodzin
     payload = {
         "title": title,
         "body": body,
-        "assignees": [profile_cfg["notify_github_user"]],
     }
     github_api("POST", "issues", token, repo, json=payload)
     print("ALERT_CREATED", title)
