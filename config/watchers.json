@@ -16,7 +16,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -57,10 +58,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     },
     {
       "id": "tui-last-minute-2plus2",
@@ -79,7 +81,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -117,10 +120,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     },
     {
       "id": "itaka-last-minute-2plus2",
@@ -138,7 +142,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -180,10 +185,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     },
     {
       "id": "rainbow-last-minute-2plus2",
@@ -201,7 +207,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -243,10 +250,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     },
     {
       "id": "sunfun-last-minute-2plus2",
@@ -264,7 +272,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -302,10 +311,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     },
     {
       "id": "exim-last-minute-2plus2",
@@ -323,7 +333,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -363,10 +374,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     },
     {
       "id": "grecos-last-minute-2plus2",
@@ -384,7 +396,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -427,10 +440,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     },
     {
       "id": "travelplanet-last-minute-2plus2",
@@ -448,7 +462,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -488,10 +503,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     },
     {
       "id": "oasis-last-minute-2plus2",
@@ -509,7 +525,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -551,10 +568,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     },
     {
       "id": "prima-last-minute-2plus2",
@@ -572,7 +590,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -613,10 +632,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     },
     {
       "id": "tanietravel-last-minute-2plus2",
@@ -640,7 +660,8 @@
       "depart_in_days": [
         0,
         1,
-        2
+        2,
+        3
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -680,10 +701,11 @@
       "departure_dates": [
         "2026-09-24",
         "2026-09-25",
-        "2026-09-26"
+        "2026-09-26",
+        "2026-09-27"
       ],
-      "search_id": "family-2026-09-24-evening-26",
-      "run_revision": 2
+      "search_id": "family-2026-09-24-evening-27",
+      "run_revision": 3
     }
   ]
 }
