@@ -106,14 +106,56 @@ def _stars(x):
     if n%10==0 and 10<=n<=50:return n//10
     return None
 
-def _results_url(cfg):
-    p=_payload(cfg,True)
-    q={"type":"tours","dateFrom":p["dateFrom"],"dateTo":p["dateTo"],
-       "adults":2,"children":2,"ages":"5,7","dep":p["depCode"],
-       "nMin":cfg["min_nights"],"nMax":cfg["max_nights"],"meal":"ai","stars":"4plus"}
-    if "destinationId" in p:
-        q["dest"]=p["destinationId"]
-    return BASE+"results.php?"+urlencode(q)
+def _direct_offer_url(x):
+    offer_hash=str(x.get("offerHash") or "").strip()
+    if not offer_hash:
+        return None
+    return BASE+"offer.php?"+urlencode({
+      "id":offer_hash,
+      "adults":2,
+      "children":2,
+      "ages":"5,7"
+    })
+
+def _plain_html(text):
+    text=re.sub(r"<[^>]+>"," ",text or "")
+    text=(text.replace("&nbsp;"," ").replace("&oacute;","ó").replace("&Oacute;","Ó")
+              .replace("&aogon;","ą").replace("&Aogon;","Ą").replace("&eogon;","ę")
+              .replace("&Eogon;","Ę").replace("&lstrok;","ł").replace("&Lstrok;","Ł")
+              .replace("&sacute;","ś").replace("&Sacute;","Ś").replace("&cacute;","ć")
+              .replace("&Cacute;","Ć").replace("&nacute;","ń").replace("&Nacute;","Ń")
+              .replace("&zacute;","ź").replace("&Zacute;","Ź").replace("&zdot;","ż")
+              .replace("&Zdot;","Ż"))
+    return " ".join(text.lower().split())
+
+def _verify_direct_offer_link(x):
+    url=_direct_offer_url(x)
+    if not url:
+        print("TANIE_DIRECT_LINK_MISSING_HASH",x.get("hotel_name"))
+        return None
+    try:
+        r=requests.get(url,headers={"User-Agent":HEADERS["User-Agent"],"Accept":"text/html,*/*"},timeout=45,allow_redirects=True)
+        print("TANIE_DIRECT_LINK_STATUS",r.status_code,r.url)
+        r.raise_for_status()
+    except requests.RequestException as exc:
+        print("TANIE_DIRECT_LINK_FAIL",type(exc).__name__,str(exc)[:220])
+        return None
+    final=r.url or url
+    low_final=final.lower()
+    if "offer.php" not in low_final or "stale_offer=1" in low_final or "results.php" in low_final:
+        print("TANIE_DIRECT_LINK_NOT_CONCRETE",final)
+        return None
+    body=_plain_html(r.text)
+    hotel=str(x.get("hotel_name") or "").strip().lower()
+    hotel_probe=" ".join(hotel.split())[:28]
+    family_ok=("dzieci: 2" in body or "2 dorosłych + 2 dzieci" in body or "2 dor., 2 dzieci" in body)
+    if hotel_probe and hotel_probe not in body:
+        print("TANIE_DIRECT_LINK_WRONG_HOTEL",hotel_probe)
+        return None
+    if not family_ok:
+        print("TANIE_DIRECT_LINK_FAMILY_NOT_VISIBLE",final)
+        return None
+    return final
 
 def _certified_rows(cfg):
     if cfg.get("adults")!=2 or cfg.get("children_ages")!=[5,7]:
@@ -143,9 +185,13 @@ def _certified_rows(cfg):
         if not airport:continue
         hotel=str(x.get("hotel_name") or "").strip()
         if not hotel:continue
+        direct_url=_verify_direct_offer_link(x)
+        if not direct_url:
+            print("TANIE_REJECT_NO_DIRECT_BOOKABLE_LINK",hotel,x.get("offerHash"))
+            continue
         stable="|".join(k)
         rec={"key":hashlib.sha1(stable.encode()).hexdigest()[:16],"hotel":hotel,
-             "href":_results_url(cfg),"verified_href":_results_url(cfg),"price":fp1,
+             "href":direct_url,"verified_href":direct_url,"price":fp1,
              "departure":dep,"return":ret,"nights":nights,"airport":airport,
              "meal":service,"operator":"TanieTravel","stars":_stars(x),
              "rating":_rating(x),"reviews":_reviews(x),"offer_hash":x.get("offerHash"),
