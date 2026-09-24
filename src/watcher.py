@@ -1197,12 +1197,16 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
     time.sleep(4)
     dismiss_cookies(driver)
 
+    print("ITAKA_FINAL_SEARCH_URL",driver.current_url)
     qs=parse_qs(urlsplit(driver.current_url).query)
     modern_children=[]
     for i in range(4):
         modern_children.extend(qs.get(f"participants[0][children][{i}]") or [])
     legacy_children=qs.get("children[0]") or []
     if len(modern_children)!=2 and not legacy_children:
+        body_party=compact(driver.find_element(By.TAG_NAME,"body").text)
+        party_lines=[x.strip() for x in body_party.split("  ") if any(k in x.lower() for k in ["doros","dzieci","os.,","osób"])][:20]
+        print("ITAKA_PARTY_STATE_MISSING_URL",party_lines,dict(qs))
         raise RuntimeError("ITAKA lost child parameters")
 
     # Load a deep result set. ITAKA can keep later departures behind a
