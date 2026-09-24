@@ -140,20 +140,31 @@ def _verify_direct_offer_link(x):
     except requests.RequestException as exc:
         print("TANIE_DIRECT_LINK_FAIL",type(exc).__name__,str(exc)[:220])
         return None
+
     final=r.url or url
-    low_final=final.lower()
-    if "offer.php" not in low_final or "stale_offer=1" in low_final or "results.php" in low_final:
+    parts=urlsplit(final)
+    q=parse_qs(parts.query)
+    expected=str(x.get("offerHash") or "").strip()
+    # The offer page is a JS shell: hotel/family text is injected client-side
+    # and is not present in the raw HTML returned to requests. Treat the link
+    # as concrete only when it stays on offer.php, preserves the exact live
+    # offerHash and exact 2+2 party parameters, and does not fall back to
+    # results/stale pages. Exact family/price/live proof still comes from the
+    # two fresh API reads plus same-package 2+0 control below.
+    if not parts.path.lower().endswith("/offer.php"):
         print("TANIE_DIRECT_LINK_NOT_CONCRETE",final)
         return None
-    body=_plain_html(r.text)
-    hotel=str(x.get("hotel_name") or "").strip().lower()
-    hotel_probe=" ".join(hotel.split())[:28]
-    family_ok=("dzieci: 2" in body or "2 dorosłych + 2 dzieci" in body or "2 dor., 2 dzieci" in body)
-    if hotel_probe and hotel_probe not in body:
-        print("TANIE_DIRECT_LINK_WRONG_HOTEL",hotel_probe)
+    if (q.get("id") or [""])[0] != expected:
+        print("TANIE_DIRECT_LINK_HASH_MISMATCH",expected,final)
         return None
-    if not family_ok:
-        print("TANIE_DIRECT_LINK_FAMILY_NOT_VISIBLE",final)
+    if (q.get("adults") or [""])[0] != "2" or (q.get("children") or [""])[0] != "2":
+        print("TANIE_DIRECT_LINK_PARTY_MISMATCH",final)
+        return None
+    if (q.get("ages") or [""])[0] not in ("5,7","7,5"):
+        print("TANIE_DIRECT_LINK_AGES_MISMATCH",final)
+        return None
+    if "stale_offer=1" in final.lower():
+        print("TANIE_DIRECT_LINK_STALE",final)
         return None
     return final
 
