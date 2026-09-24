@@ -84,6 +84,19 @@ def collect(driver,cfg,start,end):
                  'operator':'EXIM tours','rating':rating,'reviews':reviews,'stars':stars}
             out.append(rec); print('EXIM_EXACT_CARD',rec)
         except Exception as e: print('EXIM_CARD_ERR',type(e).__name__,str(e)[:180])
+    if not out:
+        links=[]
+        for a in driver.find_elements(By.CSS_SELECTOR,"a[href*='exim.pl/kierunki/']")[:12]:
+            try:
+                links.append({"text":" ".join((a.text or "").split())[:240],"href":(a.get_attribute("href") or "")[:900]})
+            except:pass
+        print("EXIM_LINK_SAMPLES",links)
+        print("EXIM_BODY_SIGNALS",{
+          "party2plus2":("2 doros" in body and "2 dzieci" in body),
+          "cena_calkowita":("cena całkowita" in body),
+          "dostepne_online":("dostępne online" in body),
+          "links":len(driver.find_elements(By.CSS_SELECTOR,"a[href*='exim.pl/kierunki/']"))
+        })
     return out
 
 def quality_ok(x,cfg):
