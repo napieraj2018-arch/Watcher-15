@@ -1121,6 +1121,10 @@ def itaka_family_url(cfg, child_dobs):
     params = {
         "adults[0]": str(cfg["adults"]),
         "children[0]": ",".join(d.strftime("%d.%m.%Y") for d in child_dobs),
+        # Force the airports we actually accept. Without this ITAKA spends
+        # the shallow last-minute result set on Katowice/Poznań and can hide
+        # matching Warsaw/Radom departures behind them.
+        "airports": "WAW,WMI,RDO",
     }
     return ITAKA_BASE_URL + "?" + urlencode(params)
 
