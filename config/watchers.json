@@ -14,9 +14,9 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -76,9 +76,9 @@
       "min_stars": 4,
       "require_stars": false,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -134,9 +134,9 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -196,9 +196,9 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -258,9 +258,9 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -316,9 +316,9 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -376,9 +376,9 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -439,9 +439,9 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -499,9 +499,9 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -561,9 +561,9 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
@@ -628,9 +628,9 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
+        0,
         1,
-        2,
-        3
+        2
       ],
       "min_nights": 5,
       "max_nights": 8,
