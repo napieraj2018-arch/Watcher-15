@@ -213,6 +213,36 @@ def main():
         except Exception as e:
             print("FULL_PRICE_ERROR",type(e).__name__,str(e)[:200])
 
+        print("DATE_CONTROLS")
+        date_controls=[]
+        for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
+            try:
+                if not el.is_displayed(): continue
+                tid=(el.get_attribute("data-testid") or "")
+                txt=compact(el.text)
+                blob=(tid+" "+txt).lower()
+                if any(k in blob for k in ["date","calendar","termin","departure","duration"]):
+                    rec={"tag":el.tag_name,"testid":tid,"text":txt[:300],"html":el.get_attribute("outerHTML")[:1400]}
+                    print("DATE_CONTROL",repr(rec));date_controls.append(el)
+            except: pass
+        for el in date_controls:
+            try:
+                if el.tag_name in ("button","input") or el.get_attribute("role")=="button":
+                    d.execute_script("arguments[0].click();",el);time.sleep(1)
+                    print("DATE_CONTROL_CLICKED",el.get_attribute("data-testid"),compact(el.text)[:200])
+                    break
+            except Exception as e:
+                print("DATE_CONTROL_CLICK_ERROR",type(e).__name__,str(e)[:160])
+        print("DATE_MODAL_TESTIDS")
+        for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
+            try:
+                if not el.is_displayed(): continue
+                tid=(el.get_attribute("data-testid") or "")
+                txt=compact(el.text)
+                blob=(tid+" "+txt).lower()
+                if any(k in blob for k in ["date","calendar","day","month","termin","departure"]):
+                    print("DATE_MODAL",repr({"tag":el.tag_name,"testid":tid,"text":txt[:400],"aria":el.get_attribute("aria-label"),"html":el.get_attribute("outerHTML")[:1600]}))
+            except: pass
         print("OFFER_TILES_AFTER_FAMILY")
         tiles=d.find_elements(By.CSS_SELECTOR,"[data-testid='offer-tile']")
         print("TILE_COUNT",len(tiles))
