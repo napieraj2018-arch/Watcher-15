@@ -113,8 +113,10 @@ def _parse_family_items(items,cfg,allowed,url):
     out=[]
     for item in items.values():
         if not isinstance(item,dict):continue
-        if str(item.get("item_parameter_9") or "")!="adult:_2_child:_2":continue
-        if str(item.get("item_parameter_10") or "")!="age:_5,7":continue
+        party=str(item.get("item_parameter_9") or "")
+        ages_field=str(item.get("item_parameter_10") or "").replace(" ","")
+        if "adult:_2_child:_2" not in party:continue
+        if "age:_5,7" not in ages_field:continue
         prices=_item_price_fields(item.get("item_parameter_1"))
         if not prices:continue
         per,room,total=prices
@@ -173,7 +175,8 @@ def _adult_totals(items,cfg,allowed):
     out={}
     for item in items.values():
         if not isinstance(item,dict): continue
-        if str(item.get("item_parameter_9") or "")!="adult:_2_child:_0": continue
+        party=str(item.get("item_parameter_9") or "")
+        if "adult:_2_child:_0" not in party: continue
         prices=_item_price_fields(item.get("item_parameter_1"))
         if not prices: continue
         per,room,total=prices
@@ -187,6 +190,19 @@ def _adult_totals(items,cfg,allowed):
         key=_stable_key(item,dep,ret,airport)
         out[key]=total
     print("TP_PROD_ADULT_CONTROL_COUNT",len(out))
+    if not out:
+        samples=[]
+        for item in list(items.values())[:8]:
+            if isinstance(item,dict):
+                samples.append({
+                    "id":item.get("item_id"),
+                    "party":item.get("item_parameter_9"),
+                    "ages":item.get("item_parameter_10"),
+                    "price":item.get("item_parameter_1"),
+                    "date":item.get("item_parameter_7"),
+                    "airport":item.get("item_parameter_3"),
+                })
+        print("TP_PROD_ADULT_SAMPLE",samples)
     return out
 
 def _fetch(driver,cfg):
