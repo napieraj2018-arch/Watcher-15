@@ -284,7 +284,22 @@ def _adult_totals(items,cfg,allowed):
 def _fetch(driver,cfg):
     url,allowed=_search_url(cfg,False)
     items=_read_items(driver,url,"FAMILY")
-    return _parse_family_items(items,cfg,allowed,url)
+    parsed=_parse_family_items(items,cfg,allowed,url)
+    if not parsed:
+        dom=[]
+        try:
+            for card in driver.find_elements(By.CSS_SELECTOR,"[data-testid='product-grid-item']")[:20]:
+                txt=" ".join((card.text or "").split())
+                href=""
+                try:
+                    href=card.find_element(By.CSS_SELECTOR,"a[href*='/hotele/']").get_attribute("href") or ""
+                except Exception:
+                    pass
+                dom.append({"text":txt[:1800],"href":href})
+        except Exception as e:
+            print("TP_PROD_DOM_SAMPLE_ERR",type(e).__name__,str(e)[:160])
+        print("TP_PROD_DOM_SAMPLES",dom)
+    return parsed
 
 def _fetch_adult_controls(driver,cfg):
     url,allowed=_search_url(cfg,True)
