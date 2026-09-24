@@ -225,14 +225,12 @@ def main():
                     rec={"tag":el.tag_name,"testid":tid,"text":txt[:300],"html":el.get_attribute("outerHTML")[:1400]}
                     print("DATE_CONTROL",repr(rec));date_controls.append(el)
             except: pass
-        for el in date_controls:
-            try:
-                if el.tag_name in ("button","input") or el.get_attribute("role")=="button":
-                    d.execute_script("arguments[0].click();",el);time.sleep(1)
-                    print("DATE_CONTROL_CLICKED",el.get_attribute("data-testid"),compact(el.text)[:200])
-                    break
-            except Exception as e:
-                print("DATE_CONTROL_CLICK_ERROR",type(e).__name__,str(e)[:160])
+        try:
+            el=d.find_element(By.CSS_SELECTOR,"button[data-testid='dropdown-field--travel-date']")
+            d.execute_script("arguments[0].click();",el);time.sleep(1)
+            print("DATE_CONTROL_CLICKED",el.get_attribute("data-testid"),compact(el.text)[:200])
+        except Exception as e:
+            print("DATE_CONTROL_CLICK_ERROR",type(e).__name__,str(e)[:160])
         print("DATE_MODAL_TESTIDS")
         for el in d.find_elements(By.CSS_SELECTOR,"[data-testid]"):
             try:
