@@ -7,7 +7,7 @@
     "alert_requires_live_availability": true,
     "no_per_person_price_as_total": true,
     "production_goal": 15,
-    "total_registered": 22,
+    "total_registered": 26,
     "alert_only_from_production": true,
     "block_unverified_family_totals": true,
     "minimum_production_channels": 10
@@ -265,6 +265,54 @@
       "final_total": false,
       "live_availability": false,
       "note": "Active operator search exposes adults, children, flight departure, Last Minute and All Inclusive controls. Added as independent candidate; exact 5/7 child-age serialization, live availability and final family total require proof."
+    },
+    {
+      "id": "iziwakacje_pl",
+      "name": "IZI Wakacje",
+      "url": "https://iziwakacje.pl/lastminute/",
+      "status": "diagnostic",
+      "kind": "aggregator",
+      "priority": 22,
+      "exact_party": false,
+      "final_total": false,
+      "live_availability": false,
+      "note": "Public last-minute surface exposes hotel quality and 'cena za wszystkich'; exact 2+2 ages 5/7 still requires proof."
+    },
+    {
+      "id": "urlop_pl",
+      "name": "Urlop.pl",
+      "url": "https://www.urlop.pl/last-minute-all-inclusive/",
+      "status": "diagnostic",
+      "kind": "aggregator",
+      "priority": 23,
+      "exact_party": false,
+      "final_total": false,
+      "live_availability": false,
+      "note": "Live holiday search with participant controls; exact 2+2 pricing proof pending."
+    },
+    {
+      "id": "wakacyjnapapuga_pl",
+      "name": "Wakacyjna Papuga",
+      "url": "https://wczasy.wakacyjnapapuga.pl/",
+      "status": "diagnostic",
+      "kind": "aggregator",
+      "priority": 24,
+      "exact_party": false,
+      "final_total": false,
+      "live_availability": false,
+      "note": "Search has adults/children and reservation DOB flow; exact 5/7 family total proof pending."
+    },
+    {
+      "id": "kristour_pl",
+      "name": "Kris Tour",
+      "url": "https://www.kris-tour.pl/",
+      "status": "diagnostic",
+      "kind": "operator",
+      "priority": 25,
+      "exact_party": false,
+      "final_total": false,
+      "live_availability": false,
+      "note": "BlueVendo-based search with child controls; exact-family live package proof pending."
     }
   ]
 }
