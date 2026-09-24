@@ -1,0 +1,25 @@
+name: Watcher email notification test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/notification-bot-test.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create bot notification test issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create             --repo "$GITHUB_REPOSITORY"             --title "🔔 BOT TEST Watcher-15 — GitHub Actions"             --body "@napieraj2018-arch
+
+To jest test utworzony przez GitHub Actions — dokładnie tą samą drogą co alerty ofert.
+
+Jeżeli masz aktywne powiadomienia e-mail GitHuba dla przypisań/wzmianek, powinien przyjść mail."             --assignee "napieraj2018-arch"
