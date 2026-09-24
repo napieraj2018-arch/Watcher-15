@@ -46,7 +46,7 @@ def main():
         print('FILTER_VALUE_KEYS',sorted(fv.keys()))
         for key,val in fv.items():
             lk=str(key).lower()
-            if any(tok in lk for tok in ['dest','country','region','location','place']):
+            if any(tok in lk for tok in ['dest','country','region','location','place','geo']):
                 try:
                     print('DEST_STRUCTURE',key,json.dumps(val,ensure_ascii=False)[:30000])
                 except Exception:
