@@ -1587,7 +1587,15 @@ def rainbow_parse_total(body):
         for m in re.finditer(pat,cleaned,re.I):
             start=max(0,m.start()-80);end=min(len(cleaned),m.end()+80)
             ctx=cleaned[start:end].lower()
-            if "/os" in ctx or "za osob" in ctx:
+            # An explicit family-total label is authoritative even when the
+            # immediately preceding text also contains a per-person price
+            # (Rainbow commonly renders "... zł/os. Cena razem: ... zł").
+            explicit_family_label = bool(re.search(
+                r"(?:Cena\s+razem|(?:Łącznie|Lacznie)|Do\s+zapłaty)",
+                m.group(0),
+                re.I,
+            ))
+            if ("/os" in ctx or "za osob" in ctx) and not explicit_family_label:
                 continue
             try:
                 v=int(m.group(1).replace(" ",""))
