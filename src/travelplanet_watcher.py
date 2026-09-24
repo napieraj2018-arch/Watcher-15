@@ -70,8 +70,12 @@ def _search_url(cfg, adults_only=False):
       ("s_action","SEARCH_FORM_SEPARATED"),
       ("d_start_from",start.strftime("%d.%m.%Y")),("d_end_to",end.strftime("%d.%m.%Y")),
       ("nl_transportation_id[]","3"),("b_online_sale_customer","1"),
-      ("duration",f"{int(cfg['min_nights'])+1}-{int(cfg['max_nights'])+1} days"),
-      ("nl_length_from",str(int(cfg["min_nights"])+1)),("nl_length_to",str(int(cfg["max_nights"])+1)),
+      # Travelplanet's current frontend maps the 8-11 day preset to
+      # standard 7-night packages. Live matrix validation on 24.09.2026
+      # showed shorter presets returning 2-4 night trips despite their labels.
+      # We still verify actual departure/return dates below and fail closed.
+      ("duration","8-11 days"),
+      ("nl_length_from","8"),("nl_length_to","11"),
       ("nl_occupancy_adults","2"),("sort","nl_sell")
     ]
     if adults_only:
@@ -170,11 +174,10 @@ def _parse_family_items(items,cfg,allowed,url):
         if not exact:
             print("TP_PROD_REJECT_TOKEN",item.get("item_id"),payload.get("passengers"),total)
             continue
-        dep,_raw_ret=_dates(item.get("item_parameter_7"))
-        if not dep or dep not in allowed:continue
-        nights=_duration_nights(item)
-        if nights is None or not (cfg["min_nights"]<=nights<=cfg["max_nights"]):continue
-        ret=dep+timedelta(days=nights)
+        dep,ret=_dates(item.get("item_parameter_7"))
+        if not dep or not ret or dep not in allowed:continue
+        nights=(ret-dep).days
+        if not (cfg["min_nights"]<=nights<=cfg["max_nights"]):continue
         airport=_airport(item)
         if not airport:continue
         meal=_meal(item)
@@ -255,11 +258,10 @@ def _adult_totals(items,cfg,allowed):
         prices=_item_price_fields(item.get("item_parameter_1"))
         if not prices: continue
         per,room,total=prices
-        dep,_raw_ret=_dates(item.get("item_parameter_7"))
-        if not dep or dep not in allowed: continue
-        nights=_duration_nights(item)
-        if nights is None or not (cfg["min_nights"]<=nights<=cfg["max_nights"]): continue
-        ret=dep+timedelta(days=nights)
+        dep,ret=_dates(item.get("item_parameter_7"))
+        if not dep or not ret or dep not in allowed: continue
+        nights=(ret-dep).days
+        if not (cfg["min_nights"]<=nights<=cfg["max_nights"]): continue
         airport=_airport(item)
         if not airport: continue
         if not _meal(item): continue
