@@ -72,30 +72,81 @@ def _search_url(cfg, adults_only=False):
     return BASE+"?"+urlencode(q,doseq=True),set(dates)
 
 def _read_items(driver,url,label):
-    try:driver.execute_script("localStorage.removeItem('ga4_serp_items_last');localStorage.removeItem('ga4_serp_filters_last');")
+    try:
+        driver.execute_script("localStorage.removeItem('ga4_serp_items_last');localStorage.removeItem('ga4_serp_filters_last');")
     except:pass
     driver.get(url)
     WebDriverWait(driver,45).until(lambda d:d.execute_script("return document.readyState")=="complete")
     dismiss_cookies(driver)
-    raw=""
-    for _ in range(16):
-        time.sleep(.75)
+
+    # Travelplanet initially exposes only a small result batch in localStorage.
+    # Accumulate batches while scrolling/clicking "more" instead of treating the
+    # first ~30 records as the whole market. This is especially important for
+    # the 2+0 control, where matching WAW/RDO/WMI 5-8 night packages can sit
+    # behind cheaper departures from other airports.
+    all_items={}
+    stable=0
+    last_count=-1
+    filters=""
+    for step in range(24):
+        time.sleep(.65)
         raw=driver.execute_script("return localStorage.getItem('ga4_serp_items_last')||''")
-        if raw and "itemsById" in raw:break
-    filters=driver.execute_script("return localStorage.getItem('ga4_serp_filters_last')||''")
+        filters=driver.execute_script("return localStorage.getItem('ga4_serp_filters_last')||''")
+        if raw and "itemsById" in raw:
+            try:
+                data=json.loads(raw)
+                batch=data.get("itemsById") or {}
+                if isinstance(batch,dict):
+                    for k,v in batch.items():
+                        if isinstance(v,dict):
+                            # item_id alone can repeat across different package
+                            # variants, so keep a stable composite key.
+                            uniq="|".join([
+                                str(k),str(v.get("item_offer_id") or ""),
+                                str(v.get("item_parameter_7") or ""),
+                                str(v.get("item_parameter_3") or ""),
+                                str(v.get("item_parameter_8") or ""),
+                            ])
+                            all_items[uniq]=v
+            except Exception as e:
+                print("TP_PROD_ITEMS_JSON_ERR",label,type(e).__name__,str(e)[:180])
+
+        count=len(all_items)
+        print("TP_PROD_ITEM_PROGRESS",label,step,count)
+        if count==last_count:
+            stable+=1
+        else:
+            stable=0
+            last_count=count
+        if stable>=4 and count:
+            break
+
+        clicked=False
+        try:
+            for b in driver.find_elements(By.XPATH,"//button|//a"):
+                if not b.is_displayed(): continue
+                txt=" ".join((b.text or "").split()).lower()
+                if any(x in txt for x in ("pokaż więcej","więcej ofert","załaduj więcej","zobacz więcej")):
+                    driver.execute_script("arguments[0].scrollIntoView({block:'center'});",b)
+                    driver.execute_script("arguments[0].click();",b)
+                    clicked=True
+                    time.sleep(.7)
+                    break
+        except Exception:
+            pass
+        if not clicked:
+            try:
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            except Exception:
+                pass
+
     print("TP_PROD_URL",label,driver.current_url)
     print("TP_PROD_FILTERS",label,filters[:1800])
-    if not raw:
+    if not all_items:
         print("TP_PROD_FAIL_CLOSED_NO_ITEMS",label)
         return {}
-    try:
-        data=json.loads(raw)
-        items=data.get("itemsById") or {}
-        print("TP_PROD_ITEM_COUNT",label,len(items))
-        return items if isinstance(items,dict) else {}
-    except Exception as e:
-        print("TP_PROD_ITEMS_JSON_ERR",label,type(e).__name__,str(e)[:180])
-        return {}
+    print("TP_PROD_ITEM_COUNT",label,len(all_items))
+    return all_items
 
 def _airport(item):
     code=str(item.get("item_parameter_3") or "").upper().strip()
