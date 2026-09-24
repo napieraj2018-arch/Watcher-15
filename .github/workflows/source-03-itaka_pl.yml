@@ -37,9 +37,29 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run ITAKA channel
+      - name: Run ITAKA channel and publish health checkpoint
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PYTHONUNBUFFERED: "1"
           WATCHER_CHANNEL: itaka_pl
-        run: python src/channel_runner.py
+        run: |
+          set +e
+          python src/channel_runner.py > source-run.log 2>&1
+          rc=$?
+          {
+            echo "# ITAKA source health"
+            echo
+            echo "- channel: itaka_pl"
+            echo "- generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "- exit_code: ${rc}"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo '~~~text'
+            tail -n 240 source-run.log
+            echo '~~~'
+          } > source-health.md
+          gh issue edit 51 --repo "${GITHUB_REPOSITORY}" --body-file source-health.md >/dev/null 2>&1 || true
+          cat source-run.log
+          exit "${rc}"
