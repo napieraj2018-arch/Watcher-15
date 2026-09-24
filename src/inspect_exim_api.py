@@ -37,7 +37,7 @@ def run_query(label,q):
     return (len(tours) if isinstance(tours,list) else 0),j
 
 def main():
-    today=datetime.now(TZ).date();dd=today+timedelta(days=1)
+    today=datetime.now(TZ).date();dd=today
     filt=fetch_json('/api/searchfilter/getfilter?segmentCode=residential')
     if isinstance(filt,dict):
         fv=filt.get('filterValuesApiResponseModel') or {}
