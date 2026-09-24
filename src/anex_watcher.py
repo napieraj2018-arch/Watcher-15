@@ -16,7 +16,7 @@ BASE="https://search.anextour.com.pl/search_tour"
 
 def compact(s): return " ".join((s or "").split())
 
-def _url(cfg):
+def _url(cfg,townfrom=None):
     today=datetime.now(TZ).date()
     ds=sorted(int(x) for x in cfg["depart_in_days"])
     q=[
@@ -25,6 +25,8 @@ def _url(cfg):
       ("CHECKIN_END",(today+timedelta(days=ds[-1])).strftime("%Y%m%d")),
       ("NIGHTS_FROM",str(cfg["min_nights"])),("NIGHTS_TILL",str(cfg["max_nights"]))
     ]
+    if townfrom is not None:
+        q.append(("TOWNFROMINC",str(townfrom)))
     return BASE+"?"+urlencode(q),{today+timedelta(days=d) for d in ds}
 
 def _click_search(d):
@@ -50,8 +52,8 @@ def _route_airport(route,cfg):
             if "warszawa" in a.lower() and "radom" not in a.lower() and "modlin" not in a.lower(): return a
     return None
 
-def _read(cfg):
-    url,allowed=_url(cfg)
+def _read(cfg,townfrom=None):
+    url,allowed=_url(cfg,townfrom)
     d=chrome()
     try:
         d.get(url);WebDriverWait(d,45).until(lambda x:x.execute_script("return document.readyState")=="complete")
@@ -131,13 +133,25 @@ def _quality_ok(x,cfg):
 def run_anex_watcher(cfg):
     if cfg.get("adults")!=2 or cfg.get("children_ages")!=[5,7]:
         raise RuntimeError("ANEX adapter is locked to exact 2+2 ages 5/7")
-    first=_read(cfg)
+    first=[]
+    # SAMO defaults to Gdańsk when TOWNFROMINC is omitted. Query the user's
+    # relevant departure cities explicitly: Warszawa=1885, Radom=2200.
+    for townfrom in cfg.get("anex_townfrom_ids",[1885,2200]):
+        first.extend(_read(cfg,townfrom))
+    dedup={}
+    for x in first:
+        old=dedup.get(x["key"])
+        if old is None or x["price"]<old["price"]:
+            dedup[x["key"]]=x
+    first=list(dedup.values())
     qualified=[x for x in first if _quality_ok(x,cfg)]
     print("ANEX_PROD_QUALIFIED",len(qualified))
     if first and not qualified: print("ANEX_PROD_QUALITY_FAIL_CLOSED")
     token=os.getenv("GITHUB_TOKEN","");repo=os.getenv("GITHUB_REPOSITORY","")
     for cand in qualified[:10]:
-        fresh=_read(cfg)
+        fresh=[]
+        for townfrom in cfg.get("anex_townfrom_ids",[1885,2200]):
+            fresh.extend(_read(cfg,townfrom))
         confirmed=next((x for x in fresh if x["key"]==cand["key"] and x["price"]==cand["price"] and _quality_ok(x,cfg)),None)
         if not confirmed:
             print("ANEX_PROD_RECHECK_REJECT",cand["key"]);continue
