@@ -27,16 +27,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run Wakacje.pl channel
+
+      - name: Run Wakacje.pl channel and publish health checkpoint
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PYTHONUNBUFFERED: "1"
           WATCHER_CHANNEL: wakacje_pl
-        run: python src/channel_runner.py
+        run: |
+          set +e
+          python src/channel_runner.py > source-run.log 2>&1
+          rc=$?
+          {
+            echo "# Wakacje.pl source health"
+            echo
+            echo "- channel: wakacje_pl"
+            echo "- generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "- exit_code: ${rc}"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo '~~~text'
+            tail -n 240 source-run.log
+            echo '~~~'
+          } > source-health.md
+          gh issue edit 49 --repo "${GITHUB_REPOSITORY}" --body-file source-health.md >/dev/null 2>&1 || true
+          cat source-run.log
+          exit "${rc}"
