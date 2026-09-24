@@ -194,7 +194,16 @@ def run_sunfun_watcher(cfg):
         print('SUNFUN_VERIFIED_FAMILY_TOTAL',verified_family_total);print('SUNFUN_MATCHES',len(matches))
         for dep,url,x in matches[:10]:
             if not load_exact(driver,url,cfg['children_ages'],dep):continue
-            fresh=parse_cards(driver);confirm=next((y for y in fresh if y['total']==x['total'] and y['name']==x['name'] and qualifies(y,cfg)),None)
+            fresh=parse_cards(driver)
+            confirm=None
+            for y in fresh:
+                if y['total']!=x['total'] or y['name']!=x['name']:
+                    continue
+                if y.get('stars') is None or y.get('reviews') is None or y.get('rating') is None:
+                    y=enrich_detail(driver,y,dep,cfg['children_ages'])
+                if qualifies(y,cfg):
+                    confirm=y
+                    break
             if not confirm:print('SUNFUN_RECHECK_REJECT',x['total']);continue
             print('SUNFUN_RECHECK_VERIFIED', {'date':dep.isoformat(),'name':confirm['name'],'total':confirm['total'],'stars':confirm['stars'],'rating':confirm['rating'],'reviews':confirm['reviews']})
             qs=parse_qs(urlparse(confirm['href']).query)
