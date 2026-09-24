@@ -645,7 +645,7 @@
     },
     {
       "id": "tanietravel-last-minute-2plus2",
-      "enabled": true,
+      "enabled": false,
       "provider": "tanietravel_pl",
       "adults": 2,
       "children_ages": [
@@ -710,7 +710,8 @@
         "2026-09-27"
       ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 4
+      "run_revision": 4,
+      "disabled_reason": "User excluded Katowice-Travel/TanieTravel after broken/blank direct offer pages"
     }
   ]
 }
