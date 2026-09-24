@@ -1165,15 +1165,20 @@ ITAKA_BASE_URL = "https://www.itaka.pl/last-minute/"
 
 def itaka_family_url(cfg, child_dobs):
     from urllib.parse import urlencode
-    params = {
-        "adults[0]": str(cfg["adults"]),
-        "children[0]": ",".join(d.strftime("%d.%m.%Y") for d in child_dobs),
-        # Force the airports we actually accept. Without this ITAKA spends
-        # the shallow last-minute result set on Katowice/Poznań and can hide
-        # matching Warsaw/Radom departures behind them.
-        "airports": "WAW,WMI,RDO",
-    }
-    return ITAKA_BASE_URL + "?" + urlencode(params)
+    dates=configured_departure_dates(cfg)
+    params=[
+        ("dateFrom",dates[0].strftime("%d.%m.%Y")),
+        ("dateTo",dates[-1].strftime("%d.%m.%Y")),
+        ("departuresByPlane","WAW,WMI,RDO"),
+        ("durationMin",str(int(cfg["min_nights"])+1)),
+        ("durationMax",str(int(cfg["max_nights"])+1)),
+        ("groupPrice","true"),
+        ("promotion","LastMinute"),
+        ("participants[0][adults]",str(cfg["adults"])),
+    ]
+    for i,dob in enumerate(child_dobs):
+        params.append((f"participants[0][children][{i}]",dob.strftime("%d.%m.%Y")))
+    return "https://www.itaka.pl/all-inclusive/?" + urlencode(params)
 
 def itaka_review_count(text):
     vals=[]
@@ -1192,8 +1197,12 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
     time.sleep(4)
     dismiss_cookies(driver)
 
-    current=driver.current_url.lower()
-    if "children%5b0%5d" not in current and "children[0]" not in current:
+    qs=parse_qs(urlsplit(driver.current_url).query)
+    modern_children=[]
+    for i in range(4):
+        modern_children.extend(qs.get(f"participants[0][children][{i}]") or [])
+    legacy_children=qs.get("children[0]") or []
+    if len(modern_children)!=2 and not legacy_children:
         raise RuntimeError("ITAKA lost child parameters")
 
     # Load a deep result set. ITAKA can keep later departures behind a
@@ -1361,19 +1370,29 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
     return offers
 
 def itaka_exact_child_ages_in_url(url, departure, expected_ages):
-    vals=(parse_qs(urlsplit(url).query).get("children[0]") or [])
-    if not vals:
+    qs=parse_qs(urlsplit(url).query)
+    parts=[]
+    for i in range(4):
+        parts.extend(qs.get(f"participants[0][children][{i}]") or [])
+    if not parts:
+        vals=qs.get("children[0]") or []
+        if vals:
+            parts=[x.strip() for x in vals[0].split(",") if x.strip()]
+    if len(parts)!=2:
         return False
-    raw=vals[0]
-    parts=[x.strip() for x in raw.split(",") if x.strip()]
     ages=[]
     for item in parts:
-        try:
-            dob=datetime.strptime(item,"%d.%m.%Y").date()
-            age=departure.year-dob.year-((departure.month,departure.day)<(dob.month,dob.day))
-            ages.append(age)
-        except Exception:
+        dob=None
+        for fmt in ("%d.%m.%Y","%Y-%m-%d"):
+            try:
+                dob=datetime.strptime(item,fmt).date()
+                break
+            except Exception:
+                pass
+        if dob is None:
             return False
+        age=departure.year-dob.year-((departure.month,departure.day)<(dob.month,dob.day))
+        ages.append(age)
     return sorted(ages)==sorted(int(x) for x in expected_ages)
 
 
@@ -1403,8 +1422,11 @@ def itaka_verify_offer(driver, offer, cfg, child_dobs):
     time.sleep(5)
     dismiss_cookies(driver)
 
-    current=driver.current_url.lower()
-    if "children%5b0%5d" not in current and "children[0]" not in current:
+    qs_now=parse_qs(urlsplit(driver.current_url).query)
+    modern_children_now=[]
+    for i in range(4):
+        modern_children_now.extend(qs_now.get(f"participants[0][children][{i}]") or [])
+    if len(modern_children_now)!=2 and not (qs_now.get("children[0]") or []):
         return None,"itaka_family_parameters_lost",None
 
     # ITAKA sometimes normalizes representative DOBs (e.g. to 01.01 of
