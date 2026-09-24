@@ -88,7 +88,7 @@ def _read_items(driver,url,label):
     # Travelplanet exposes ~30 analytics records per result page. Infinite
     # scrolling does not advance the backend page in headless Chrome, so walk
     # explicit page=N result pages and merge their live item batches.
-    for page in range(1,7):
+    for page in range(1,16):
         page_url=url+("&" if "?" in url else "?")+f"page={page}"
         try:
             driver.execute_script("localStorage.removeItem('ga4_serp_items_last');localStorage.removeItem('ga4_serp_filters_last');")
