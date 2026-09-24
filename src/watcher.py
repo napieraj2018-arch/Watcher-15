@@ -988,6 +988,14 @@ def tui_collect_tiles(driver, cfg, target_days):
         except Exception as e:
             print("TUI_TILE_PARSE_WARN", type(e).__name__, str(e)[:160])
 
+    if not offers:
+        samples=[]
+        for tile in driver.find_elements(By.CSS_SELECTOR, "[data-testid='offer-tile']")[:6]:
+            try:
+                samples.append(compact(tile.text)[:1800])
+            except Exception:
+                pass
+        print("TUI_TILE_SAMPLES", samples)
     offers.sort(key=lambda x: (-(x["rating"] or 0), -(x["reviews"] or 0)))
     print("TUI_IMMINENT_CANDIDATES", len(offers))
     for x in offers[:12]:
@@ -1287,6 +1295,14 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
         except Exception as e:
             print("ITAKA_TILE_WARN",type(e).__name__,str(e)[:180])
 
+    if not offers:
+        samples=[]
+        for tile in driver.find_elements(By.CSS_SELECTOR,"[data-testid='offer-list-item']")[:6]:
+            try:
+                samples.append(compact(tile.text)[:1800])
+            except Exception:
+                pass
+        print("ITAKA_TILE_SAMPLES",samples)
     offers.sort(key=lambda x:(x["listing_pp"] or 999999,-(x["rating"] or 0),-(x["reviews"] or 0)))
     print("ITAKA_CANDIDATES",len(offers))
     for x in offers[:20]:
