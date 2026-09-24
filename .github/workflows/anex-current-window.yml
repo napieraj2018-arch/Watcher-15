@@ -1,0 +1,19 @@
+name: ANEX current family window
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/probe_anex_current_window.py"
+      - ".github/workflows/anex-current-window.yml"
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python src/probe_anex_current_window.py
