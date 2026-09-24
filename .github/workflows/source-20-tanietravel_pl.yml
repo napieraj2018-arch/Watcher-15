@@ -2,8 +2,6 @@ name: Channel 20 — TanieTravel
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "8,23,38,53 * * * *"
   push:
     paths:
       - "src/tanietravel_watcher.py"
