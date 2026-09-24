@@ -7,7 +7,7 @@
     "alert_requires_live_availability": true,
     "no_per_person_price_as_total": true,
     "production_goal": 15,
-    "total_registered": 26,
+    "total_registered": 28,
     "alert_only_from_production": true,
     "block_unverified_family_totals": true,
     "minimum_production_channels": 10
@@ -281,7 +281,7 @@
     {
       "id": "urlop_pl",
       "name": "Urlop.pl",
-      "url": "https://www.urlop.pl/last-minute-all-inclusive/",
+      "url": "https://www.urlop.pl/",
       "status": "diagnostic",
       "kind": "aggregator",
       "priority": 23,
@@ -313,6 +313,30 @@
       "final_total": false,
       "live_availability": false,
       "note": "BlueVendo-based search with child controls; exact-family live package proof pending."
+    },
+    {
+      "id": "24holiday_pl",
+      "name": "24Holiday",
+      "url": "https://24holiday.pl/",
+      "status": "diagnostic",
+      "kind": "aggregator",
+      "priority": 26,
+      "exact_party": false,
+      "final_total": false,
+      "live_availability": false,
+      "note": "Detail surfaces expose NumberOfPeople/CDBirth semantics and explicit 'za wszystkich'; exact 2+2 ages 5/7 proof pending."
+    },
+    {
+      "id": "kroktravel_pl",
+      "name": "Krok Travel",
+      "url": "https://krok-travel.pl/",
+      "status": "diagnostic",
+      "kind": "aggregator",
+      "priority": 27,
+      "exact_party": false,
+      "final_total": false,
+      "live_availability": false,
+      "note": "Hotel booking surface exposes child birth-date controls and package totals; exact 2+2 ages 5/7 proof pending."
     }
   ]
 }
