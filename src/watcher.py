@@ -1180,6 +1180,86 @@ def itaka_family_url(cfg, child_dobs):
         params.append((f"participants[0][children][{i}]",dob.strftime("%d.%m.%Y")))
     return "https://www.itaka.pl/all-inclusive/?" + urlencode(params)
 
+def itaka_apply_family_ui(driver, child_ages):
+    """Set exact 2+2 through ITAKA's live participant picker.
+    URL parameters are not trusted because the listing currently strips two
+    children back to 2+0. The UI state is verified after applying.
+    """
+    try:
+        part=driver.find_element(By.CSS_SELECTOR,"[data-testid='participants-filter-input']")
+        driver.execute_script("arguments[0].click();",part)
+        time.sleep(.7)
+        portal=driver.find_element(By.CSS_SELECTOR,"[data-testid='portal-content']")
+
+        # Read current child count from the dedicated row and normalize to 0.
+        child_label=driver.find_element(By.XPATH,"//span[contains(normalize-space(.),'Dzieci (0-17 lat)')]")
+        child_row=child_label.find_element(By.XPATH,"./ancestor::div[contains(@class,'styles_wrapper')][1]")
+        buttons=[b for b in child_row.find_elements(By.TAG_NAME,"button") if b.is_displayed()]
+        if len(buttons)<2:
+            return False
+        minus,plus=buttons[0],buttons[-1]
+        for _ in range(4):
+            portal=driver.find_element(By.CSS_SELECTOR,"[data-testid='portal-content']")
+            selects=portal.find_elements(By.TAG_NAME,"select")
+            if not selects:
+                break
+            driver.execute_script("arguments[0].click();",minus)
+            time.sleep(.25)
+
+        # Add exactly two children.
+        child_label=driver.find_element(By.XPATH,"//span[contains(normalize-space(.),'Dzieci (0-17 lat)')]")
+        child_row=child_label.find_element(By.XPATH,"./ancestor::div[contains(@class,'styles_wrapper')][1]")
+        buttons=[b for b in child_row.find_elements(By.TAG_NAME,"button") if b.is_displayed()]
+        plus=buttons[-1]
+        for _ in range(2):
+            driver.execute_script("arguments[0].click();",plus)
+            time.sleep(.35)
+
+        portal=driver.find_element(By.CSS_SELECTOR,"[data-testid='portal-content']")
+        selects=portal.find_elements(By.TAG_NAME,"select")
+        if len(selects)<2:
+            print("ITAKA_UI_CHILD_SELECTS_MISSING",len(selects))
+            return False
+        for sel,target_age in zip(selects[:2],child_ages):
+            target=f"{int(target_age)} lat"
+            driver.execute_script("""
+                const sel=arguments[0], wanted=arguments[1];
+                const opt=[...sel.options].find(o => o.text.trim()===wanted);
+                if (!opt) throw new Error("age option missing: "+wanted);
+                sel.value=opt.value;
+                sel.dispatchEvent(new Event('input',{bubbles:true}));
+                sel.dispatchEvent(new Event('change',{bubbles:true}));
+            """,sel,target)
+            time.sleep(.35)
+
+        portal=driver.find_element(By.CSS_SELECTOR,"[data-testid='portal-content']")
+        show=[b for b in portal.find_elements(By.TAG_NAME,"button") if compact(b.text)=="Pokaż oferty"]
+        if not show:
+            print("ITAKA_UI_SHOW_MISSING")
+            return False
+        driver.execute_script("arguments[0].click();",show[0])
+        time.sleep(5)
+        txt=compact(driver.find_element(By.CSS_SELECTOR,"[data-testid='participants-filter-input']").text).lower()
+        ok=("2 + 2" in txt) or ("2 doros" in txt and "2 dzieci" in txt)
+        print("ITAKA_UI_PARTY_CONFIRMED",ok,txt,driver.current_url)
+        return ok
+    except Exception as e:
+        print("ITAKA_UI_PARTY_ERROR",type(e).__name__,str(e)[:300])
+        return False
+
+def itaka_force_family_params(url, child_dobs):
+    from urllib.parse import parse_qsl,urlencode,urlunsplit
+    parts=urlsplit(url)
+    pairs=[]
+    for k,v in parse_qsl(parts.query,keep_blank_values=True):
+        if k=="participants[0][adults]" or k.startswith("participants[0][children]"):
+            continue
+        pairs.append((k,v))
+    pairs.append(("participants[0][adults]","2"))
+    for i,dob in enumerate(child_dobs):
+        pairs.append((f"participants[0][children][{i}]",dob.strftime("%d.%m.%Y")))
+    return urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(pairs,doseq=True),parts.fragment))
+
 def itaka_review_count(text):
     vals=[]
     for m in re.finditer(r"(?<![/\d])(\d{1,5})\s+opini", text, re.I):
@@ -1203,11 +1283,15 @@ def itaka_collect_candidates(driver, cfg, target_days, family_url):
     for i in range(4):
         modern_children.extend(qs.get(f"participants[0][children][{i}]") or [])
     legacy_children=qs.get("children[0]") or []
-    if len(modern_children)!=2 and not legacy_children:
-        body_party=compact(driver.find_element(By.TAG_NAME,"body").text)
-        party_lines=[x.strip() for x in body_party.split("  ") if any(k in x.lower() for k in ["doros","dzieci","os.,","osób"])][:20]
-        print("ITAKA_PARTY_STATE_MISSING_URL",party_lines,dict(qs))
-        raise RuntimeError("ITAKA lost child parameters")
+    party_text=""
+    try:
+        party_text=compact(driver.find_element(By.CSS_SELECTOR,"[data-testid='participants-filter-input']").text).lower()
+    except Exception:
+        pass
+    party_ui_ok=("2 + 2" in party_text) or ("2 doros" in party_text and "2 dzieci" in party_text)
+    if len(modern_children)!=2 and not legacy_children and not party_ui_ok:
+        if not itaka_apply_family_ui(driver,cfg["children_ages"]):
+            raise RuntimeError("ITAKA exact 2+2 could not be established in UI")
 
     # Load a deep result set. ITAKA can keep later departures behind a
     # "show more" control, so plain scrolling may stop after only a few cards.
@@ -1418,8 +1502,9 @@ def itaka_parse_total(body):
     return vals[0] if vals else None
 
 def itaka_verify_offer(driver, offer, cfg, child_dobs):
-    print("ITAKA_VERIFY",offer["hotel"],offer["href"])
-    driver.get(offer["href"])
+    family_href=itaka_force_family_params(offer["href"],child_dobs)
+    print("ITAKA_VERIFY",offer["hotel"],family_href)
+    driver.get(family_href)
     WebDriverWait(driver,45).until(
         lambda d:d.execute_script("return document.readyState")=="complete"
     )
