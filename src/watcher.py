@@ -424,6 +424,25 @@ def collect_day(driver, dep: date, cfg, family, child_dobs):
     print("DAY_CANDIDATES", dep.isoformat(), len(offers))
     return offers
 
+def force_wakacje_airport(href: str, airport: str):
+    token={
+        "Warszawa":"z-warszawy",
+        "Warszawa - Modlin":"z-warszawy-modlin",
+        "Warszawa - Radom":"z-warszawy-radom",
+    }.get(str(airport or ""))
+    if not token:
+        return href
+    parts=urlsplit(href)
+    q=parts.query
+    airport_pat=r"(?:z-katowic|z-poznania|z-wroclawia|z-wrocławia|z-gdanska|z-gdańska|z-rzeszowa|z-krakowa|z-lodzi|z-łodzi|z-warszawy(?:-radom|-modlin)?)"
+    if re.search(airport_pat,q,re.I):
+        q=re.sub(airport_pat,token,q,count=1,flags=re.I)
+    elif q:
+        q=token+","+q
+    else:
+        q=token
+    return urlunsplit((parts.scheme,parts.netloc,parts.path,q,parts.fragment))
+
 def with_family_token(href: str, family: str):
     parts = urlsplit(href)
     q = parts.query
@@ -467,7 +486,8 @@ def page_stars(driver):
     return max(vals) if vals else None
 
 def verify_offer(driver, offer, cfg, family, child_dobs):
-    href = with_family_token(offer["href"], family)
+    href = force_wakacje_airport(offer["href"], offer.get("airport"))
+    href = with_family_token(href, family)
     print("VERIFY", offer["hotel"], offer["price"], href)
     if not load_page(driver, href, child_dobs):
         return None, "family_not_confirmed", None
