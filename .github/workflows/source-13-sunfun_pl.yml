@@ -36,8 +36,27 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Sun & Fun exact-family channel
+      - name: Run Sun & Fun exact-family channel and publish health checkpoint
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PYTHONUNBUFFERED: "1"
-        run: python src/run_sunfun.py
+        run: |
+          set +e
+          python src/run_sunfun.py > sunfun-run.log 2>&1
+          rc=$?
+          {
+            echo "# Sun & Fun source health"
+            echo
+            echo "- generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "- exit_code: ${rc}"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo '~~~text'
+            tail -n 260 sunfun-run.log
+            echo '~~~'
+          } > sunfun-health.md
+          gh issue edit 57 --repo "${GITHUB_REPOSITORY}" --body-file sunfun-health.md >/dev/null 2>&1 || true
+          cat sunfun-run.log
+          exit "${rc}"
