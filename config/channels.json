@@ -234,13 +234,13 @@
       "id": "tanietravel_pl",
       "name": "TanieTravel",
       "url": "https://www.katowice-travel.pl/",
-      "status": "production",
+      "status": "disabled_user",
       "kind": "aggregator",
       "priority": 19,
       "exact_party": true,
       "final_total": true,
       "live_availability": true,
-      "note": "Production proof: official search JS serializes child ages as ages/childAges=5,7, All Inclusive as meal=ai and 4★+ as stars=4plus. Current exact-family surface visibly showed '2 + 2 (5, 7 lat)', separate 'Cena za 1 osobę' and 'Cena za 2+2 (5, 7 lat) / Kup za ... zł'. Direct API matched 20 identical provider/hotel/date/room/airport/service packages against 2+0 with different totals and repeated the same 2+2 rows/prices on a second fresh API read. Production adapter is fail-closed and performs two family reads plus the adult control before any alert."
+      "note": "Disabled from user-facing monitoring on 2026-09-24: direct offer pages proved unreliable/blank and catalogue links are unacceptable. Keep only for manual diagnostics; never alert."
     },
     {
       "id": "dertour_pl",
