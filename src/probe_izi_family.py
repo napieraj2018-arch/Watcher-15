@@ -107,17 +107,50 @@ def collect(d,label):
     total_mode(d)
     time.sleep(2)
     body=d.find_element(By.TAG_NAME,"body").text
-    print("IZI_PARTY",label,"children5",("5 lat" in body),"children7",("7 lat" in body),"url",d.current_url)
+    print("IZI_PARTY",label,"url",d.current_url)
     out={}
-    for a in d.find_elements(By.TAG_NAME,"a"):
+    nodes=d.find_elements(By.XPATH,"//*[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'cena za wszystkich')]")
+    for node in nodes:
         try:
-            txt=compact(a.text).lower()
-            if "sprawdź cenę" not in txt and "kup online" not in txt:continue
-            x=card_from(a)
-            if x and x["key"] not in out:out[x["key"]]=x
-        except:pass
+            anc=node
+            best=None
+            for _ in range(8):
+                txt=compact(anc.text)
+                if "cena za wszystkich" in txt.lower() and len(txt)<5000:
+                    best=(anc,txt)
+                anc=anc.find_element(By.XPATH,"..")
+            if not best:continue
+            anc,txt=best
+            pm=re.search(r"(?:cena za wszystkich[^0-9]{0,80}|od\s+)([0-9][0-9 ]{2,})\s*zł",txt,re.I)
+            if not pm:
+                vals=re.findall(r"([0-9][0-9 ]{2,})\s*zł",txt)
+                if not vals:continue
+                price=int(vals[-1].replace(" ",""))
+            else:price=int(pm.group(1).replace(" ",""))
+            dm=re.search(r"(\d{2}\.\d{2})\s*-\s*(\d{2}\.\d{2}\.\d{4})",txt)
+            nm=re.search(r"(\d+)\s+dni\s*\((\d+)\s+noc",txt,re.I)
+            hotel=""
+            for h in anc.find_elements(By.CSS_SELECTOR,"h1,h2,h3,h4"):
+                t=compact(h.text)
+                if t and len(t)<140 and not t.lower().startswith("last minute"):
+                    hotel=t;break
+            if not hotel:continue
+            airport=""
+            am=re.search(r"(Warszawa(?:\s*-\s*(?:Radom|Modlin|Okęcie))?|Katowice|Kraków|Poznań|Wrocław|Gdańsk)\s*/\s*\d{1,2}:\d{2}",txt,re.I)
+            if am:airport=am.group(1)
+            meal="All Inclusive" if "all inclusive" in txt.lower() else ""
+            href=""
+            for a in anc.find_elements(By.TAG_NAME,"a"):
+                h=a.get_attribute("href") or ""
+                if "/ofr-" in h:href=h;break
+            key=(hotel.lower(),dm.group(1) if dm else "",dm.group(2) if dm else "",nm.group(2) if nm else "",meal.lower(),airport.lower())
+            old=out.get(key)
+            rec={"key":key,"hotel":hotel,"price":price,"href":href,"text":txt[:1800]}
+            if old is None or price<old["price"]:out[key]=rec
+        except Exception as e:
+            pass
     print("IZI_CARD_COUNT",label,len(out))
-    for x in list(out.values())[:15]:print("IZI_CARD",label,json.dumps(x,ensure_ascii=False,default=str))
+    for x in list(out.values())[:20]:print("IZI_CARD",label,json.dumps(x,ensure_ascii=False,default=str))
     return out
 
 def run(family,label):
