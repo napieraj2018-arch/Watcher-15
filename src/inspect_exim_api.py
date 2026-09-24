@@ -54,6 +54,18 @@ def main():
     common={'ac1':'2','kc1':'2','ka1':'5|7','dd':dd.isoformat(),'tt':'1','sc':'residential','ds':'0','er':'0','isss':'0','ilm':'0','ifm':'0'}
     q1=common|{'rd':(today+timedelta(days=3)).isoformat(),'nn':'5|6|7|8','to':'3850|4380|4381'}
     n,_=run_query('WATCHER_WINDOW',q1)
+    all_dest=[]
+    try:
+        all_dest=[str(x.get('value')) for x in (((fv.get('geo') or {}).get('sdo')) or []) if x.get('type')=='dest' and x.get('value')]
+    except Exception:
+        all_dest=[]
+    print('EXIM_ALL_DEST_COUNT',len(all_dest))
+    if all_dest:
+        qall=q1|{'d':'|'.join(all_dest)}
+        n_all,j_all=run_query('ALL_DEST_EXACT',qall)
+        print('EXIM_ALL_DEST_EXACT_COUNT',n_all)
+        if n_all:
+            n=n_all
     q2=common|{'rd':(today+timedelta(days=180)).isoformat(),'nn':'7|10'}
     if not n:n,_=run_query('BROAD_CATEGORIES',q2)
     # EXIM returns destination categories without individual tours until a destination
