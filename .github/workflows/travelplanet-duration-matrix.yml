@@ -1,0 +1,19 @@
+name: Travelplanet duration matrix
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/probe_travelplanet_duration_matrix.py"
+      - ".github/workflows/travelplanet-duration-matrix.yml"
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python src/probe_travelplanet_duration_matrix.py
