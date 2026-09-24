@@ -81,26 +81,30 @@ def _search_url(cfg, adults_only=False):
     return BASE+"?"+urlencode(q,doseq=True),set(dates)
 
 def _read_items(driver,url,label):
-    try:
-        driver.execute_script("localStorage.removeItem('ga4_serp_items_last');localStorage.removeItem('ga4_serp_filters_last');")
-    except:pass
-    driver.get(url)
-    WebDriverWait(driver,45).until(lambda d:d.execute_script("return document.readyState")=="complete")
-    dismiss_cookies(driver)
-
-    # Travelplanet initially exposes only a small result batch in localStorage.
-    # Accumulate batches while scrolling/clicking "more" instead of treating the
-    # first ~30 records as the whole market. This is especially important for
-    # the 2+0 control, where matching WAW/RDO/WMI 5-8 night packages can sit
-    # behind cheaper departures from other airports.
     all_items={}
-    stable=0
-    last_count=-1
     filters=""
-    for step in range(24):
-        time.sleep(.65)
-        raw=driver.execute_script("return localStorage.getItem('ga4_serp_items_last')||''")
-        filters=driver.execute_script("return localStorage.getItem('ga4_serp_filters_last')||''")
+    previous_count=0
+
+    # Travelplanet exposes ~30 analytics records per result page. Infinite
+    # scrolling does not advance the backend page in headless Chrome, so walk
+    # explicit page=N result pages and merge their live item batches.
+    for page in range(1,7):
+        page_url=url+("&" if "?" in url else "?")+f"page={page}"
+        try:
+            driver.execute_script("localStorage.removeItem('ga4_serp_items_last');localStorage.removeItem('ga4_serp_filters_last');")
+        except:pass
+        driver.get(page_url)
+        WebDriverWait(driver,45).until(lambda d:d.execute_script("return document.readyState")=="complete")
+        dismiss_cookies(driver)
+
+        raw=""
+        for attempt in range(10):
+            time.sleep(.55)
+            raw=driver.execute_script("return localStorage.getItem('ga4_serp_items_last')||''")
+            filters=driver.execute_script("return localStorage.getItem('ga4_serp_filters_last')||''")
+            if raw and "itemsById" in raw:break
+
+        batch={}
         if raw and "itemsById" in raw:
             try:
                 data=json.loads(raw)
@@ -108,8 +112,6 @@ def _read_items(driver,url,label):
                 if isinstance(batch,dict):
                     for k,v in batch.items():
                         if isinstance(v,dict):
-                            # item_id alone can repeat across different package
-                            # variants, so keep a stable composite key.
                             uniq="|".join([
                                 str(k),str(v.get("item_offer_id") or ""),
                                 str(v.get("item_parameter_7") or ""),
@@ -118,38 +120,16 @@ def _read_items(driver,url,label):
                             ])
                             all_items[uniq]=v
             except Exception as e:
-                print("TP_PROD_ITEMS_JSON_ERR",label,type(e).__name__,str(e)[:180])
+                print("TP_PROD_ITEMS_JSON_ERR",label,page,type(e).__name__,str(e)[:180])
 
-        count=len(all_items)
-        print("TP_PROD_ITEM_PROGRESS",label,step,count)
-        if count==last_count:
-            stable+=1
-        else:
-            stable=0
-            last_count=count
-        if stable>=4 and count:
+        print("TP_PROD_PAGE",label,page,"batch",len(batch) if isinstance(batch,dict) else 0,"merged",len(all_items),"url",driver.current_url)
+        if page>1 and len(all_items)==previous_count:
+            print("TP_PROD_PAGE_DUPLICATE_STOP",label,page)
+            break
+        previous_count=len(all_items)
+        if not batch:
             break
 
-        clicked=False
-        try:
-            for b in driver.find_elements(By.XPATH,"//button|//a"):
-                if not b.is_displayed(): continue
-                txt=" ".join((b.text or "").split()).lower()
-                if any(x in txt for x in ("pokaż więcej","więcej ofert","załaduj więcej","zobacz więcej")):
-                    driver.execute_script("arguments[0].scrollIntoView({block:'center'});",b)
-                    driver.execute_script("arguments[0].click();",b)
-                    clicked=True
-                    time.sleep(.7)
-                    break
-        except Exception:
-            pass
-        if not clicked:
-            try:
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            except Exception:
-                pass
-
-    print("TP_PROD_URL",label,driver.current_url)
     print("TP_PROD_FILTERS",label,filters[:1800])
     if not all_items:
         print("TP_PROD_FAIL_CLOSED_NO_ITEMS",label)
