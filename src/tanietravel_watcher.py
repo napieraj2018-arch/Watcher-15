@@ -13,8 +13,8 @@ HEADERS={"User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome
 
 def _payload(cfg,family):
     dates=configured_departure_dates(cfg)
-    return {
-      "type":"tours","destinationId":int(cfg.get("destination_id",11)),"favoritesOnly":False,
+    p = {
+      "type":"tours","favoritesOnly":False,
       "dateFrom":dates[0].isoformat(),
       "dateTo":dates[-1].isoformat(),
       "stars":"4plus","adults":2,"children":2 if family else 0,
@@ -23,6 +23,10 @@ def _payload(cfg,family):
       "depCode":",".join(cfg.get("airport_codes",["WAW","WMI","RDO"])),
       "nights":f'{cfg["min_nights"]}:{cfg["max_nights"]}'
     }
+    dest=int(cfg.get("destination_id",0) or 0)
+    if dest>0:
+        p["destinationId"]=dest
+    return p
 
 def _post(label,p):
     last=None
@@ -104,9 +108,11 @@ def _stars(x):
 
 def _results_url(cfg):
     p=_payload(cfg,True)
-    q={"type":"tours","dest":p["destinationId"],"dateFrom":p["dateFrom"],"dateTo":p["dateTo"],
+    q={"type":"tours","dateFrom":p["dateFrom"],"dateTo":p["dateTo"],
        "adults":2,"children":2,"ages":"5,7","dep":p["depCode"],
        "nMin":cfg["min_nights"],"nMax":cfg["max_nights"],"meal":"ai","stars":"4plus"}
+    if "destinationId" in p:
+        q["dest"]=p["destinationId"]
     return BASE+"results.php?"+urlencode(q)
 
 def _certified_rows(cfg):
