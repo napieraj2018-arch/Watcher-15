@@ -785,6 +785,25 @@ def run_watcher(cfg):
             final_price, verification, stars = verify_offer(
                 driver, offer, cfg, family, child_dobs
             )
+            if final_price is None and verification == "no_confirmed_family_total":
+                # Wakacje.pl sometimes preserves the exact 2+2 URL but omits a
+                # stable total on the detail page. Re-read the exact-family
+                # search page and accept only the same hotel/date/operator at
+                # the identical "za wszystkich" total from a second live read.
+                fresh = collect_day(driver, offer["departure"], cfg, family, child_dobs)
+                target_path = urlsplit(offer["href"]).path
+                confirmed = next((
+                    x for x in fresh
+                    if urlsplit(x["href"]).path == target_path
+                    and x["departure"] == offer["departure"]
+                    and x["operator"] == offer["operator"]
+                    and x["price"] == offer["price"]
+                ), None)
+                if confirmed is not None:
+                    final_price = confirmed["price"]
+                    stars = offer.get("stars") or confirmed.get("stars")
+                    verification = "second_live_exact_family_listing_total"
+                    print("FAMILY_LISTING_RECHECK_VERIFIED", offer["hotel"], final_price)
             if final_price is None:
                 print("REJECT_VERIFY", offer["hotel"], verification)
                 continue
