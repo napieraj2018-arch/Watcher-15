@@ -203,6 +203,20 @@ def _parse_family_items(items,cfg,allowed,url):
         out.append(offer)
         print("TP_PROD_EXACT_CARD",offer)
     if not out:
+        duration_counts={}
+        airport_duration_counts={}
+        for item in items.values():
+            if not isinstance(item,dict): continue
+            dep0,ret0=_dates(item.get("item_parameter_7"))
+            if dep0 and ret0:
+                nn=(ret0-dep0).days
+                duration_counts[nn]=duration_counts.get(nn,0)+1
+                ap0=str(item.get("item_parameter_3") or "").upper()
+                if ap0 in ("WAW","WMI","RDO"):
+                    k=(ap0,nn)
+                    airport_duration_counts[k]=airport_duration_counts.get(k,0)+1
+        print("TP_PROD_DURATION_COUNTS",duration_counts)
+        print("TP_PROD_TARGET_AIRPORT_DURATION_COUNTS",airport_duration_counts)
         samples=[]
         for item in list(items.values())[:12]:
             if isinstance(item,dict):
