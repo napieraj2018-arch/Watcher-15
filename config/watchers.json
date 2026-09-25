@@ -14,8 +14,6 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
-        0,
-        1,
         2,
         3
       ],
@@ -55,14 +53,9 @@
           "require_stars": true
         }
       ],
-      "departure_dates": [
-        "2026-09-24",
-        "2026-09-25",
-        "2026-09-26",
-        "2026-09-27"
-      ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 3
+      "run_revision": 3,
+      "search_window_mode": "rolling_2_3_days"
     },
     {
       "id": "tui-last-minute-2plus2",
@@ -79,8 +72,6 @@
       "min_stars": 4,
       "require_stars": false,
       "depart_in_days": [
-        0,
-        1,
         2,
         3
       ],
@@ -118,18 +109,13 @@
           "require_stars": true
         }
       ],
-      "departure_dates": [
-        "2026-09-24",
-        "2026-09-25",
-        "2026-09-26",
-        "2026-09-27"
-      ],
       "search_id": "family-2026-09-24-evening-27",
       "run_revision": 4,
       "airport_codes": [
         "WAW",
         "WMI"
-      ]
+      ],
+      "search_window_mode": "rolling_2_3_days"
     },
     {
       "id": "itaka-last-minute-2plus2",
@@ -145,8 +131,6 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
-        0,
-        1,
         2,
         3
       ],
@@ -187,14 +171,9 @@
           "require_stars": true
         }
       ],
-      "departure_dates": [
-        "2026-09-24",
-        "2026-09-25",
-        "2026-09-26",
-        "2026-09-27"
-      ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 3
+      "run_revision": 3,
+      "search_window_mode": "rolling_2_3_days"
     },
     {
       "id": "rainbow-last-minute-2plus2",
@@ -210,8 +189,6 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
-        0,
-        1,
         2,
         3
       ],
@@ -252,14 +229,9 @@
           "require_stars": true
         }
       ],
-      "departure_dates": [
-        "2026-09-24",
-        "2026-09-25",
-        "2026-09-26",
-        "2026-09-27"
-      ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 3
+      "run_revision": 3,
+      "search_window_mode": "rolling_2_3_days"
     },
     {
       "id": "sunfun-last-minute-2plus2",
@@ -275,8 +247,6 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
-        0,
-        1,
         2,
         3
       ],
@@ -313,14 +283,9 @@
           "require_stars": true
         }
       ],
-      "departure_dates": [
-        "2026-09-24",
-        "2026-09-25",
-        "2026-09-26",
-        "2026-09-27"
-      ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 3
+      "run_revision": 3,
+      "search_window_mode": "rolling_2_3_days"
     },
     {
       "id": "exim-last-minute-2plus2",
@@ -336,8 +301,6 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
-        0,
-        1,
         2,
         3
       ],
@@ -376,14 +339,9 @@
           "require_stars": true
         }
       ],
-      "departure_dates": [
-        "2026-09-24",
-        "2026-09-25",
-        "2026-09-26",
-        "2026-09-27"
-      ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 3
+      "run_revision": 3,
+      "search_window_mode": "rolling_2_3_days"
     },
     {
       "id": "grecos-last-minute-2plus2",
@@ -399,8 +357,6 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
-        0,
-        1,
         2,
         3
       ],
@@ -442,14 +398,9 @@
           "require_stars": true
         }
       ],
-      "departure_dates": [
-        "2026-09-24",
-        "2026-09-25",
-        "2026-09-26",
-        "2026-09-27"
-      ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 3
+      "run_revision": 3,
+      "search_window_mode": "rolling_2_3_days"
     },
     {
       "id": "travelplanet-last-minute-2plus2",
@@ -465,8 +416,6 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
-        0,
-        1,
         2,
         3
       ],
@@ -505,14 +454,9 @@
           "require_stars": true
         }
       ],
-      "departure_dates": [
-        "2026-09-24",
-        "2026-09-25",
-        "2026-09-26",
-        "2026-09-27"
-      ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 3
+      "run_revision": 3,
+      "search_window_mode": "rolling_2_3_days"
     },
     {
       "id": "oasis-last-minute-2plus2",
@@ -528,8 +472,6 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
-        0,
-        1,
         2,
         3
       ],
@@ -570,14 +512,9 @@
           "require_stars": true
         }
       ],
-      "departure_dates": [
-        "2026-09-24",
-        "2026-09-25",
-        "2026-09-26",
-        "2026-09-27"
-      ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 3
+      "run_revision": 3,
+      "search_window_mode": "rolling_2_3_days"
     },
     {
       "id": "prima-last-minute-2plus2",
@@ -593,8 +530,6 @@
       "min_rating": 8,
       "min_reviews": 30,
       "depart_in_days": [
-        0,
-        1,
         2,
         3
       ],
@@ -634,14 +569,9 @@
           "require_stars": true
         }
       ],
-      "departure_dates": [
-        "2026-09-24",
-        "2026-09-25",
-        "2026-09-26",
-        "2026-09-27"
-      ],
       "search_id": "family-2026-09-24-evening-27",
-      "run_revision": 3
+      "run_revision": 3,
+      "search_window_mode": "rolling_2_3_days"
     },
     {
       "id": "tanietravel-last-minute-2plus2",
