@@ -1,5 +1,5 @@
 from pathlib import Path
-import base64, hashlib, hmac, io, os, runpy, tarfile, urllib.request
+import base64, hashlib, hmac, io, os, runpy, sys, tarfile, urllib.request
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 PAYLOAD_URL = "https://ai-browser-vault.floot.app/_cdn/static/14a70d54-e7f0-426a-9374-96528f7405cb-ai-browser-core-v031.aib"
@@ -35,7 +35,7 @@ os.environ.setdefault("AI_BROWSER_HOST","0.0.0.0")
 os.environ.setdefault("AI_BROWSER_PORT",os.environ.get("PORT","10000"))
 
 key=derive(master,"app-code")
-req=urllib.request.Request(PAYLOAD_URL,headers={"User-Agent":"AI-Browser-Bootstrap/0.3.1"})
+req=urllib.request.Request(PAYLOAD_URL,headers={"User-Agent":"AI-Browser-Bootstrap/0.3.2"})
 with urllib.request.urlopen(req,timeout=30) as resp:
     payload=resp.read(10_000_000)
 if not payload.startswith(b"AIBSRC1"):
@@ -47,4 +47,5 @@ dest.mkdir(parents=True,exist_ok=True)
 with tarfile.open(fileobj=io.BytesIO(raw),mode="r:gz") as tf:
     safe_extract(tf,dest)
 os.chdir(dest)
+sys.path.insert(0, str(dest))
 runpy.run_path(str(dest/"server.py"),run_name="__main__")
