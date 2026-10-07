@@ -2,7 +2,7 @@ from pathlib import Path
 import base64, hashlib, hmac, io, os, runpy, sys, tarfile, urllib.request
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-PAYLOAD_URL = "https://ai-browser-vault.floot.app/_cdn/static/fc33798b-9843-4b4e-ab39-fbd8dc5a96e4-ai-browser-core-v038.aib"
+PAYLOAD_URL = "https://ai-browser-vault.floot.app/_cdn/static/a7168e84-002f-49e6-8f7c-aeb4709615fd-ai-browser-core-v039.aib"
 
 def b64u(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
@@ -35,7 +35,7 @@ os.environ.setdefault("AI_BROWSER_HOST","0.0.0.0")
 os.environ.setdefault("AI_BROWSER_PORT",os.environ.get("PORT","10000"))
 
 key=derive(master,"app-code")
-req=urllib.request.Request(PAYLOAD_URL,headers={"User-Agent":"AI-Browser-Bootstrap/0.3.8"})
+req=urllib.request.Request(PAYLOAD_URL,headers={"User-Agent":"AI-Browser-Bootstrap/0.3.9"})
 with urllib.request.urlopen(req,timeout=30) as resp:
     payload=resp.read(10_000_000)
 if not payload.startswith(b"AIBSRC1"):
