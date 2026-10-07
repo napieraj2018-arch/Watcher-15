@@ -4,6 +4,5 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 AI_BROWSER_HOST=0.0.0.0 AI_BROW
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY bootstrap.py /app/bootstrap.py
-COPY payload.part* /app/
 EXPOSE 10000
 CMD ["python","/app/bootstrap.py"]
