@@ -1,8 +1,14 @@
 from pathlib import Path
-import base64, io, os, runpy, tarfile, urllib.request
+import base64, hashlib, hmac, io, os, runpy, tarfile, urllib.request
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-PAYLOAD_URL = "https://ai-browser-vault.floot.app/_cdn/static/4194a87c-cf6d-410b-9853-a9ed1c6a5020-ai-browser-core-v030.aib"
+PAYLOAD_URL = "https://ai-browser-vault.floot.app/_cdn/static/14a70d54-e7f0-426a-9374-96528f7405cb-ai-browser-core-v031.aib"
+
+def b64u(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+def derive(master: bytes, label: str) -> bytes:
+    return hmac.new(master, label.encode(), hashlib.sha256).digest()
 
 def safe_extract(tf: tarfile.TarFile, dest: Path):
     dest=dest.resolve()
@@ -12,11 +18,24 @@ def safe_extract(tf: tarfile.TarFile, dest: Path):
             raise RuntimeError("unsafe payload path")
     tf.extractall(dest)
 
-key_b64=os.environ.get("APP_CODE_KEY","")
-if not key_b64:
-    raise RuntimeError("APP_CODE_KEY missing")
-key=base64.urlsafe_b64decode(key_b64.encode())
-req=urllib.request.Request(PAYLOAD_URL,headers={"User-Agent":"AI-Browser-Bootstrap/0.3"})
+master_text=os.environ.get("AI_BROWSER_MASTER_KEY","").strip()
+if not master_text:
+    raise RuntimeError("AI_BROWSER_MASTER_KEY missing")
+master=master_text.encode()
+
+os.environ.setdefault("AI_BROWSER_ADMIN_TOKEN", b64u(derive(master,"admin")))
+os.environ.setdefault("AI_BROWSER_PROFILE_KEY", b64u(derive(master,"profile")))
+os.environ.setdefault("AI_BROWSER_MCP_TOKEN", b64u(derive(master,"mcp")))
+os.environ.setdefault("AI_BROWSER_PROFILE_STORE_TOKEN", b64u(derive(master,"store")))
+os.environ.setdefault("AI_BROWSER_PROFILE_STORE_URL","https://ai-browser-vault.floot.app/_api/profile-vault")
+os.environ.setdefault("AI_BROWSER_HOME","/tmp/ai-browser")
+os.environ.setdefault("AI_BROWSER_PORTABLE_PROFILES","1")
+os.environ.setdefault("AI_BROWSER_MAX_SESSIONS","1")
+os.environ.setdefault("AI_BROWSER_HOST","0.0.0.0")
+os.environ.setdefault("AI_BROWSER_PORT",os.environ.get("PORT","10000"))
+
+key=derive(master,"app-code")
+req=urllib.request.Request(PAYLOAD_URL,headers={"User-Agent":"AI-Browser-Bootstrap/0.3.1"})
 with urllib.request.urlopen(req,timeout=30) as resp:
     payload=resp.read(10_000_000)
 if not payload.startswith(b"AIBSRC1"):
@@ -28,9 +47,4 @@ dest.mkdir(parents=True,exist_ok=True)
 with tarfile.open(fileobj=io.BytesIO(raw),mode="r:gz") as tf:
     safe_extract(tf,dest)
 os.chdir(dest)
-os.environ.setdefault("AI_BROWSER_HOME","/tmp/ai-browser")
-os.environ.setdefault("AI_BROWSER_PORTABLE_PROFILES","1")
-os.environ.setdefault("AI_BROWSER_MAX_SESSIONS","1")
-os.environ.setdefault("AI_BROWSER_HOST","0.0.0.0")
-os.environ.setdefault("AI_BROWSER_PORT",os.environ.get("PORT","10000"))
 runpy.run_path(str(dest/"server.py"),run_name="__main__")
