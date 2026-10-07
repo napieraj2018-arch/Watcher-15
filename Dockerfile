@@ -5,4 +5,4 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY bootstrap.py /app/bootstrap.py
 EXPOSE 10000
-CMD ["python","/app/bootstrap.py"]
+CMD ["xvfb-run","-a","-s","-screen 0 1440x900x24","python","/app/bootstrap.py"]
