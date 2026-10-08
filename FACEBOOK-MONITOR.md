@@ -48,3 +48,15 @@ Automatyczny odczyt może być ograniczany przez Meta lub jej regulamin; kod nie
 - tests/test_facebook_local_monitor.py, tests/test_facebook_notify.py — testy jednostkowe
 - src/facebook_monitor_ai_browser.py — eksperymentalny adapter prywatnego profilu, NIE jest częścią aktualnego harmonogramu
 - .github/workflows/facebook-local-monitor-test.yml — oddzielny workflow do testów
+
+
+## Nowe grupy zgłoszone 8 października 2026
+
+Użytkownik przesłał zrzuty trzech dodatkowych grup. Zapisane w \`config/facebook_local_monitor.json\`:
+
+- \`RADOM-OGŁOSZENIA\` — facebook.com/groups/158171638326502/; 63,0 tys. członków, URL i tożsamość zweryfikowane. \`enabled=false\` ponieważ test GitHub Actions [#37765758813](https://github.com/napieraj2018-arch/Watcher-15/actions/runs/37765758813) zakończył się stanem \`login_or_verification_required\`, 0 widocznych postów. Włączenie mimo błędu dałoby fałszywe poczucie kompletnego monitoringu.
+- \`Spotted Radom\` (grupa ok. 21,1 tys. członków) — dokładny adres ID grupy niepotwierdzony; oczekuje na skopiowany link z aplikacji Facebook. Nie pomylić z obserwowaną już stroną \`Spotted : RADOM\` ani grupą \`Spotted: Radom\` z ok. 67 tys. członków, której działanie zostało wstrzymane.
+- \`PORADY WETERYNARYJNE\` — pokazana jako grupa we wpisie o psim okuliście, URL/ID niepotwierdzone. Oczekuje na skopiowany link. Przy późniejszej kwalifikacji zapytań należy pamiętać o geograficznej przydatności: pytanie ograniczone do Krakowa lub południa woj. świętokrzyskiego nie jest automatycznie wartościowym leadem w Radomiu.
+
+**Stan faktyczny:** 2 aktywne strony Facebooka; 3 nowe grupy zapisane jako źródła oczekujące na adres/dostęp. Nie ma jeszcze skutecznego ciągłego odczytu nowych postów z tych trzech grup. Obecny system co 15 min nie wymaga loginu i działa na dostępnych publicznych podglądach dwóch stron.
+
