@@ -1,12 +1,13 @@
-name: Facebook Local Monitor — 15 min (disabled until verified)
+name: Facebook Radom Watcher — pilot 15 min
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: "7,22,37,52 * * * *"
-  workflow_dispatch:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: facebook-local-monitor-production
@@ -19,26 +20,28 @@ jobs:
     timeout-minutes: 12
     env:
       PYTHONUNBUFFERED: "1"
-      AI_BROWSER_MCP_URL: ${{ secrets.AI_BROWSER_MCP_URL }}
-      FB_WATCH_PROFILE: "Meta - Maciej - Monitoring"
       FB_WATCH_STATE: ".fb-monitor/state.json"
+      GITHUB_TOKEN: ${{ github.token }}
+      FB_GITHUB_ISSUE_ALERTS: ${{ vars.FB_GITHUB_ISSUE_ALERTS }}
+      FB_GITHUB_ASSIGNEE: "napieraj2018-arch"
       SMTP_HOST: ${{ secrets.FB_SMTP_HOST }}
       SMTP_PORT: ${{ secrets.FB_SMTP_PORT }}
       SMTP_USER: ${{ secrets.FB_SMTP_USER }}
       SMTP_PASSWORD: ${{ secrets.FB_SMTP_PASSWORD }}
       ALERT_TO: ${{ secrets.FB_ALERT_TO }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout only approved sources
+        uses: actions/checkout@v4
 
-      - name: Skip safely until private connection is configured
+      - name: Verify that an alert channel is explicitly configured
         id: readiness
         shell: bash
         run: |
-          if [ -z "$AI_BROWSER_MCP_URL" ]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "NOT_CONFIGURED: add an encrypted GitHub secret AI_BROWSER_MCP_URL"
-          else
+          if [ "$FB_GITHUB_ISSUE_ALERTS" = "true" ] || { [ -n "$SMTP_HOST" ] && [ -n "$SMTP_USER" ] && [ -n "$SMTP_PASSWORD" ] && [ -n "$ALERT_TO" ]; }; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Monitoring not enabled: configure a private SMTP route or opt into public GitHub Issue alerts."
           fi
 
       - name: Restore deduplication state
@@ -46,38 +49,40 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ".fb-monitor/state.json"
-          key: facebook-monitor-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          key: facebook-public-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            facebook-monitor-v2-
+            facebook-public-v1-
 
-      - name: Install MCP client (no Chromium on GitHub runner)
+      - name: Install Playwright Chromium for public page previews
         if: steps.readiness.outputs.ready == 'true'
-        run: python -m pip install --disable-pip-version-check "mcp>=1.15,<3"
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.56.0
+          python -m playwright install --with-deps chromium
 
-      - name: Read through encrypted AI Browser profile — NO Facebook writes
+      - name: Read-only monitor (never clicks or comments on Facebook)
         if: steps.readiness.outputs.ready == 'true'
         shell: bash
         run: |
           set +e
-          python -u -m src.facebook_monitor_ai_browser
+          python -u -m src.facebook_local_monitor
           code=$?
           set -e
-          echo "$code" > ".fb-monitor-exit"
+          echo "$code" > .facebook_monitor_exit
           echo "MONITOR_EXIT_CODE=$code"
 
-      - name: Persist only link hashes; never post contents or cookies
+      - name: Persist hashed links only
         if: steps.readiness.outputs.ready == 'true' && hashFiles('.fb-monitor/state.json') != ''
         uses: actions/cache/save@v4
         with:
           path: ".fb-monitor/state.json"
-          key: facebook-monitor-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          key: facebook-public-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Fail visibly on connection or alert errors
+      - name: Report failure when sources or alerts do not work
         if: steps.readiness.outputs.ready == 'true'
         shell: bash
         run: |
-          code=$(cat .fb-monitor-exit)
+          code=$(cat .facebook_monitor_exit)
           if [ "$code" != 0 ]; then
-            echo "::error::Facebook monitoring incomplete. Check safe status lines above."
+            echo "::error::Monitor failed or alert was not delivered. See source status above."
             exit "$code"
           fi
