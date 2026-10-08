@@ -318,15 +318,19 @@ async def run(args: argparse.Namespace) -> int:
     new_matches = [p for p in matches if digest(p["url"]) not in hashes]
     if new_matches:
         try:
-            if not send_email(new_matches, config):
-                print("ALERT_PENDING; preserving unmatched URLs for the next run")
-                # Save unrelated seen posts, leave matching unsent records unseen.
+            delivered = send_email(new_matches, config)
+            if not delivered and os.getenv("FB_GITHUB_ISSUE_ALERTS") == "true":
+                # Explicit opt-in only: the GitHub issue is PUBLIC in a public repo.
+                from src.facebook_notify import notify_via_github
+                delivered = notify_via_github(new_matches)
+            if not delivered:
+                print("ALERT_PENDING; preserving matching URLs for the next run")
                 seen_matched = {digest(m["url"]) for m in new_matches}
                 hashes.update(h for h in newly_seen if h not in seen_matched)
                 save_state(hashes)
                 return 4
         except Exception as exc:
-            print(f"EMAIL_FAILURE: {type(exc).__name__}; preserving pending alerts")
+            print(f"ALERT_FAILURE: {type(exc).__name__}; preserving pending alerts")
             return 4
     hashes.update(newly_seen)
     save_state(hashes)
