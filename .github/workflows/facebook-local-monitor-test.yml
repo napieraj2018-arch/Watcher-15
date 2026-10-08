@@ -43,6 +43,22 @@ jobs:
       - name: Run isolated unit tests
         run: python -m unittest discover -s tests -p 'test_facebook*.py' -v
 
+      - name: Verify first baseline and repeated scan safely
+        shell: bash
+        env:
+          FB_WATCH_STATE: ".fb-probe-state/seen.json"
+        run: |
+          python -u -m src.facebook_local_monitor
+          python -u -m src.facebook_local_monitor
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          state = json.loads(Path(".fb-probe-state/seen.json").read_text())
+          assert state["version"] == 1
+          assert len(state["hashes"]) >= 2, "Expected baseline of at least 2 public posts"
+          print("BASELINE_TEST_OK count=" + str(len(state["hashes"])))
+          PY
+
       - name: One-time diagnostic on the two public Radom pages
         shell: bash
         env:
