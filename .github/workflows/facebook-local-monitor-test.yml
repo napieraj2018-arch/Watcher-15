@@ -8,9 +8,11 @@ on:
     paths:
       - "src/facebook_local_monitor.py"
       - "src/facebook_monitor_ai_browser.py"
+      - "src/facebook_notify.py"
       - "config/facebook_local_monitor.json"
       - "tests/test_facebook_local_monitor.py"
       - "tests/test_facebook_monitor_ai_browser.py"
+      - "tests/test_facebook_notify.py"
       - ".github/workflows/facebook-local-monitor-test.yml"
 
 permissions:
