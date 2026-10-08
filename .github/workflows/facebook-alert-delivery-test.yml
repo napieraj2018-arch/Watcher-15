@@ -1,4 +1,4 @@
-name: Facebook Watcher — test dostarczenia powiadomienia GitHub
+name: Facebook Watcher — bot issue email test
 
 on:
   workflow_dispatch:
@@ -17,10 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Create notification from github-actions bot
+      - name: Create bot-authored issue assigned to owner
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
-          gh issue comment 69 --repo "$GH_REPO" --body "@napieraj2018-arch — TEST powiadomienia z Facebook Watcher. Ten komentarz został wygenerowany automatycznie przez GitHub Actions, a nie przez konto właściciela. Sprawdzamy darmowe powiadomienie e-mail (nie dotyczy prawdziwego posta na Facebooku)."
+          gh issue create --repo "$GH_REPO" \
+            --title "BOT TEST — Facebook Watcher, test powiadomienia e-mail" \
+            --body "@napieraj2018-arch — To jednorazowy test powiadomienia Facebook Watcher. Zgloszenie tworzy github-actions[bot], jak we wczesniej dzialajacym tescie #44. Nie zawiera danych z Facebooka ani prywatnych informacji." \
+            --assignee "napieraj2018-arch"
