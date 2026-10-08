@@ -70,7 +70,7 @@ def load_mobile_repair(dest: Path) -> None:
                   and node.test.comparators[0].value == "__main__"), None)
     if guard is None:
         raise RuntimeError("AI_BROWSER_REPAIR_INCOMPATIBLE_BOOT")
-    hooks = ast.parse("from repair_v042 import install as _install_mobile_repair\n_install_mobile_repair(globals())\nfrom steel_runtime import install as _install_steel_runtime\n_install_steel_runtime(globals())\n").body
+    hooks = ast.parse("from repair_v042 import install as _install_mobile_repair\n_install_mobile_repair(globals())\nfrom steel_runtime import install as _install_steel_runtime\n_install_steel_runtime(globals())\nfrom steel_context_fix import install as _install_context_fix\n_install_context_fix(globals())\n").body
     tree.body[guard:guard] = hooks
     ast.fix_missing_locations(tree)
     namespace = {"__name__": "__main__", "__file__": str(source_path),
