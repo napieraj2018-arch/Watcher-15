@@ -68,6 +68,22 @@ def canonical_link(raw: str, base: str) -> str | None:
     return urlunsplit(("https", "www.facebook.com", clean_path,
                        urlencode(sorted(query)), ""))
 
+def is_time_label(value: str) -> bool:
+    """Accept post timestamp links, not unrelated page-intro URLs."""
+    label = simplify(value.strip())
+    if not label or len(label) > 80 or "http" in label:
+        return False
+    if re.match(r"^\d+\s*(?:s|m|h|d|w|y|min|mins|hr|hrs|hours?|days?|weeks?|years?|godz|godzin|dni|tyg)(?:\s+ago)?$", label):
+        return True
+    if re.match(r"^(?:a|an)\s+(?:minute|hour|day|week|month|year)\s+ago$", label):
+        return True
+    if label in ("yesterday", "wczoraj", "just now", "przed chwila"):
+        return True
+    if re.search(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|sty|lut|kwi|maj|cze|lip|sie|wrz|paz|lis|gru)\b", label):
+        return True
+    return False
+
+
 def classify(text: str) -> tuple[str | None, int]:
     t = simplify(text)
     if len(t) < 15:
@@ -208,6 +224,8 @@ async def inspect_page(context, source: dict, timeout_ms: int, limit: int) -> di
         posts = []
         seen = set()
         for candidate in candidates:
+            if not is_time_label(candidate.get("timestamp_text", "")):
+                continue
             link = canonical_link(candidate.get("url", ""), source["url"])
             if link is None or link in seen:
                 continue
