@@ -234,9 +234,16 @@ async def run_probe() -> int:
                         print(f"GROUP {group['id']}: error={type(exc).__name__}")
     finally:
         if session_id:
-            # The cleanup session may fail if provider/session timed out.
+            # Reconnect for cleanup: the first MCP client may already be closed.
             try:
-                await invoke("browser_stop", {"session_id": session_id})
+                async with streamable_http_client(mcp_url) as cleanup_streams:
+                    async with ClientSession(cleanup_streams[0], cleanup_streams[1]) as cleanup_client:
+                        await cleanup_client.initialize()
+                        done = await cleanup_client.call_tool(
+                            "browser_stop", {"session_id": session_id}
+                        )
+                        unwrap(done)
+                        print("SESSION_STOPPED")
             except Exception:
                 print("SESSION_STOP_FAILED; check active sessions before retrying")
 
