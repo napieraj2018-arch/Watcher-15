@@ -1,0 +1,83 @@
+name: Facebook Local Monitor — 15 min (disabled until verified)
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: facebook-local-monitor-production
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.FB_WATCH_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONUNBUFFERED: "1"
+      AI_BROWSER_MCP_URL: ${{ secrets.AI_BROWSER_MCP_URL }}
+      FB_WATCH_PROFILE: "Meta - Maciej - Monitoring"
+      FB_WATCH_STATE: ".fb-monitor/state.json"
+      SMTP_HOST: ${{ secrets.FB_SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.FB_SMTP_PORT }}
+      SMTP_USER: ${{ secrets.FB_SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.FB_SMTP_PASSWORD }}
+      ALERT_TO: ${{ secrets.FB_ALERT_TO }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip safely until private connection is configured
+        id: readiness
+        shell: bash
+        run: |
+          if [ -z "$AI_BROWSER_MCP_URL" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "NOT_CONFIGURED: add an encrypted GitHub secret AI_BROWSER_MCP_URL"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore deduplication state
+        if: steps.readiness.outputs.ready == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ".fb-monitor/state.json"
+          key: facebook-monitor-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            facebook-monitor-v2-
+
+      - name: Install MCP client (no Chromium on GitHub runner)
+        if: steps.readiness.outputs.ready == 'true'
+        run: python -m pip install --disable-pip-version-check "mcp>=1.15,<3"
+
+      - name: Read through encrypted AI Browser profile — NO Facebook writes
+        if: steps.readiness.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set +e
+          python -u -m src.facebook_monitor_ai_browser
+          code=$?
+          set -e
+          echo "$code" > ".fb-monitor-exit"
+          echo "MONITOR_EXIT_CODE=$code"
+
+      - name: Persist only link hashes; never post contents or cookies
+        if: steps.readiness.outputs.ready == 'true' && hashFiles('.fb-monitor/state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ".fb-monitor/state.json"
+          key: facebook-monitor-v2-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Fail visibly on connection or alert errors
+        if: steps.readiness.outputs.ready == 'true'
+        shell: bash
+        run: |
+          code=$(cat .fb-monitor-exit)
+          if [ "$code" != 0 ]; then
+            echo "::error::Facebook monitoring incomplete. Check safe status lines above."
+            exit "$code"
+          fi
