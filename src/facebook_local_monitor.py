@@ -28,8 +28,7 @@ STATE = Path(os.getenv("FB_WATCH_STATE", "facebook-watch-state.json"))
 PERMALINK = re.compile(
     r"/(?:posts|permalink|reel)/[a-zA-Z0-9_-]+"
     r"|/groups/[^/]+/(?:posts|permalink)/[a-zA-Z0-9_-]+"
-    r"|/story\.php(?:\?|$)"
-    r"",
+    r"|/(?:story|permalink)\.php(?:\?|$)",
     re.I,
 )
 LOGIN_CUES = ("log into facebook", "zaloguj sie do facebooka",
@@ -59,7 +58,7 @@ def canonical_link(raw: str, base: str) -> str | None:
     if not PERMALINK.search(parsed.path):
         return None
     query = parse_qsl(parsed.query, keep_blank_values=False)
-    if parsed.path.endswith("story.php"):
+    if parsed.path.endswith(("story.php", "permalink.php")):
         query = [(k, v) for k, v in query if k in {"story_fbid", "id"}]
         if not any(k == "story_fbid" for k, _ in query):
             return None
@@ -171,29 +170,39 @@ async def inspect_page(context, source: dict, timeout_ms: int, limit: int) -> di
             "/login", "two_step_verification", "/checkpoint", "/recover",
         )):
             return {"source": name, "status": "login_or_verification_required", "posts": []}
-        # Reading the login indicator is not a login attempt.
+        # A public Facebook page may contain a login form/footer *and* real,
+        # readable post previews. Login widgets alone must not hide public posts.
         login_fields = await page.locator('input[name="email"]').count()
         password_fields = await page.locator('input[name="pass"]').count()
         body = simplify((await page.locator("body").inner_text(timeout=8000))[:3000])
-        if (login_fields and password_fields) or any(cue in body for cue in LOGIN_CUES):
-            return {"source": name, "status": "login_required", "posts": []}
         if any(phrase in body for phrase in (
             "content isn't available", "ta zawartosc jest niedostepna",
             "temporarily blocked", "czasowo zablok",
         )):
             return {"source": name, "status": "unavailable_or_blocked", "posts": []}
-        # Extract anchors and ONLY text near the linking post, not the entire page.
-        # This is a read-only DOM inspection, with no interaction or anti-bot measures.
+        # Read visible permalink anchors and their nearest post-shaped containers.
+        # No likes, comments, clicks, requests for hidden posts or CAPTCHA bypass.
         candidates = await page.evaluate("""() => {
             const matches = Array.from(document.querySelectorAll('a[href]'))
-              .filter(a => /\\/(posts|permalink|reel)\\/|\\/story\\.php|\\/photo\\.php|\\/groups\\/[^/]+\\/posts\\//.test(a.href));
+              .filter(a => /\\/(posts|permalink|reel)\\/|\\/(story|permalink)\\.php|\\/groups\\/[^/]+\\/posts\\//.test(a.href));
             return matches.slice(0, 120).map(a => {
               let parent = a.closest('[role="article"]');
               if (!parent) {
-                parent = a;
-                for (let i=0; i<4 && parent.parentElement; i++) parent = parent.parentElement;
+                let fallback = a;
+                for (let i = 0, n = a; n && i < 12; i++, n = n.parentElement) {
+                  const rawText = (n.innerText || '').trim();
+                  if (rawText.length >= 30 && rawText.length <= 6000) {
+                    fallback = n;
+                    if (/(like|comment|polub|komentarz)/i.test(rawText)) break;
+                  }
+                }
+                parent = fallback;
               }
-              return {url: a.href, text: (parent.innerText || '').slice(0, 2000)};
+              return {
+                url: a.href,
+                timestamp_text: (a.innerText || a.getAttribute('aria-label') || '').slice(0, 110),
+                text: (parent.innerText || '').slice(0, 3000),
+              };
             });
         }""")
         posts = []
@@ -205,10 +214,13 @@ async def inspect_page(context, source: dict, timeout_ms: int, limit: int) -> di
             seen.add(link)
             text = " ".join(candidate.get("text", "").split())
             if len(text) >= 15:
-                posts.append({"url": link, "text": text})
+                posts.append({"url": link, "text": text, "timestamp_text": candidate.get("timestamp_text", "")})
             if len(posts) >= limit:
                 break
-        status = "ok" if posts else "no_identifiable_posts"
+        if posts:
+            status = "ok_public_preview" if (login_fields and password_fields) else "ok"
+        else:
+            status = "login_required" if (login_fields and password_fields) or any(cue in body for cue in LOGIN_CUES) else "no_identifiable_posts"
         return {"source": name, "status": status, "posts": posts}
     except Exception as exc:
         # Error class only: no sensitive URL query strings in public logs.
@@ -257,7 +269,7 @@ async def run(args: argparse.Namespace) -> int:
             await context.close()
         finally:
             await browser.close()
-    valid = sum(r["status"] == "ok" for r in report)
+    valid = sum(r["status"].startswith("ok") for r in report)
     print(f"SUMMARY sources={len(report)} readable={valid} "
           f"new={len(newly_seen)} matches={len(matches)} "
           f"session={'provided' if session else 'none'} "
