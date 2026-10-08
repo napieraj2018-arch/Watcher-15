@@ -87,5 +87,40 @@ class SDKContractTest(unittest.IsolatedAsyncioTestCase):
         # Actual SDK dispatch uses original input schema plus wrapped function.
         self.assertEqual(manager._sessions["TEST_INTERNAL_ID_NOT_REAL"].mode,"read_only")
 
+    async def test_two_independent_mcp_callers_cannot_take_over(self):
+        import re
+        manager=DummyManager()
+        mcp=fake_mcp(manager)
+        CapabilityGuard(mcp,manager,watchdog_enabled=False).install()
+        owner=await mcp.call_tool("browser_start",{
+            "profile":"Meta - Maciej - Monitoring", "mode":"read_only",
+            "start_url":"https://m.facebook.com/"})
+        handle=re.search(r"aib_[A-Za-z0-9_-]{43}",str(owner))
+        self.assertIsNotNone(handle)
+        handle=handle.group(0)
+
+        # Second caller only sees public, redacted session information.
+        public=await mcp.call_tool("browser_sessions",{})
+        self.assertNotIn("TEST_INTERNAL_ID_NOT_REAL",str(public))
+        self.assertNotIn(handle,str(public))
+        with self.assertRaises(Exception):
+            await mcp.call_tool("browser_set_mode",{
+                "session_id":"TEST_INTERNAL_ID_NOT_REAL","mode":"write"})
+        with self.assertRaises(Exception):
+            await mcp.call_tool("browser_start",{
+                "profile":"Meta - Maciej - Monitoring","mode":"write",
+                "start_url":"https://m.facebook.com/"})
+        self.assertEqual(manager._sessions["TEST_INTERNAL_ID_NOT_REAL"].mode,
+                         "read_only")
+
+        # Original owner still uses the identical public schema.
+        receipt=await mcp.call_tool("browser_stop",{"session_id":handle})
+        self.assertIn("full_profile_saved",str(receipt))
+        self.assertEqual(manager._sessions,{})
+        next_owner=await mcp.call_tool("browser_start",{
+            "profile":"Meta - Maciej - Monitoring","mode":"read_only",
+            "start_url":"https://m.facebook.com/"})
+        self.assertIn("aib_",str(next_owner))
+
 if __name__=="__main__":
     unittest.main(verbosity=2)
