@@ -1,0 +1,12 @@
+private/
+*.private.json
+make_private_registry.py
+.env
+.env.*
+auth/
+profiles/
+runtime_state/
+state*.json
+__pycache__/
+*.py[cod]
+tests/test-results.txt
