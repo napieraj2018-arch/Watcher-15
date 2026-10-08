@@ -27,6 +27,42 @@ class WatcherUnitTests(unittest.TestCase):
         self.assertIsNone(domain)
         self.assertEqual(score, 0)
 
+    def test_urgent_pet_breathing_question(self):
+        category, score = watch.classify("Pies ciężko oddycha, co robić? Pilnie.")
+        self.assertEqual(category, "WETERYNARZ")
+        self.assertGreaterEqual(score, 4)
+
+    def test_boas_bulldog_lead(self):
+        category, score = watch.classify("Czy ktoś poleci specjalistę od BOAS u buldoga francuskiego?")
+        self.assertEqual(category, "WETERYNARZ")
+        self.assertGreaterEqual(score, 4)
+
+    def test_pet_neurology_lead(self):
+        category, score = watch.classify("Szukam neurologa dla psa z napadami.")
+        self.assertEqual(category, "WETERYNARZ")
+        self.assertGreaterEqual(score, 4)
+
+    def test_pet_tomography_lead(self):
+        category, score = watch.classify("Gdzie tomografia kota? Pilnie potrzebuję badania.")
+        self.assertEqual(category, "WETERYNARZ")
+        self.assertGreaterEqual(score, 4)
+
+    def test_architecture_zoning_lead(self):
+        category, score = watch.classify("Kto zrobi plan miejscowy i pomoże przy MPZP?")
+        self.assertEqual(category, "ARCHITEKT")
+        self.assertGreaterEqual(score, 4)
+
+    def test_human_medicine_not_veterinary(self):
+        for message in ("Szukam neurologa dla mamy.",
+                        "Gdzie zrobić tomografię komputerową człowiekowi?"):
+            with self.subTest(message=message):
+                category, _ = watch.classify(message)
+                self.assertIsNone(category)
+
+    def test_heating_room_not_cat(self):
+        category, _ = watch.classify("Kto poleci hydraulika do kotłowni?")
+        self.assertIsNone(category)
+
     def test_canonical_group_post(self):
         link = watch.canonical_link(
             "https://m.facebook.com/groups/123/posts/456/?fbclid=tracking",
