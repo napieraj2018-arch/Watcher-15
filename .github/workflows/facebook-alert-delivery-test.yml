@@ -1,0 +1,26 @@
+name: Facebook Watcher — test dostarczenia powiadomienia GitHub
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/facebook-local-monitor
+    paths:
+      - ".github/workflows/facebook-alert-delivery-test.yml"
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  test-alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Create notification from github-actions bot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          gh issue comment 69 --repo "$GH_REPO" --body "@napieraj2018-arch — TEST powiadomienia z Facebook Watcher. Ten komentarz został wygenerowany automatycznie przez GitHub Actions, a nie przez konto właściciela. Sprawdzamy darmowe powiadomienie e-mail (nie dotyczy prawdziwego posta na Facebooku)."
