@@ -360,6 +360,35 @@ class CapabilityGuard:
         self.installed = True
         return len(present)
 
+def preflight(ns):
+    """Read-only bootstrap contract check; does not patch manager, routes or tools."""
+    if "mcp" not in ns or "manager" not in ns:
+        raise OwnershipError("SESSION_GUARD_BOOTSTRAP_INCOMPLETE")
+    mcp, manager = ns["mcp"], ns["manager"]
+    registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
+    if not isinstance(registry, dict) or set(registry) != TOOLS:
+        raise OwnershipError("SESSION_TOOL_CATALOG_MISMATCH")
+    if any(not registry[n].is_async for n in WRAPPED_ASYNC):
+        raise OwnershipError("SESSION_ASYNC_TOOL_CONTRACT_MISMATCH")
+    for name in ("_session", "start", "stop", "flush_profile", "status"):
+        if not callable(getattr(manager, name, None)):
+            raise OwnershipError("SESSION_MANAGER_CONTRACT_MISMATCH")
+    if not isinstance(getattr(manager, "_sessions", None), dict):
+        raise OwnershipError("SESSION_MANAGER_CONTRACT_MISMATCH")
+    routes = getattr(mcp, "_custom_starlette_routes", None)
+    if not isinstance(routes, list) or not routes:
+        raise OwnershipError("HTTP_ROUTE_CATALOG_UNAVAILABLE")
+    for route in routes:
+        if not isinstance(getattr(route, "path", None), str) or not callable(getattr(route, "endpoint", None)):
+            raise OwnershipError("HTTP_ROUTE_NOT_SUPPORTED")
+    result = {"tools":len(registry), "mobile_and_support_routes":len(routes),
+              "mode":"read_only_preflight", "changed":False}
+    ns["_CAPABILITY_PREFLIGHT_RESULT"] = result
+    print("AI_BROWSER_SESSION_GUARD_PREFLIGHT_OK tools="+str(result["tools"])+
+          " routes="+str(result["mobile_and_support_routes"]),flush=True)
+    return result
+
+
 def install(ns):
     if ns.get("_CAPABILITY_GUARD_INSTALLED"):
         return
