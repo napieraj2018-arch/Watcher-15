@@ -1,0 +1,50 @@
+name: Test nowej grupy — RADOM-OGŁOSZENIA
+
+on:
+  push:
+    branches:
+      - feature/facebook-add-radom-groups-20261008
+    paths:
+      - "config/facebook_local_monitor.json"
+      - ".github/workflows/facebook-radom-group-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: facebook-radom-group-probe
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Playwright Chromium
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Test only public post previews; no Facebook login or comments
+        shell: bash
+        run: |
+          set +e
+          python -u src/facebook_local_monitor.py --probe 2>&1 | tee facebook-group-probe.log
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "EXTRACTOR_STATUS=$code"
+          python - <<'PY'
+          import pathlib, re
+          report=pathlib.Path("facebook-group-probe.log").read_text()
+          match=re.search(r"^SOURCE RADOM-OGŁOSZENIA \(grupa publiczna, ~63 tys.\): status=(\S+) posts=(\d+)$", report, re.M)
+          if not match:
+              raise SystemExit("Group source is missing from the scan")
+          print("GROUP_READOUT status="+match.group(1)+" posts="+match.group(2))
+          if not match.group(1).startswith("ok") or int(match.group(2)) < 1:
+              raise SystemExit("Facebook group posts not visible yet; do not enable in production")
+          print("GROUP_PROBE_PASSED")
+          PY
