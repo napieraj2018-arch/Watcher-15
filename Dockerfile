@@ -7,6 +7,9 @@ COPY bootstrap.py /app/bootstrap.py
 COPY entrypoint.py /app/entrypoint.py
 COPY steel_runtime.py /app/steel_runtime.py
 COPY steel_context_fix.py /app/steel_context_fix.py
-RUN python -m py_compile /app/bootstrap.py /app/entrypoint.py /app/steel_runtime.py /app/steel_context_fix.py && python -c "import httpx, starlette, steel_runtime, steel_context_fix; from playwright.async_api import BrowserContext; assert hasattr(BrowserContext, 'set_storage_state')"
+COPY auth_status_v052.py /app/auth_status_v052.py
+COPY test_auth_status_052.py /app/test_auth_status_052.py
+COPY test_profile_recovery_051.py /app/test_profile_recovery_051.py
+RUN python -m py_compile /app/bootstrap.py /app/entrypoint.py /app/steel_runtime.py /app/steel_context_fix.py /app/auth_status_v052.py && python -c "import httpx, starlette, steel_runtime, steel_context_fix, auth_status_v052; from playwright.async_api import BrowserContext; assert hasattr(BrowserContext, 'set_storage_state')" && python /app/test_auth_status_052.py && python /app/test_profile_recovery_051.py
 EXPOSE 10000
 CMD ["sh", "-c", "if [ \"$AI_BROWSER_ENGINE\" = \"steel\" ]; then exec python /app/bootstrap.py; else exec python /app/entrypoint.py; fi"]
