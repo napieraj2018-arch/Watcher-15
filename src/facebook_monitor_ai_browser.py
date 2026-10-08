@@ -161,7 +161,6 @@ async def run() -> int:
                             print(f"SOURCE {source['name']}: no_identifiable_posts")
                             stats.append(False)
                             continue
-                        stats.append(True)
                         new = 0
                         for link in links:
                             fingerprint = digest(link)
@@ -192,6 +191,7 @@ async def run() -> int:
                             else:
                                 hashes.add(fingerprint)
                             new += 1
+                        stats.append(True)
                         if source["id"] not in baselines:
                             baselines.add(source["id"])
                             print(f"SOURCE {source['name']}: baseline_saved posts={len(links)}")
