@@ -280,7 +280,9 @@ class CapabilityGuard:
             path, endpoint = getattr(route, "path", None), getattr(route, "endpoint", None)
             if not isinstance(path, str) or not callable(endpoint):
                 raise OwnershipError("HTTP_ROUTE_NOT_SUPPORTED")
-            if path in ALLOWED_PUBLIC_GET:
+        for route in routes:
+            path, endpoint = route.path, route.endpoint
+            if path in ALLOWED_PUBLIC_GET and set(route.methods or []) <= {"GET", "HEAD"}:
                 continue
             async def gate(request, _original=endpoint):
                 if self.lease is not None:
@@ -296,8 +298,8 @@ class CapabilityGuard:
         if self.installed:
             raise OwnershipError("SESSION_GUARD_ALREADY_INSTALLED")
         registry = self.mcp._tool_manager._tools
-        present = {n for n in registry
-                   if n.startswith(("browser_", "profile_"))}
+        present = set(registry)
+        # Refuse unreviewed tool names, even if they do not start browser_.
         if present != TOOLS:
             raise OwnershipError("SESSION_TOOL_CATALOG_MISMATCH")
         if any(not registry[n].is_async for n in WRAPPED_ASYNC):
