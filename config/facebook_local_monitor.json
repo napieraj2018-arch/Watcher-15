@@ -18,5 +18,6 @@
       "url": "https://www.facebook.com/polecamradom/",
       "enabled": true
     }
-  ]
+  ],
+  "max_alert_age_minutes": 120
 }
