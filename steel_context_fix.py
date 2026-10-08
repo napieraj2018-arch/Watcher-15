@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from starlette.responses import JSONResponse
 
-VERSION = '0.4.6'
+VERSION = '0.4.7'
 HEADERS = {'cache-control': 'no-store'}
 
 
@@ -100,9 +100,12 @@ def install(ns):
     async def start(*args, **kwargs):
         result = await old_start(*args, **kwargs)
         session = manager._session(result['session_id'])
-        # Steel mobile mode controls the native viewport and touch mapping.
-        # Do not resize just the page inside its differently sized OS window;
-        # that creates a split view and black bars in the WebRTC viewer.
+        # The core overwrites the page viewport with its 1000x700 desktop
+        # default after launching. Restore exactly the same portrait size
+        # as the Steel mobile OS window to keep WebRTC touch/scale aligned.
+        # Do not touch an existing authenticated browser session.
+        if result.get('headless') is False:
+            await session.page.set_viewport_size({'width': 508, 'height': 1074})
         result['context_mode'] = 'provider_native'
         return result
 
