@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import copy
 import json
 import os
 import re
@@ -17,7 +18,7 @@ from urllib.parse import urlsplit
 import httpx
 from starlette.responses import JSONResponse
 
-VERSION = '0.5.0'
+VERSION = '0.5.1'
 HEADERS = {'cache-control': 'no-store'}
 PROFILE_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$')
 
@@ -53,6 +54,36 @@ def exact_origin(url):
         return None
 
 
+def merge_profile_state(native, backup):
+    """Fill gaps in a provider snapshot without replacing its newer values."""
+    def union(current, fallback, key):
+        result = copy.deepcopy(current or [])
+        known = {key(item) for item in result}
+        for item in fallback or []:
+            identity = key(item)
+            if identity not in known:
+                result.append(copy.deepcopy(item))
+                known.add(identity)
+        return result
+    result = copy.deepcopy(native)
+    result['cookies'] = union(native.get('cookies'), backup.get('cookies'),
+                              lambda c: (c['name'], c.get('domain'), c.get('path', '/')))
+    result['origins'] = copy.deepcopy(native.get('origins', []))
+    by_origin = {item['origin']: item for item in result['origins']}
+    for previous in backup.get('origins', []):
+        origin = previous['origin']
+        if origin not in by_origin:
+            item = copy.deepcopy(previous)
+            result['origins'].append(item)
+            by_origin[origin] = item
+            continue
+        current = by_origin[origin]
+        for field in ('localStorage', 'indexedDB'):
+            if field in previous or field in current:
+                current[field] = union(current.get(field), previous.get(field), lambda x: x['name'])
+    return result
+
+
 async def native_context(remote, **options):
     from steel_runtime import SteelFailure
     if getattr(remote, '_native_context_claimed', False):
@@ -68,13 +99,22 @@ async def native_context(remote, **options):
         raise SteelFailure('STEEL_UNSUPPORTED_CONTEXT_OPTIONS')
     binding = getattr(remote.engine, '_native_bindings', {}).get(remote.remote_id, {})
     state = options.get('storage_state')
-    if not binding.get('hydrated') and state is not None:
+    if state is not None:
         if isinstance(state, (str, Path)):
             state = json.loads(Path(state).read_text(encoding='utf-8'))
         if not isinstance(state, dict):
             raise SteelFailure('STEEL_INVALID_PROFILE_STATE')
-        # Migration only. Never clear a successfully restored full profile.
-        await context.set_storage_state(state)
+        if binding.get('hydrated'):
+            # A provider may return READY before every storage backend was
+            # captured. Restore only missing values from our encrypted backup;
+            # native values take precedence, including freshly rotated cookies.
+            current = await context.storage_state(indexed_db=True)
+            merged = merge_profile_state(current, state)
+            if merged != current:
+                await context.set_storage_state(merged)
+                binding['backup_recovery_applied'] = True
+        else:
+            await context.set_storage_state(state)
     if options.get('extra_http_headers'):
         await context.set_extra_http_headers(options['extra_http_headers'])
     remote._native_context_claimed = True
@@ -293,6 +333,7 @@ def install(ns):
         result.update({'runtime_version': VERSION, 'context_mode': 'provider_native',
             'full_profile_persistence': bool(binding),
             'full_profile_restored': binding.get('hydrated', False),
+            'backup_recovery_applied': binding.get('backup_recovery_applied', False),
             'portable_backup': save_status.get(sid, {'ok': None}),
             'authentication': await auth_probe(session),
             'saved_login_configured': bool(os.environ.get('AI_BROWSER_CREDENTIALS_JSON', ''))})
