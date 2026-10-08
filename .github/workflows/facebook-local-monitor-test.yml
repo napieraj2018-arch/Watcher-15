@@ -7,8 +7,10 @@ on:
       - feature/facebook-local-monitor
     paths:
       - "src/facebook_local_monitor.py"
+      - "src/facebook_monitor_ai_browser.py"
       - "config/facebook_local_monitor.json"
       - "tests/test_facebook_local_monitor.py"
+      - "tests/test_facebook_monitor_ai_browser.py"
       - ".github/workflows/facebook-local-monitor-test.yml"
 
 permissions:
@@ -37,7 +39,7 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: Run isolated unit tests
-        run: python -m unittest discover -s tests -p 'test_facebook_local_monitor.py' -v
+        run: python -m unittest discover -s tests -p 'test_facebook*.py' -v
 
       - name: One-time diagnostic on the two public Radom pages
         shell: bash
