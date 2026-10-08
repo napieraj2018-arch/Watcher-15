@@ -1,0 +1,54 @@
+name: Facebook Local Monitor — test (no login, no posting)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/facebook-local-monitor
+    paths:
+      - "src/facebook_local_monitor.py"
+      - "config/facebook_local_monitor.json"
+      - "tests/test_facebook_local_monitor.py"
+      - ".github/workflows/facebook-local-monitor-test.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: facebook-local-monitor-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  tests-and-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout isolated development branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install browser dependency
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.56.0
+          python -m playwright install --with-deps chromium
+
+      - name: Run isolated unit tests
+        run: python -m unittest discover -s tests -p 'test_facebook_local_monitor.py' -v
+
+      - name: One-time diagnostic on the two public Radom pages
+        shell: bash
+        run: |
+          set +e
+          python -u src/facebook_local_monitor.py --probe
+          code=$?
+          set -e
+          echo "FACEBOOK_PROBE_EXIT=$code"
+          if [ "$code" = 3 ]; then
+            echo "::warning::Facebook content inaccessible or no identifiable posts. This is NOT an operational monitor."
+            exit 0
+          fi
+          exit "$code"
