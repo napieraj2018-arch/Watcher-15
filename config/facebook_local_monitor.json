@@ -44,6 +44,15 @@
       "enabled": false,
       "status": "private_group_membership_required",
       "note": "facebook.com/share/g/1ChqEMuezV; grupa prywatna, tylko członkowie mogą czytać posty; bez autoryzacji nie odczytujemy zawartości."
+    },
+    {
+      "id": "buldog_francuski_polska_grupa",
+      "name": "Buldog Francuski Polska (grupa prywatna, ok. 53 tys.)",
+      "type": "facebook_group",
+      "url": "https://www.facebook.com/groups/1756386991256822/",
+      "enabled": false,
+      "status": "private_group_membership_required",
+      "note": "Link udostępniony przez użytkownika 08.10.2026: facebook.com/share/g/1FMReGGXx5. Prywatna grupa 53 tys. członków; posty widoczne tylko dla autoryzowanych członków. Nie odczytywać bez legalnego dostępu i działającej sesji."
     }
   ],
   "max_alert_age_minutes": 120,
