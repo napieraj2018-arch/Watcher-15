@@ -26,25 +26,26 @@
       "enabled": false,
       "status": "login_required_in_cloud_browser",
       "note": "Adres i grupa 63 tys. członków potwierdzone; test GitHub Actions 2026-10-08 #37765758813 zwrócił login_or_verification_required, 0 postów. Czeka na legalnie dostępną sesję."
-    }
-  ],
-  "max_alert_age_minutes": 120,
-  "pending_sources": [
+    },
     {
       "id": "spotted_radom_grupa",
-      "name": "Spotted Radom (grupa 21,1 tys. członków, osobna od strony Spotted : RADOM)",
+      "name": "Spotted Radom (grupa publiczna, 21,1 tys.)",
       "type": "facebook_group",
-      "url": null,
-      "status": "awaiting_exact_group_link",
-      "enabled": false
+      "url": "https://www.facebook.com/groups/1886172518407420/",
+      "enabled": false,
+      "status": "awaiting_access_test",
+      "note": "Dokładna grupa potwierdzona przez facebook.com/share/g/1Eeo2FjxtY; nie mylić ze stroną Spotted : RADOM ani grupą Spotted: Radom 67 tys."
     },
     {
       "id": "porady_weterynaryjne_grupa",
-      "name": "PORADY WETERYNARYJNE (grupa z posta o psim okuliście)",
+      "name": "PORADY WETERYNARYJNE (grupa prywatna, 154 tys.)",
       "type": "facebook_group",
-      "url": null,
-      "status": "awaiting_exact_group_link",
-      "enabled": false
+      "url": "https://www.facebook.com/groups/3046642772082014/",
+      "enabled": false,
+      "status": "private_group_membership_required",
+      "note": "facebook.com/share/g/1ChqEMuezV; grupa prywatna, tylko członkowie mogą czytać posty; bez autoryzacji nie odczytujemy zawartości."
     }
-  ]
+  ],
+  "max_alert_age_minutes": 120,
+  "pending_sources": []
 }
