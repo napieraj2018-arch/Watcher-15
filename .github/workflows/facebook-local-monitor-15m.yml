@@ -52,11 +52,63 @@ jobs:
         shell: bash
         run: |
           set +e
-          python -u -m src.facebook_local_monitor
-          code=$?
+          python -u -m src.facebook_local_monitor 2>&1 | tee .facebook_monitor.log
+          code=${PIPESTATUS[0]}
           set -e
           echo "$code" > .facebook_monitor_exit
           echo "MONITOR_EXIT_CODE=$code"
+
+      - name: Honest source coverage summary
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          config = json.loads(Path("config/facebook_local_monitor.json").read_text(encoding="utf-8"))
+          enabled = [s for s in config["sources"] if s.get("enabled", True)]
+          excluded_groups = sum(s.get("type") == "facebook_group" and not s.get("enabled", True) for s in config["sources"])
+          log = Path(".facebook_monitor.log")
+          output = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+          rows = re.findall(r"^SOURCE (.*?): status=([a-z0-9_]+) posts=(\d+)$", output, flags=re.M)
+          summary = re.search(r"^SUMMARY sources=(\d+) readable=(\d+) new=(\d+) matches=(\d+)", output, flags=re.M)
+          total = int(summary.group(1)) if summary else len(enabled)
+          readable = int(summary.group(2)) if summary else 0
+          new = int(summary.group(3)) if summary else 0
+          leads = int(summary.group(4)) if summary else 0
+          status = ("CZESCIOWY" if readable < total else "PODGLAD PUBLICZNY") if summary else "BRAK RAPORTU"
+          lines = [
+              "# Facebook Watcher — rzeczywiste pokrycie",
+              f"**Stan:** {status}. Zielony przebieg GitHub nie oznacza dostępu do grup.",
+              "",
+              "| Metryka | Wynik |",
+              "|---|---:|",
+              f"| Skonfigurowane i aktywne strony publiczne | {total} |",
+              f"| Czytelne strony publiczne | {readable}/{total} |",
+              f"| Nowe rozpoznane odnośniki | {new} |",
+              f"| Pasujące zapytania | {leads} |",
+              "| Monitorowane grupy wymagające członkostwa | 0 |",
+              f"| Skonfigurowane grupy wyłączone (wymagają dostępu) | {excluded_groups} |",
+              "",
+              "Źródła publiczne dostarczają tylko widocznych fragmentów wpisów. Brak dopasowań NIE dowodzi, że nie było nowych postów.",
+              "",
+              "## Statusy źródeł (bez prywatnych treści)",
+              "",
+              "| Nazwa publicznej strony | Odczyt | Linki |",
+              "|---|---|---:|",
+          ]
+          for name, state, count in rows:
+              safe_name = name.replace("|", "/").replace("\n", " ")[:70]
+              lines.append(f"| {safe_name} | {state} | {count} |")
+          if not rows:
+              lines.append("| Brak danych z próby | nie odczytano | 0 |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write("\n".join(lines) + "\n")
+          print(f"COVERAGE_REPORT total={total} readable={readable} disabled_groups={excluded_groups} state={status}")
+          PY
 
       - name: Save deduplication data (hashes only)
         if: ${{ hashFiles('.fb-monitor/state.json') != '' }}
