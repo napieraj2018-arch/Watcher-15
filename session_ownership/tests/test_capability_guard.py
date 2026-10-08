@@ -248,6 +248,20 @@ class GuardTests(unittest.IsolatedAsyncioTestCase):
         fixture.guard.install()
         r=await fixture.tools["profile_login_window"].fn(profile="X",login_url="https://m.facebook.com/")
         self.assertTrue(r["session_id"].startswith("aib_"))
+    async def test_unreviewed_tool_without_browser_prefix_is_blocked(self):
+        fixture=Fixture()
+        fixture.tools["admin_reconfigure"]=DummyTool(lambda: None,False)
+        with self.assertRaisesRegex(OwnershipError,"SESSION_TOOL_CATALOG_MISMATCH"):
+            fixture.guard.install()
+
+    async def test_invalid_route_does_not_partially_wrap_mobile(self):
+        fixture=Fixture()
+        first=fixture.routes[0].endpoint
+        fixture.routes.append(types.SimpleNamespace(path=None,endpoint=None))
+        with self.assertRaisesRegex(OwnershipError,"HTTP_ROUTE_NOT_SUPPORTED"):
+            fixture.guard.install()
+        self.assertIs(fixture.routes[0].endpoint,first)
+
     async def test_original_tool_metadata_unmodified(self):
         tool=self.f.tools["browser_start"]
         self.assertTrue(tool.is_async)
