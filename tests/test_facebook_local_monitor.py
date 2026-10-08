@@ -67,6 +67,10 @@ class WatcherUnitTests(unittest.TestCase):
         self.assertEqual(watch.age_minutes("1 dzień"), 1440)
         self.assertEqual(watch.age_minutes("15 min"), 15)
         self.assertEqual(watch.age_minutes("2h"), 120)
+        self.assertEqual(watch.age_minutes("a minute ago"), 1)
+        self.assertEqual(watch.age_minutes("an hour ago"), 60)
+        self.assertEqual(watch.age_minutes("a week ago"), 10080)
+
         self.assertEqual(watch.age_minutes("wczoraj"), 1440)
         self.assertIsNone(watch.age_minutes("Oct 8"))
 
