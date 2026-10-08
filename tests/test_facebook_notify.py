@@ -45,6 +45,34 @@ class GitHubNotificationsTests(unittest.TestCase):
             self.assertTrue(facebook_notify.notify_via_github(self.sample()))
             request.assert_called_once()
 
+    def test_health_alert_created_without_post_text(self):
+        with patch.dict("os.environ", {
+            "GITHUB_TOKEN": "secret", "GITHUB_REPOSITORY": "napieraj2018-arch/Watcher-15",
+            "FB_GITHUB_ISSUE_ALERTS": "true",
+        }), patch.object(facebook_notify, "request_json",
+                         side_effect=[[], {"number": 99}]) as request:
+            self.assertTrue(facebook_notify.notify_health_once([
+                {"source": "Spotted Radom", "status": "login_required",
+                 "posts": [{"text": "DO NOT EXPOSE THIS POST"}]}
+            ]))
+            self.assertEqual(request.call_count, 2)
+            payload = request.call_args.args[3]
+            self.assertNotIn("DO NOT EXPOSE", payload["body"])
+            self.assertIn("login_required", payload["body"])
+            self.assertIn("<!-- fbwatch:health-v1 -->", payload["body"])
+
+    def test_existing_health_issue_suppresses_duplicates(self):
+        with patch.dict("os.environ", {
+            "GITHUB_TOKEN": "secret", "GITHUB_REPOSITORY": "napieraj2018-arch/Watcher-15",
+            "FB_GITHUB_ISSUE_ALERTS": "true",
+        }), patch.object(facebook_notify, "request_json", return_value=[
+            {"body": "<!-- fbwatch:health-v1 -->"}
+        ]) as request:
+            self.assertTrue(facebook_notify.notify_health_once([
+                {"source": "Spotted Radom", "status": "login_required"}
+            ]))
+            request.assert_called_once()
+
     def test_http_failure_does_not_report_success(self):
         with patch.dict("os.environ", {
             "GITHUB_TOKEN": "secret", "GITHUB_REPOSITORY": "napieraj2018-arch/Watcher-15",
