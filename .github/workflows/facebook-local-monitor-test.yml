@@ -43,6 +43,8 @@ jobs:
 
       - name: One-time diagnostic on the two public Radom pages
         shell: bash
+        env:
+          FB_PROBE_META: "1"
         run: |
           set +e
           python -u src/facebook_local_monitor.py --probe
