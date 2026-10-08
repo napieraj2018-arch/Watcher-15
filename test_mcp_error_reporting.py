@@ -1,116 +1,127 @@
-"""Offline regression tests; do not access external accounts or services."""
+"""Offline tests for compatibility with the observed legacy _fail behavior."""
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import mcp_error_reporting as fix
 
-
 class DomainError(Exception):
     pass
-
 
 class AnticipatedToolError(Exception):
     pass
 
-
-class MaskedFailure(Exception):
-    pass
-
-
 class ErrorReportingTests(unittest.TestCase):
     def setUp(self):
-        self.safe = Mock(side_effect=lambda exc: str(exc).replace("SECRET", "[redacted]"))
-        self.original = Mock(side_effect=MaskedFailure("operation failed"))
-        self.handler = fix.build_failure_handler(
-            DomainError, self.safe, self.original, AnticipatedToolError
-        )
+        self.sanitize = Mock(side_effect=lambda exc: str(exc).replace("SECRET", "[redacted]"))
+        self.calls = []
+        def legacy_fail(exc):
+            self.calls.append(exc)
+            message = self.sanitize(exc)
+            if isinstance(exc, DomainError):
+                raise ValueError(message) from exc
+            raise RuntimeError("Browser operation failed") from exc
+        self.legacy = legacy_fail
+        self.handler = fix.build_failure_handler(self.legacy, AnticipatedToolError)
 
-    def test_busy_is_actionable_tool_error(self):
+    def test_busy_is_actionable(self):
         with self.assertRaises(AnticipatedToolError) as caught:
             self.handler(DomainError("AI Browser session limit reached (1). Stop an existing session first."))
         self.assertEqual(str(caught.exception), fix.BUSY_MESSAGE)
-        self.original.assert_not_called()
 
-    def test_busy_never_exposes_appended_details(self):
+    def test_busy_hides_appended_private_details(self):
         with self.assertRaises(AnticipatedToolError) as caught:
             self.handler(DomainError("AI Browser session limit reached (1). PRIVATE_PROFILE SECRET"))
         self.assertNotIn("PRIVATE_PROFILE", str(caught.exception))
         self.assertNotIn("SECRET", str(caught.exception))
 
-    def test_expected_error_uses_existing_sanitizer(self):
+    def test_expected_message_uses_original_sanitizer(self):
         with self.assertRaises(AnticipatedToolError) as caught:
-            self.handler(DomainError("invalid request SECRET"))
-        self.assertEqual(str(caught.exception), "invalid request [redacted]")
-        self.safe.assert_called_once()
+            self.handler(DomainError("request SECRET"))
+        self.assertEqual(str(caught.exception), "request [redacted]")
+        self.sanitize.assert_called_once()
+        self.assertEqual(len(self.calls), 1)
 
-    def test_unknown_error_keeps_original_masking(self):
-        with self.assertRaises(MaskedFailure):
+    def test_unknown_error_keeps_masking(self):
+        with self.assertRaisesRegex(RuntimeError, "Browser operation failed"):
             self.handler(RuntimeError("SECRET"))
-        self.safe.assert_not_called()
-        self.original.assert_called_once()
 
     def test_plain_value_error_is_not_reclassified(self):
-        with self.assertRaises(MaskedFailure):
+        with self.assertRaisesRegex(RuntimeError, "Browser operation failed"):
             self.handler(ValueError("AI Browser session limit reached (1)."))
-        self.original.assert_called_once()
 
-    def test_expected_subclasses_are_supported(self):
+    def test_domain_subclass_is_supported(self):
         class SpecializedError(DomainError):
             pass
         with self.assertRaises(AnticipatedToolError):
             self.handler(SpecializedError("expected"))
 
-    def test_sanitizer_failure_uses_original_handler(self):
-        self.safe.side_effect = RuntimeError("SECRET")
-        with self.assertRaises(MaskedFailure):
+    def test_sanitizer_runtime_error_is_not_exposed_as_tool_error(self):
+        self.sanitize.side_effect = RuntimeError("SECRET")
+        with self.assertRaises(RuntimeError):
             self.handler(DomainError("expected"))
 
-    def test_invalid_sanitizer_output_uses_original_handler(self):
-        for value in (None, "", "   ", 123):
-            with self.subTest(value=value):
-                self.safe.side_effect = None
-                self.safe.return_value = value
-                with self.assertRaises(MaskedFailure):
-                    self.handler(DomainError("expected"))
+    def test_sanitizer_value_error_is_not_exposed_as_tool_error(self):
+        self.sanitize.side_effect = ValueError("SECRET")
+        with self.assertRaises(ValueError):
+            self.handler(DomainError("expected"))
 
-    def test_original_handler_must_not_return_success(self):
-        self.original.side_effect = None
+    def test_empty_expected_message_has_static_fallback(self):
+        for value in ("", "   "):
+            with self.subTest(value=value):
+                self.sanitize.side_effect = None
+                self.sanitize.return_value = value
+                with self.assertRaises(AnticipatedToolError) as caught:
+                    self.handler(DomainError("expected"))
+                self.assertTrue(str(caught.exception).startswith("AI_BROWSER_EXPECTED_ERROR:"))
+
+    def test_returning_legacy_handler_cannot_signal_success(self):
+        def no_raise(exc):
+            return None
+        handler = fix.build_failure_handler(no_raise, AnticipatedToolError)
         with self.assertRaisesRegex(RuntimeError, "AI_BROWSER_FAILURE_HANDLER_RETURNED"):
-            self.handler(RuntimeError("unexpected"))
+            handler(DomainError("expected"))
+
+    def test_install_without_manager_or_domain_type_name(self):
+        ns = {"_fail": self.legacy}
+        with patch.object(fix, "_tool_error_type", return_value=AnticipatedToolError):
+            fix.install(ns)
+        with self.assertRaises(AnticipatedToolError):
+            ns["_fail"](DomainError("expected"))
 
     def test_install_is_idempotent(self):
-        ns = {"AIBrowserError": DomainError, "_fail": self.original,
-              "manager": SimpleNamespace(safe_error=self.safe)}
+        ns = {"_fail": self.legacy}
         with patch.object(fix, "_tool_error_type", return_value=AnticipatedToolError) as load:
             fix.install(ns)
             installed = ns["_fail"]
             fix.install(ns)
         self.assertIs(ns["_fail"], installed)
         self.assertEqual(load.call_count, 1)
-        self.assertEqual(ns["_AI_BROWSER_MCP_ERROR_FIX"], fix.FIX_REVISION)
 
-    def test_install_rejects_incompatible_namespace(self):
-        for ns in ({}, {"AIBrowserError": str}, {"_fail": None}):
+    def test_missing_handler_is_rejected(self):
+        for ns in ({}, {"_fail": None}):
             with self.subTest(ns=ns):
                 with self.assertRaisesRegex(RuntimeError, "AI_BROWSER_ERROR_REPORTING_INCOMPATIBLE"):
                     fix.install(ns)
-                self.assertNotIn("_AI_BROWSER_MCP_ERROR_FIX", ns)
 
-    def test_expected_traceback_cause_is_suppressed(self):
+    def test_uninspectable_callable_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, "AI_BROWSER_ERROR_REPORTING_INCOMPATIBLE"):
+            fix.build_failure_handler(Mock(), AnticipatedToolError)
+
+    def test_expected_error_suppresses_private_cause(self):
         with self.assertRaises(AnticipatedToolError) as caught:
             self.handler(DomainError("expected"))
         self.assertTrue(caught.exception.__suppress_context__)
+        self.assertIsNone(caught.exception.__cause__)
 
-    def test_does_not_touch_session_manager_operations(self):
-        manager = SimpleNamespace(safe_error=self.safe, start=Mock(), stop=Mock())
-        ns = {"AIBrowserError": DomainError, "_fail": self.original, "manager": manager}
+    def test_manager_sessions_are_untouched(self):
+        manager = SimpleNamespace(start=Mock(), stop=Mock())
+        ns = {"_fail": self.legacy, "manager": manager}
         with patch.object(fix, "_tool_error_type", return_value=AnticipatedToolError):
             fix.install(ns)
         with self.assertRaises(AnticipatedToolError):
             ns["_fail"](DomainError("AI Browser session limit reached (1)."))
         manager.start.assert_not_called()
         manager.stop.assert_not_called()
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
