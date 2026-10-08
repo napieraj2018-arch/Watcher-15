@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from starlette.responses import JSONResponse
 
-VERSION = '0.4.5'
+VERSION = '0.4.6'
 HEADERS = {'cache-control': 'no-store'}
 
 
@@ -59,10 +59,10 @@ async def native_context(remote, **options):
         await context.set_storage_state(state)
     if options.get('extra_http_headers'):
         await context.set_extra_http_headers(options['extra_http_headers'])
-    viewport = options.get('viewport')
-    if viewport:
-        for page in context.pages:
-            await page.set_viewport_size(viewport)
+    # The core supplies a desktop-oriented 1000x700 viewport by default.
+    # It is not an explicit user override and must never override Steel's
+    # native portrait mobile screen (508x1074) during context creation.
+    # Explicit later browser_set_viewport calls still work normally.
     remote._native_context_claimed = True
     remote._aib_context = context
     remote._auth_events = deque(maxlen=100)
