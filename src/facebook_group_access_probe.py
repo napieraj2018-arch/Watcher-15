@@ -96,12 +96,17 @@ def login_shell(url: str, text: str) -> bool:
         "/login", "/checkpoint", "/two_step_verification", "/recover",
     )):
         return True
-    low = " ".join(text.lower().split())
-    return (
-        ("email address or mobile number" in low and "password" in low)
-        or ("log in to facebook" in low and "forgotten password" in low)
-        or ("zaloguj sie do facebooka" in low and "haslo" in low)
-    )
+    low = " ".join(text.casefold().split())
+    has_password = "password" in low or "hasło" in low or "haslo" in low
+    has_account_input = any(word in low for word in (
+        "email address or mobile number", "email or mobile number",
+        "adres e-mail", "numer telefonu",
+    ))
+    has_login_prompt = any(word in low for word in (
+        "log in to facebook", "log into facebook",
+        "zaloguj się do facebooka", "zaloguj sie do facebooka",
+    ))
+    return has_password and (has_account_input or has_login_prompt)
 
 
 def joined_private_group(text: str) -> bool:
