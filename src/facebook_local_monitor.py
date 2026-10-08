@@ -221,6 +221,12 @@ async def inspect_page(context, source: dict, timeout_ms: int, limit: int) -> di
               };
             });
         }""")
+        if os.getenv("FB_PROBE_META", "") == "1":
+            for sample in candidates[:8]:
+                raw_label = sample.get("timestamp_text", "")
+                label = "<link>" if "http" in raw_label.lower() else raw_label[:40]
+                print(f"CANDIDATE_META source={source['id']} label={label!r} "
+                      f"text_chars={len(sample.get('text', ''))}")
         posts = []
         seen = set()
         for candidate in candidates:
