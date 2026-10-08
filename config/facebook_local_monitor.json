@@ -6,18 +6,45 @@
   "sources": [
     {
       "id": "spotted_radom",
-      "name": "Spotted Radom",
+      "name": "Spotted : RADOM (strona)",
       "type": "facebook_page",
       "url": "https://www.facebook.com/p/Spotted-RADOM-100044524445707/",
       "enabled": true
     },
     {
       "id": "nie_polecam_radom",
-      "name": "Nie/Polecam w Radomiu",
+      "name": "Nie/Polecam w Radomiu (strona)",
       "type": "facebook_page",
       "url": "https://www.facebook.com/polecamradom/",
       "enabled": true
+    },
+    {
+      "id": "radom_ogloszenia_grupa",
+      "name": "RADOM-OGŁOSZENIA (grupa publiczna)",
+      "type": "facebook_group",
+      "url": "https://www.facebook.com/groups/158171638326502/",
+      "enabled": false,
+      "status": "login_required_in_cloud_browser",
+      "note": "Adres i grupa 63 tys. członków potwierdzone; test GitHub Actions 2026-10-08 #37765758813 zwrócił login_or_verification_required, 0 postów. Czeka na legalnie dostępną sesję."
     }
   ],
-  "max_alert_age_minutes": 120
+  "max_alert_age_minutes": 120,
+  "pending_sources": [
+    {
+      "id": "spotted_radom_grupa",
+      "name": "Spotted Radom (grupa 21,1 tys. członków, osobna od strony Spotted : RADOM)",
+      "type": "facebook_group",
+      "url": null,
+      "status": "awaiting_exact_group_link",
+      "enabled": false
+    },
+    {
+      "id": "porady_weterynaryjne_grupa",
+      "name": "PORADY WETERYNARYJNE (grupa z posta o psim okuliście)",
+      "type": "facebook_group",
+      "url": null,
+      "status": "awaiting_exact_group_link",
+      "enabled": false
+    }
+  ]
 }
