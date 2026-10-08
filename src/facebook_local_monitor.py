@@ -33,13 +33,27 @@ PERMALINK = re.compile(
 )
 LOGIN_CUES = ("log into facebook", "zaloguj sie do facebooka",
               "log in to facebook", "login to facebook")
+# Phrase matching remains conservative: ambiguous medical terms like
+# "neurolog" or "tomografia" are not standalone vet indicators, since they
+# could refer to human healthcare. Prefer explicit pet/vet context.
 ARCH = ("architekt", "projekt", "adaptac", "przebudow", "rozbudow",
-        "podzial mieszkan", "podzielic mieszkani", "biur projekt", "pozwolenie na budow")
-VET = ("weterynar", "lekarz zwierzat", "szczepien", "szczeniak", "pies", "psa",
-       "kota", "kotem", "ortoped", "kulej", "okulist", "klinika wet")
-INTENT = ("polec", "szukam", "poszukuj", "potrzebuj", "kto pomoze", "gdzie",
-          "jaki lekarz", "jakie biuro", "ile koszt", "zna ktos",
-          "macie kogos", "poradz", "prosze o kontakt", "kontakt do")
+        "podzial mieszkan", "podzielic mieszkani", "biur projekt",
+        "pozwolenie na budow", "warunki zabudowy", "plan miejscowy",
+        "mpzp", "zmiana sposobu uzytkowania", "uklad funkcjonalny")
+VET = ("weterynar", "lekarz zwierzat", "lekarz wet", "klinika wet",
+       "szczepien", "szczeniak", "pies", "psa", "psu", "psie", "psiak",
+       "kota", "kotu", "kotem", "kotka", "kocur", "buldog", "boas",
+       "ortoped", "kulej", "okulist", "tchawic u psa",
+       "tomografia psa", "tomografia kota", "tomograf dla psa",
+       "tomograf dla kota", "neurolog wet", "neurolog dla psa",
+       "neurolog dla kota", "rtg dla psa", "rtg dla kota",
+       "usg dla psa", "usg dla kota", "laparoskopia wet",
+       "pies nie oddycha", "pies ciezko oddycha", "pies sie dusi",
+       "kot nie oddycha", "buldog sie dusi")
+INTENT = ("polec", "szukam", "poszukuj", "potrzebuj", "kto pomoze",
+          "gdzie", "jaki lekarz", "jakie biuro", "ile koszt", "zna ktos",
+          "macie kogos", "poradz", "prosze o kontakt", "kontakt do",
+          "co robic", "kto zrobi", "pilnie", "ratunku", "pomocy")
 
 def simplify(value: str) -> str:
     return "".join(ch for ch in unicodedata.normalize("NFKD", value.lower())
