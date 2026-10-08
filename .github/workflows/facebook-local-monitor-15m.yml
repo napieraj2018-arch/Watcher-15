@@ -79,7 +79,14 @@ jobs:
           readable = int(summary.group(2)) if summary else 0
           new = int(summary.group(3)) if summary else 0
           leads = int(summary.group(4)) if summary else 0
-          status = ("CZESCIOWY" if readable < total else "PODGLAD PUBLICZNY") if summary else "BRAK RAPORTU"
+          public_posts = sum(int(count) for _, _, count in rows)
+          thin_preview = len(rows) < total or any(int(count) < 3 for _, _, count in rows)
+          status = (
+              "BRAK RAPORTU" if not summary else
+              "CZESCIOWY - czesc zrodel niedostepna" if readable < total else
+              "SZCZATKOWY - mniej niz 3 wpisy na zrodlo" if thin_preview else
+              "PODGLAD PUBLICZNY"
+          )
           lines = [
               "# Facebook Watcher — rzeczywiste pokrycie",
               f"**Stan:** {status}. Zielony przebieg GitHub nie oznacza dostępu do grup.",
@@ -88,6 +95,7 @@ jobs:
               "|---|---:|",
               f"| Skonfigurowane i aktywne strony publiczne | {total} |",
               f"| Czytelne strony publiczne | {readable}/{total} |",
+              f"| Łączna liczba widocznych wpisów (nie liczba wszystkich nowych postów) | {public_posts} |",
               f"| Nowe rozpoznane odnośniki | {new} |",
               f"| Pasujące zapytania | {leads} |",
               "| Monitorowane grupy wymagające członkostwa | 0 |",
@@ -107,7 +115,7 @@ jobs:
               lines.append("| Brak danych z próby | nie odczytano | 0 |")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
               out.write("\n".join(lines) + "\n")
-          print(f"COVERAGE_REPORT total={total} readable={readable} disabled_groups={excluded_groups} state={status}")
+          print(f"COVERAGE_REPORT total={total} readable={readable} visible_posts={public_posts} disabled_groups={excluded_groups} state={status}")
           PY
 
       - name: Save deduplication data (hashes only)
