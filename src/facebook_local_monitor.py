@@ -70,10 +70,10 @@ def canonical_link(raw: str, base: str) -> str | None:
 
 def is_time_label(value: str) -> bool:
     """Accept post timestamp links, not unrelated page-intro URLs."""
-    label = simplify(value.strip())
+    label = simplify(value.strip()).rstrip(" .")
     if not label or len(label) > 80 or "http" in label:
         return False
-    if re.match(r"^\d+\s*(?:s|m|h|d|w|y|min|mins|hr|hrs|hours?|days?|weeks?|years?|godz|godzin|dni|tyg)(?:\s+ago)?$", label):
+    if re.match(r"^\d+\s*(?:s|m|h|d|w|y|min|mins|hr|hrs|hours?|days?|weeks?|years?|godz|godzin|godziny|dzien|dni|tydzien|tygodnie|tyg|minuta|minuty|minut)(?:\s+ago)?$", label):
         return True
     if re.match(r"^(?:a|an)\s+(?:minute|hour|day|week|month|year)\s+ago$", label):
         return True
