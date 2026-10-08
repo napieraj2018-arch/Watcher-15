@@ -42,6 +42,14 @@ class WatcherUnitTests(unittest.TestCase):
         self.assertEqual(
             link, "https://www.facebook.com/story.php?id=456&story_fbid=123")
 
+
+    def test_permalink_php_with_pfbid(self):
+        link = watch.canonical_link(
+            "https://www.facebook.com/permalink.php?story_fbid=pfbid0ABC&id=100044524445707&comment_id=123",
+            "https://www.facebook.com/p/Spotted-RADOM-100044524445707/"
+        )
+        self.assertEqual(link, "https://www.facebook.com/permalink.php?id=100044524445707&story_fbid=pfbid0ABC")
+
     def test_missing_story_id(self):
         self.assertIsNone(watch.canonical_link(
             "/story.php?fbclid=tracking", "https://www.facebook.com/page"))
