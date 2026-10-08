@@ -105,11 +105,26 @@ async def native_context(remote, **options):
         if not isinstance(state, dict):
             raise SteelFailure('STEEL_INVALID_PROFILE_STATE')
         if binding.get('hydrated'):
-            # A provider may return READY before every storage backend was
-            # captured. Restore only missing values from our encrypted backup;
-            # native values take precedence, including freshly rotated cookies.
+            # The default trusts newer-looking native data over the encrypted
+            # portable snapshot. For opted-in technical profiles only, trial
+            # portable precedence to diagnose inconsistent cookie/storage
+            # pairs after a provider-native restart. Never enable it for live
+            # social accounts without a separate end-to-end test.
+            import os as _aib_recovery_os
+            raw_policy = _aib_recovery_os.environ.get(
+                'AI_BROWSER_PORTABLE_PRIORITY_PROFILES', '')
+            if raw_policy:
+                profiles = [item.strip() for item in raw_policy.split(',')]
+                if (len(raw_policy) > 2048 or len(profiles) > 20 or
+                    any(not PROFILE_RE.fullmatch(name) for name in profiles)):
+                    raise SteelFailure('PROFILE_RECOVERY_POLICY_INVALID')
+            else:
+                profiles = []
+            prefer_portable = binding.get('profile') in profiles
             current = await context.storage_state(indexed_db=True)
-            merged = merge_profile_state(current, state)
+            merged = (merge_profile_state(state, current) if prefer_portable
+                      else merge_profile_state(current, state))
+            binding['portable_priority_used'] = prefer_portable
             if merged != current:
                 await context.set_storage_state(merged)
                 binding['backup_recovery_applied'] = True
@@ -334,6 +349,7 @@ def install(ns):
             'full_profile_persistence': bool(binding),
             'full_profile_restored': binding.get('hydrated', False),
             'backup_recovery_applied': binding.get('backup_recovery_applied', False),
+            'portable_priority_used': binding.get('portable_priority_used', False),
             'portable_backup': save_status.get(sid, {'ok': None}),
             'authentication': await auth_probe(session),
             'saved_login_configured': bool(os.environ.get('AI_BROWSER_CREDENTIALS_JSON', ''))})
