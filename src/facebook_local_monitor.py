@@ -29,7 +29,7 @@ PERMALINK = re.compile(
     r"/(?:posts|permalink|reel)/[a-zA-Z0-9_-]+"
     r"|/groups/[^/]+/(?:posts|permalink)/[a-zA-Z0-9_-]+"
     r"|/story\.php(?:\?|$)"
-    r"|/photo(?:\.php)?(?:\?|$)",
+    r"",
     re.I,
 )
 LOGIN_CUES = ("log into facebook", "zaloguj sie do facebooka",
@@ -62,10 +62,6 @@ def canonical_link(raw: str, base: str) -> str | None:
     if parsed.path.endswith("story.php"):
         query = [(k, v) for k, v in query if k in {"story_fbid", "id"}]
         if not any(k == "story_fbid" for k, _ in query):
-            return None
-    elif parsed.path.endswith("photo.php") or parsed.path.endswith("/photo"):
-        query = [(k, v) for k, v in query if k in {"fbid", "id"}]
-        if not query:
             return None
     else:
         query = []
@@ -146,7 +142,7 @@ def send_email(matches: list[dict], config: dict) -> bool:
         ])
     mail.set_content("\n".join(lines))
     host = os.environ["SMTP_HOST"]
-    port = int(os.environ.get("SMTP_PORT", "465"))
+    port = int(os.environ.get("SMTP_PORT") or "465")
     if port == 465:
         with smtplib.SMTP_SSL(host, port, timeout=20,
                               context=ssl.create_default_context()) as server:
