@@ -1,0 +1,38 @@
+name: One-time cleanup — cancel old vacation runs
+
+on:
+  push:
+    branches: [feature/facebook-local-monitor]
+    paths:
+      - ".github/workflows/cancel-vacation-queued.yml"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cancel-old-travel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Cancel only four verified queued legacy travel runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in 37655527814 37655506545 37655497718 37642347673; do
+            status=$(gh api "repos/$GH_REPO/actions/runs/$id" --jq '.status')
+            name=$(gh api "repos/$GH_REPO/actions/runs/$id" --jq '.name')
+            echo "Run $id status=$status name=$name"
+            case "$name" in
+              *"Sun & Fun"*|*"Prima Holiday"*|*"Travelplanet"*) ;;
+              *) echo "Unexpected workflow. Abort."; exit 1 ;;
+            esac
+            case "$status" in
+              queued|in_progress|waiting|pending)
+                gh api -X POST "repos/$GH_REPO/actions/runs/$id/cancel" >/dev/null && echo "CANCEL_REQUESTED $id" ;;
+              *) echo "SKIP_ALREADY_TERMINAL $id" ;;
+            esac
+          done
