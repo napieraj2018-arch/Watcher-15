@@ -93,8 +93,14 @@ def age_minutes(value: str) -> int | None:
         return 0
     if label in ("a day ago", "yesterday", "wczoraj"):
         return 24 * 60
-    if label == "an hour ago":
+    if label in ("a minute ago", "one minute ago"):
+        return 1
+    if label in ("an hour ago", "one hour ago"):
         return 60
+    if label in ("a week ago", "one week ago"):
+        return 10080
+    if label in ("a month ago", "one month ago"):
+        return 43200
     m = re.match(r"^(\d+)\s*(\S+)(?:\s+ago)?$", label)
     if not m:
         return None
@@ -318,7 +324,7 @@ async def run(args: argparse.Namespace) -> int:
                     newly_seen.append(ident)
                     category, score = classify(p["text"])
                     age = age_minutes(p.get("timestamp_text", ""))
-                    within_window = age is None or age <= int(config.get("max_alert_age_minutes", 120))
+                    within_window = age is not None and age <= int(config.get("max_alert_age_minutes", 120))
                     if category and within_window:
                         matches.append({**p, "source": result["source"],
                                         "category": category, "score": score})
@@ -340,9 +346,16 @@ async def run(args: argparse.Namespace) -> int:
     if args.probe:
         # A successful process is not proof that the sources are readable.
         return 0 if valid else 3
-    if not valid:
-        print("NO_ACCESS: no state saved; refusing to report an empty feed as success")
-        return 3
+    if valid < len(report):
+        from src.facebook_notify import notify_health_once
+        health_sent = notify_health_once(report)
+        print(f"MONITOR_DEGRADED: readable={valid}/{len(report)} "
+              f"health_alert={'sent_or_exists' if health_sent else 'unavailable'}")
+        if not valid:
+            # No baseline or dedup state saved when nothing was visible.
+            # The unique, assigned health issue is the durable outage signal;
+            # don't create an additional failed-run email every 15 minutes.
+            return 0 if health_sent else 3
     if first_run:
         # Baseline: do not alert on historic posts, but do mark them as seen.
         hashes.update(newly_seen)
