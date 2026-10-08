@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "purpose": "Bezpłatny monitoring lokalnych zapytań. Tylko odczyt; bez publikacji na Facebooku.",
+  "max_posts_per_source": 15,
+  "scan_interval_minutes": 15,
+  "sources": [
+    {
+      "id": "spotted_radom",
+      "name": "Spotted Radom",
+      "type": "facebook_page",
+      "url": "https://www.facebook.com/p/Spotted-RADOM-100044524445707/",
+      "enabled": true
+    },
+    {
+      "id": "nie_polecam_radom",
+      "name": "Nie/Polecam w Radomiu",
+      "type": "facebook_page",
+      "url": "https://www.facebook.com/polecamradom/",
+      "enabled": true
+    }
+  ]
+}
