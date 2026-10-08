@@ -55,3 +55,15 @@ Nie dotyka istniejacego Watcher-15 ani zadnych kont reklamowych.
 ## Wynik bazowego testu 2026-10-08
 
 18 testow logiki i adaptera MCP przeszlo. Playwright na GitHub Actions odczytal ekran \`login_required\` na obu stronach; 0 odczytanych postow. Dopiero poprawny test sesji Meta pozwoli podjac decyzje o uruchomieniu.
+
+
+## Wynik testu i rzeczywista gotowosc (08.10.2026)
+
+- Profil \`Meta - Maciej - Monitoring\` jest zapisany i \`cloud_persisted=true\`, ale po ponownym starcie Facebook pokazal \`Log into Facebook\`. W audycie poprzednia sesja zakonczyla sie przy \`two_step_verification\`. NIE uznawac go za zalogowany.
+- Mimo to strony \`Spotted Radom\` i \`Nie/Polecam w Radomiu\` pokazaly po jednym **publicznym podgladzie posta** bez logowania. Parser poprawiono tak, by odroznial dolny formularz logowania od rzeczywistego podgladu publikacji.
+- Linki \`permalink.php?story_fbid=...&id=...\` sa teraz rozpoznawane; link z opisu strony bez daty jest pomijany. Rzeczywiste polskie znaczniki czasu to \`14 godz.\` i \`1 dzien\`.
+- Test na GitHub Actions #37759410046 potwierdzil 24/24 testy oraz \`ok_public_preview posts=1\` dla kazdej strony. Test nie znalazl okazji zakupowych.
+- Publiczny podglad NIE jest pelnym feedem. Nie ma gwarancji ze kazdy nowy post czy komentarz pojawi sie w takiej formie.
+- Dodatkowy test dwukrotnego skanowania stanu \`FB_WATCH_STATE\` uruchomiono; wynik nalezy sprawdzic przed uruchomieniem produkcyjnym harmonogramu.
+- Powiadomienia: prywatna wiadomosc SMTP (wymaga GitHub secrets) LUB jawnie wlaczone GitHub Issue (w publicznym repo tylko kategoria i publiczny permalink). Testowe Issue #69 stworzono, by sprawdzic poczte GitHub.
+- Harmonogram 15-minutowy pozostaje **WYLACZONY**. Przed wdrozeniem potwierdzic kanaly powiadomien oraz zaktualizowac dokumenty i workflow na domyslnej galezi.
