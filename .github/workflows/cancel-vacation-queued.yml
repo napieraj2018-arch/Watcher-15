@@ -32,10 +32,10 @@ jobs:
             esac
             case "$status" in
               queued|in_progress|waiting|pending)
-                if gh api -X POST "repos/$GH_REPO/actions/runs/$id/force-cancel" >/dev/null; then
-                  echo "FORCE_CANCEL_REQUESTED $id"
+                if gh api -X DELETE "repos/$GH_REPO/actions/runs/$id" >/dev/null; then
+                  echo "DELETED_STALE_RUN $id"
                 else
-                  echo "GITHUB_API_REFUSED_CANCEL $id (orphaned queue; workflow file removed from main)"
+                  echo "GITHUB_API_REFUSED_DELETE $id"
                 fi ;;
               *) echo "SKIP_ALREADY_TERMINAL $id" ;;
             esac
