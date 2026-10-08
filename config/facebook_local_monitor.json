@@ -24,8 +24,8 @@
       "type": "facebook_group",
       "url": "https://www.facebook.com/groups/158171638326502/",
       "enabled": false,
-      "status": "login_required_in_cloud_browser",
-      "note": "Adres i grupa 63 tys. członków potwierdzone; test GitHub Actions 2026-10-08 #37765758813 zwrócił login_or_verification_required, 0 postów. Czeka na legalnie dostępną sesję."
+      "status": "login_required_in_github_actions",
+      "note": "Test GitHub Actions #37766528337 (08.10.2026): poprawna grupa publiczna, ale bez logowania Facebook przekierował do logowania; status login_or_verification_required, odczytano 0 postów. Źródło nie jest monitorowane."
     },
     {
       "id": "spotted_radom_grupa",
@@ -33,8 +33,8 @@
       "type": "facebook_group",
       "url": "https://www.facebook.com/groups/1886172518407420/",
       "enabled": false,
-      "status": "awaiting_access_test",
-      "note": "Dokładna grupa potwierdzona przez facebook.com/share/g/1Eeo2FjxtY; nie mylić ze stroną Spotted : RADOM ani grupą Spotted: Radom 67 tys."
+      "status": "login_required_in_github_actions",
+      "note": "Test GitHub Actions #37766528337 (08.10.2026): poprawna grupa publiczna, ale bez logowania Facebook przekierował do logowania; status login_or_verification_required, odczytano 0 postów. Źródło nie jest monitorowane."
     },
     {
       "id": "porady_weterynaryjne_grupa",
