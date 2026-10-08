@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "accounts": [
+    {
+      "account_id": "google-studio",
+      "workspace": "studio",
+      "service": "google",
+      "profile": "Google - Studio",
+      "entry_url": "https://myaccount.google.com/",
+      "allowed_origins": [
+        "https://myaccount.google.com"
+      ],
+      "identity": {
+        "kind": "email",
+        "expected": "studio@example.test"
+      },
+      "resource": null,
+      "previous_status": "not_tested"
+    },
+    {
+      "account_id": "instagram-clinic",
+      "workspace": "clinic",
+      "service": "instagram",
+      "profile": null,
+      "entry_url": "https://www.instagram.com/accounts/edit/",
+      "allowed_origins": [
+        "https://www.instagram.com"
+      ],
+      "identity": null,
+      "resource": null,
+      "previous_status": "mapping_required"
+    }
+  ]
+}
