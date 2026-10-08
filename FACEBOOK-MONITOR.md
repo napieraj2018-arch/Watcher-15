@@ -54,4 +54,4 @@ Nie dotyka istniejacego Watcher-15 ani zadnych kont reklamowych.
 
 ## Wynik bazowego testu 2026-10-08
 
-11 testow logiki przeszlo. Playwright na GitHub Actions odczytal ekran \`login_required\` na obu stronach; 0 odczytanych postow. Dopiero poprawny test sesji Meta pozwoli podjac decyzje o uruchomieniu.
+18 testow logiki i adaptera MCP przeszlo. Playwright na GitHub Actions odczytal ekran \`login_required\` na obu stronach; 0 odczytanych postow. Dopiero poprawny test sesji Meta pozwoli podjac decyzje o uruchomieniu.
