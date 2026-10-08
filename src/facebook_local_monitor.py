@@ -284,6 +284,11 @@ async def run(args: argparse.Namespace) -> int:
                                         "category": category, "score": score})
                 print(f"SOURCE {source['name']}: status={result['status']} "
                       f"posts={len(result['posts'])}")
+                if args.probe:
+                    for item in result["posts"][:3]:
+                        print(f"POST_METRIC source={source['id']} "
+                              f"time={item['timestamp_text']!r} "
+                              f"text_chars={len(item['text'])}")
             await context.close()
         finally:
             await browser.close()
