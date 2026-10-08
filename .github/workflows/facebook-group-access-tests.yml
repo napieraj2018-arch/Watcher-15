@@ -1,0 +1,26 @@
+name: Facebook Groups — access probe unit tests (no login)
+
+on:
+  push:
+    branches:
+      - feature/facebook-group-access-probe
+    paths:
+      - "src/facebook_group_access_probe.py"
+      - "tests/test_facebook_group_access.py"
+      - ".github/workflows/facebook-group-access-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run offline login and group-access tests
+        run: python -m unittest discover -s tests -p 'test_facebook_group_access.py' -v
