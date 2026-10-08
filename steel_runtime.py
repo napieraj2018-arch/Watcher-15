@@ -100,7 +100,10 @@ class Engine:
                 'useProxy': False,
                 'solveCaptcha': False,
                 'headless': False,
-                'dimensions': {'width': 1000, 'height': 700},
+                # The mobile-first service must retain one consistent device
+                # fingerprint across setup and later automated sessions.
+                'deviceConfig': {'device': 'mobile'},
+                'dimensions': {'width': 508, 'height': 1074},
             })
             returned_id = str(data.get('id', ''))
             if returned_id != remote_id:
