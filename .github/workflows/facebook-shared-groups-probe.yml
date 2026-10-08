@@ -1,0 +1,49 @@
+name: Test Facebook public groups — Spotted i RADOM-OGŁOSZENIA
+
+on:
+  push:
+    branches: [test/facebook-shared-groups-20261008]
+    paths:
+      - ".github/workflows/facebook-shared-groups-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fb-group-probe-20261008
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Chromium
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Prepare temporary config containing only two public groups
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          raw=json.loads(Path("config/facebook_local_monitor.json").read_text())
+          raw["sources"]=[dict(s,enabled=True) for s in raw["sources"] if s["id"] in ("spotted_radom_grupa","radom_ogloszenia_grupa")]
+          assert len(raw["sources"]) == 2
+          assert all(s["type"] == "facebook_group" for s in raw["sources"])
+          Path("/tmp/fb-groups-probe.json").write_text(json.dumps(raw))
+          PY
+      - name: Read-only probe; print only status/counts, never post content
+        shell: bash
+        run: |
+          set +e
+          python -u src/facebook_local_monitor.py --config /tmp/fb-groups-probe.json --probe
+          result=$?
+          set -e
+          echo "PROBE_RETURNED=$result (0=at least one readable, 3=none)"
+          exit 0
