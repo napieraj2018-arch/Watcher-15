@@ -1,7 +1,14 @@
-name: Facebook Radom Watcher — pilot 15 min
+name: Facebook Radom Watcher — 15 min (free)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/facebook_local_monitor.py"
+      - "src/facebook_notify.py"
+      - "config/facebook_local_monitor.json"
+      - ".github/workflows/facebook-local-monitor-15m.yml"
   schedule:
     - cron: "7,22,37,52 * * * *"
 
@@ -15,37 +22,20 @@ concurrency:
 
 jobs:
   check:
-    if: ${{ github.event_name == 'workflow_dispatch' || vars.FB_WATCH_ENABLED == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.FB_WATCH_ENABLED != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
       PYTHONUNBUFFERED: "1"
       FB_WATCH_STATE: ".fb-monitor/state.json"
-      GITHUB_TOKEN: ${{ github.token }}
-      FB_GITHUB_ISSUE_ALERTS: ${{ vars.FB_GITHUB_ISSUE_ALERTS }}
+      FB_GITHUB_ISSUE_ALERTS: "true"
       FB_GITHUB_ASSIGNEE: "napieraj2018-arch"
-      SMTP_HOST: ${{ secrets.FB_SMTP_HOST }}
-      SMTP_PORT: ${{ secrets.FB_SMTP_PORT }}
-      SMTP_USER: ${{ secrets.FB_SMTP_USER }}
-      SMTP_PASSWORD: ${{ secrets.FB_SMTP_PASSWORD }}
-      ALERT_TO: ${{ secrets.FB_ALERT_TO }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout only approved sources
+      - name: Checkout approved monitor code
         uses: actions/checkout@v4
 
-      - name: Verify that an alert channel is explicitly configured
-        id: readiness
-        shell: bash
-        run: |
-          if [ "$FB_GITHUB_ISSUE_ALERTS" = "true" ] || { [ -n "$SMTP_HOST" ] && [ -n "$SMTP_USER" ] && [ -n "$SMTP_PASSWORD" ] && [ -n "$ALERT_TO" ]; }; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Monitoring not enabled: configure a private SMTP route or opt into public GitHub Issue alerts."
-          fi
-
-      - name: Restore deduplication state
-        if: steps.readiness.outputs.ready == 'true'
+      - name: Restore historical post hashes
         uses: actions/cache/restore@v4
         with:
           path: ".fb-monitor/state.json"
@@ -54,13 +44,11 @@ jobs:
             facebook-public-v1-
 
       - name: Install Playwright Chromium for public page previews
-        if: steps.readiness.outputs.ready == 'true'
         run: |
           python -m pip install --disable-pip-version-check playwright==1.56.0
           python -m playwright install --with-deps chromium
 
-      - name: Read-only monitor (never clicks or comments on Facebook)
-        if: steps.readiness.outputs.ready == 'true'
+      - name: Check two public Radom sources (read-only)
         shell: bash
         run: |
           set +e
@@ -70,19 +58,18 @@ jobs:
           echo "$code" > .facebook_monitor_exit
           echo "MONITOR_EXIT_CODE=$code"
 
-      - name: Persist hashed links only
-        if: steps.readiness.outputs.ready == 'true' && hashFiles('.fb-monitor/state.json') != ''
+      - name: Save deduplication data (hashes only)
+        if: ${{ hashFiles('.fb-monitor/state.json') != '' }}
         uses: actions/cache/save@v4
         with:
           path: ".fb-monitor/state.json"
           key: facebook-public-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Report failure when sources or alerts do not work
-        if: steps.readiness.outputs.ready == 'true'
+      - name: Report failed checks
         shell: bash
         run: |
           code=$(cat .facebook_monitor_exit)
           if [ "$code" != 0 ]; then
-            echo "::error::Monitor failed or alert was not delivered. See source status above."
+            echo "::error::Facebook monitor did not complete; check readable-source and alert status above."
             exit "$code"
           fi
