@@ -295,8 +295,18 @@ def install(ns):
         const title = document.querySelector('h1');
         if (title) title.after(wrapper); else document.body.prepend(wrapper);
         button.addEventListener('click', async () => {
-          const capability = location.hash.slice(1);
-          if (!capability) { note.textContent = 'Brak uprawnienia. Otwórz oryginalny link do sesji.'; return; }
+          // The original mobile setup page deliberately removes the URL
+          // fragment after saving it in sessionStorage. Read its scoped key.
+          const setupPath = location.pathname.replace(/\\/$/, '');
+          let capability = location.hash.slice(1);
+          if (!capability) {
+            try { capability = sessionStorage.getItem('aib-setup:' + setupPath) || ''; }
+            catch (_) { capability = ''; }
+          }
+          if (!capability) {
+            note.textContent = 'Uprawnienie do sesji wygasło. Potrzebny będzie nowy link testowy.';
+            return;
+          }
           button.disabled = true;
           try {
             const base = location.pathname.replace(/\/$/, '');
