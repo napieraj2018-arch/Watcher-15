@@ -255,6 +255,77 @@ def install(ns):
     ns['_SETUP_HTML'] = ns['_SETUP_HTML'].replace(
         'AI Browser · logowanie', 'AI Browser · logowanie · Steel')
 
+    # Display a signed-in dashboard viewer, NOT a public Steel debugUrl. The
+    # server verifies the short-lived mobile setup capability before returning
+    # a link to the matching session. No API token is exposed to the browser.
+    async def steel_viewer(request):
+        setup = ns['_setup_record'](request)
+        if not setup:
+            return JSONResponse({'error': 'unauthorized'}, status_code=401, headers=HEADERS)
+        session = manager._sessions.get(setup.get('session_id'))
+        remote = getattr(session, 'browser', None)
+        if not isinstance(remote, RemoteBrowser) or remote.closed:
+            return JSONResponse({'error': 'session_not_active'}, status_code=410, headers=HEADERS)
+        return JSONResponse({
+            'viewer_url': 'https://app.steel.dev/sessions/' + remote.remote_id,
+            'requires_steel_login': True,
+        }, headers={**HEADERS, 'referrer-policy': 'no-referrer',
+                    'x-content-type-options': 'nosniff'})
+
+    mcp.custom_route('/setup/{setup_id}/steel-viewer', methods=['GET'])(steel_viewer)
+
+    # The current image-based panel stays available as a fallback for all
+    # existing workflows. Only a separate, opt-in live-view button is added.
+    viewer_control = r'''<script>
+    (() => {
+      "use strict";
+      function mountSteelViewer() {
+        if (document.getElementById('aib-steel-live-btn')) return;
+        const wrapper = document.createElement('section');
+        wrapper.style.cssText = 'margin:12px 20px;padding:12px;border-radius:14px;background:#14223b;color:white;';
+        const button = document.createElement('button');
+        button.id = 'aib-steel-live-btn';
+        button.type = 'button';
+        button.textContent = 'Płynny podgląd Steel — otwórz na żywo';
+        button.style.cssText = 'width:100%;padding:14px 10px;background:#4970e4;color:white;border:0;border-radius:10px;font:600 16px -apple-system,Arial,sans-serif;cursor:pointer;';
+        const note = document.createElement('p');
+        note.style.cssText = 'font-size:13px;line-height:1.4;margin:8px 0 0;color:#ccd5ec;';
+        note.textContent = 'Widok bez opóźnionych zrzutów. Wymaga logowania do Twojego Steel; wróć tutaj, aby zapisać profil.';
+        wrapper.append(button,note);
+        const title = document.querySelector('h1');
+        if (title) title.after(wrapper); else document.body.prepend(wrapper);
+        button.addEventListener('click', async () => {
+          const capability = location.hash.slice(1);
+          if (!capability) { note.textContent = 'Brak uprawnienia. Otwórz oryginalny link do sesji.'; return; }
+          button.disabled = true;
+          try {
+            const base = location.pathname.replace(/\/$/, '');
+            const response = await fetch(base + '/steel-viewer', {
+              cache:'no-store', credentials:'same-origin',
+              headers: { 'x-setup-capability': capability, 'accept': 'application/json' }
+            });
+            if (!response.ok) throw new Error('viewer_unavailable');
+            const data = await response.json();
+            const url = new URL(data.viewer_url);
+            if (url.protocol !== 'https:' || url.hostname !== 'app.steel.dev'
+                || !/^\/sessions\/[0-9a-fA-F-]{36}$/.test(url.pathname)
+                || url.search || url.hash) throw new Error('invalid_viewer_url');
+            location.assign(url.href);
+          } catch (_) {
+            note.textContent = 'Nie można otworzyć podglądu. Sesja mogła wygasnąć. Użyj dotychczasowego panelu.';
+            button.disabled = false;
+          }
+        });
+      }
+      if (document.readyState === 'loading')
+        document.addEventListener('DOMContentLoaded', mountSteelViewer, {once:true});
+      else mountSteelViewer();
+    })();
+    </script>'''
+    html = ns['_SETUP_HTML']
+    idx = html.lower().rfind('</body>')
+    ns['_SETUP_HTML'] = html[:idx] + viewer_control + html[idx:] if idx >= 0 else html + viewer_control
+
     async def health(_request):
         return JSONResponse({'status': 'ok', 'runtime': 'steel', 'version': VERSION,
             'key_configured': bool(os.environ.get('STEEL_API_KEY', '').strip()),
