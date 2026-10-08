@@ -48,6 +48,9 @@ jobs:
           python -m pip install --disable-pip-version-check playwright==1.56.0
           python -m playwright install --with-deps chromium
 
+      - name: Verify Polish lead classification without using Facebook
+        run: python -m unittest discover -s tests -p "test_facebook_local_monitor.py" -v
+
       - name: Check two public Radom sources (read-only)
         shell: bash
         run: |
