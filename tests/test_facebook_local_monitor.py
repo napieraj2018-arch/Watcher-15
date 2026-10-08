@@ -50,6 +50,15 @@ class WatcherUnitTests(unittest.TestCase):
         )
         self.assertEqual(link, "https://www.facebook.com/permalink.php?id=100044524445707&story_fbid=pfbid0ABC")
 
+    def test_post_timestamp_vs_intro_link(self):
+        self.assertTrue(watch.is_time_label("14h"))
+        self.assertTrue(watch.is_time_label("1d"))
+        self.assertTrue(watch.is_time_label("a day ago"))
+        self.assertTrue(watch.is_time_label("Oct 8"))
+        self.assertFalse(watch.is_time_label("https://www.facebook.com/permalink.php?story_fbid=123"))
+        self.assertFalse(watch.is_time_label("Reels"))
+        self.assertFalse(watch.is_time_label(""))
+
     def test_missing_story_id(self):
         self.assertIsNone(watch.canonical_link(
             "/story.php?fbclid=tracking", "https://www.facebook.com/page"))
