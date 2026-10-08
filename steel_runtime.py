@@ -255,9 +255,10 @@ def install(ns):
     ns['_SETUP_HTML'] = ns['_SETUP_HTML'].replace(
         'AI Browser · logowanie', 'AI Browser · logowanie · Steel')
 
-    # Display a signed-in dashboard viewer, NOT a public Steel debugUrl. The
-    # server verifies the short-lived mobile setup capability before returning
-    # a link to the matching session. No API token is exposed to the browser.
+    # The live player uses WebRTC; the dashboard URL only shows session traces.
+    # Steel's player URL itself grants interactive browser access. Release it
+    # solely through the existing short-lived setup capability, no-store headers,
+    # and an exact, server-generated URL. Never include an API key or credential.
     async def steel_viewer(request):
         setup = ns['_setup_record'](request)
         if not setup:
@@ -266,9 +267,11 @@ def install(ns):
         remote = getattr(session, 'browser', None)
         if not isinstance(remote, RemoteBrowser) or remote.closed:
             return JSONResponse({'error': 'session_not_active'}, status_code=410, headers=HEADERS)
+        # sessionId is generated with uuid4 during launch; do not accept input
+        # from the web page as a session identifier.
         return JSONResponse({
-            'viewer_url': 'https://app.steel.dev/sessions/' + remote.remote_id,
-            'requires_steel_login': True,
+            'viewer_url': 'https://api.steel.dev/v1/sessions/' + remote.remote_id + '/player?interactive=true',
+            'requires_steel_login': False,
         }, headers={**HEADERS, 'referrer-policy': 'no-referrer',
                     'x-content-type-options': 'nosniff'})
 
@@ -290,7 +293,7 @@ def install(ns):
         button.style.cssText = 'width:100%;padding:14px 10px;background:#4970e4;color:white;border:0;border-radius:10px;font:600 16px -apple-system,Arial,sans-serif;cursor:pointer;';
         const note = document.createElement('p');
         note.style.cssText = 'font-size:13px;line-height:1.4;margin:8px 0 0;color:#ccd5ec;';
-        note.textContent = 'Widok bez opóźnionych zrzutów. Wymaga logowania do Twojego Steel; wróć tutaj, aby zapisać profil.';
+        note.textContent = 'Obraz WebRTC na żywo, bez odświeżanych zdjęć. Wróć strzałką, aby zapisać profil. Nie udostępniaj linku transmisji.';
         wrapper.append(button,note);
         const title = document.querySelector('h1');
         if (title) title.after(wrapper); else document.body.prepend(wrapper);
@@ -317,9 +320,10 @@ def install(ns):
             if (!response.ok) throw new Error('viewer_unavailable');
             const data = await response.json();
             const url = new URL(data.viewer_url);
-            if (url.protocol !== 'https:' || url.hostname !== 'app.steel.dev'
-                || !/^\/sessions\/[0-9a-fA-F-]{36}$/.test(url.pathname)
-                || url.search || url.hash) throw new Error('invalid_viewer_url');
+            if (url.protocol !== 'https:' || url.hostname !== 'api.steel.dev'
+                || !/^\/v1\/sessions\/[0-9a-fA-F-]{36}\/player$/.test(url.pathname)
+                || url.searchParams.toString() !== 'interactive=true'
+                || url.hash) throw new Error('invalid_viewer_url');
             location.assign(url.href);
           } catch (_) {
             note.textContent = 'Nie można otworzyć podglądu. Sesja mogła wygasnąć. Użyj dotychczasowego panelu.';
