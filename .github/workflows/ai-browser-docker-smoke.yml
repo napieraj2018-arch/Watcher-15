@@ -1,0 +1,28 @@
+name: AI Browser production Docker smoke test
+on:
+  push:
+    branches:
+      - ai-browser-cloud
+    paths:
+      - "Dockerfile"
+      - "bootstrap.py"
+      - "steel_context_fix.py"
+      - "test_portable_precedence.py"
+      - ".github/workflows/ai-browser-docker-smoke.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-without-secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the actual production container and run embedded tests
+        run: docker build --progress=plain --tag ai-browser-ci .
+      - name: Confirm both code modules exist without starting private services
+        run: >
+          docker run --rm --entrypoint python ai-browser-ci
+          -c "import pathlib; assert pathlib.Path('/app/capability_guard.py').is_file();
+          assert pathlib.Path('/app/steel_context_fix.py').is_file();
+          print('STAGED_MODULES_PRESENT')"
