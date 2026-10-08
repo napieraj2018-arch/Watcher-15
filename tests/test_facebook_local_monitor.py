@@ -52,6 +52,9 @@ class WatcherUnitTests(unittest.TestCase):
 
     def test_post_timestamp_vs_intro_link(self):
         self.assertTrue(watch.is_time_label("14h"))
+        self.assertTrue(watch.is_time_label("14 godz."))
+        self.assertTrue(watch.is_time_label("1 dzień"))
+        self.assertTrue(watch.is_time_label("20 minut"))
         self.assertTrue(watch.is_time_label("1d"))
         self.assertTrue(watch.is_time_label("a day ago"))
         self.assertTrue(watch.is_time_label("Oct 8"))
