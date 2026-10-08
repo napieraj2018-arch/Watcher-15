@@ -6,18 +6,41 @@
   "sources": [
     {
       "id": "spotted_radom",
-      "name": "Spotted Radom",
+      "name": "Spotted : RADOM (strona)",
       "type": "facebook_page",
       "url": "https://www.facebook.com/p/Spotted-RADOM-100044524445707/",
       "enabled": true
     },
     {
       "id": "nie_polecam_radom",
-      "name": "Nie/Polecam w Radomiu",
+      "name": "Nie/Polecam w Radomiu (strona)",
       "type": "facebook_page",
       "url": "https://www.facebook.com/polecamradom/",
       "enabled": true
+    },
+    {
+      "id": "radom_ogloszenia_grupa",
+      "name": "RADOM-OGŁOSZENIA (grupa publiczna, ~63 tys.)",
+      "type": "facebook_group",
+      "url": "https://www.facebook.com/groups/158171638326502/",
+      "enabled": true
     }
   ],
-  "max_alert_age_minutes": 120
+  "max_alert_age_minutes": 120,
+  "pending_sources": [
+    {
+      "id": "spotted_radom_grupa",
+      "name": "Spotted Radom (grupa publiczna, ~21,1 tys.)",
+      "type": "facebook_group",
+      "url": null,
+      "reason": "Na zrzucie widoczna grupa, ale jej dokładny Facebook group ID nie został potwierdzony; nie jest to Spotted: Radom 67 tys."
+    },
+    {
+      "id": "porady_weterynaryjne_grupa",
+      "name": "PORADY WETERYNARYJNE (grupa)",
+      "type": "facebook_group",
+      "url": null,
+      "reason": "Zrzut pokazuje wpis w grupie, lecz brak jednoznacznego URL/ID; nie dodajemy przypadkowej grupy o podobnej nazwie."
+    }
+  ]
 }
