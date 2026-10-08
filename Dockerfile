@@ -6,5 +6,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY bootstrap.py /app/bootstrap.py
 COPY entrypoint.py /app/entrypoint.py
 COPY steel_runtime.py /app/steel_runtime.py
+RUN python -m py_compile /app/bootstrap.py /app/entrypoint.py /app/steel_runtime.py && python -c "import httpx, starlette; import steel_runtime"
 EXPOSE 10000
-CMD ["python", "/app/entrypoint.py"]
+CMD ["sh", "-c", "if [ \"$AI_BROWSER_ENGINE\" = \"steel\" ]; then exec python /app/bootstrap.py; else exec python /app/entrypoint.py; fi"]
