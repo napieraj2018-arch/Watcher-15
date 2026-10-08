@@ -84,6 +84,38 @@ def is_time_label(value: str) -> bool:
     return False
 
 
+def age_minutes(value: str) -> int | None:
+    """Approximate relative age from a visible Facebook timestamp.
+    Calendar dates are deliberately unknown (None), not guessed.
+    """
+    label = simplify(value.strip()).rstrip(" .")
+    if label in ("just now", "przed chwila"):
+        return 0
+    if label in ("a day ago", "yesterday", "wczoraj"):
+        return 24 * 60
+    if label == "an hour ago":
+        return 60
+    m = re.match(r"^(\d+)\s*(\S+)(?:\s+ago)?$", label)
+    if not m:
+        return None
+    number = int(m.group(1))
+    unit = m.group(2).rstrip(".")
+    if unit in ("s", "sec", "sek", "sekund"):
+        return max(0, number // 60)
+    if unit in ("m", "min", "mins", "minut", "minuta", "minuty"):
+        return number
+    if unit in ("h", "hr", "hrs", "hour", "hours",
+                "godz", "godzin", "godziny"):
+        return number * 60
+    if unit in ("d", "day", "days", "dzien", "dni"):
+        return number * 24 * 60
+    if unit in ("w", "week", "weeks", "tyg", "tydzien", "tygodnie"):
+        return number * 7 * 24 * 60
+    if unit in ("y", "year", "years"):
+        return number * 365 * 24 * 60
+    return None
+
+
 def classify(text: str) -> tuple[str | None, int]:
     t = simplify(text)
     if len(t) < 15:
@@ -285,7 +317,9 @@ async def run(args: argparse.Namespace) -> int:
                         continue
                     newly_seen.append(ident)
                     category, score = classify(p["text"])
-                    if category:
+                    age = age_minutes(p.get("timestamp_text", ""))
+                    within_window = age is None or age <= int(config.get("max_alert_age_minutes", 120))
+                    if category and within_window:
                         matches.append({**p, "source": result["source"],
                                         "category": category, "score": score})
                 print(f"SOURCE {source['name']}: status={result['status']} "
