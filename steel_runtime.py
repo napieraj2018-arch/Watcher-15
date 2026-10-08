@@ -297,7 +297,7 @@ def install(ns):
         button.addEventListener('click', async () => {
           // The original mobile setup page deliberately removes the URL
           // fragment after saving it in sessionStorage. Read its scoped key.
-          const setupPath = location.pathname.replace(/\\/$/, '');
+          const setupPath = location.pathname.endsWith('/') ? location.pathname.slice(0, -1) : location.pathname;
           let capability = location.hash.slice(1);
           if (!capability) {
             try { capability = sessionStorage.getItem('aib-setup:' + setupPath) || ''; }
