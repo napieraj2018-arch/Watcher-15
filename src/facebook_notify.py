@@ -83,3 +83,53 @@ def notify_via_github(matches: list[dict]) -> bool:
             print(f"GITHUB_ALERT_POST_ERROR type={type(exc).__name__}")
             return False
     return True
+
+
+def notify_health_once(report: list[dict]) -> bool:
+    """One public, owner-assigned notice for an unavailable Facebook source.
+
+    The issue does not reveal scraped text, visitor identity or browser secrets.
+    It stays open after recovery to avoid a new email after every transient failure.
+    """
+    if os.environ.get("FB_GITHUB_ISSUE_ALERTS") != "true":
+        print("HEALTH_ALERTS_DISABLED")
+        return False
+    token = os.environ.get("GITHUB_TOKEN", "")
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if not token or not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
+        print("HEALTH_ALERTS_MISSING_AUTH")
+        return False
+    base = f"https://api.github.com/repos/{repo}"
+    try:
+        issues = request_json("GET", base + "/issues?state=open&per_page=100", token)
+        if any("<!-- fbwatch:health-v1 -->" in (item.get("body") or "")
+               for item in issues if isinstance(item, dict)):
+            print("HEALTH_ALERT_ALREADY_EXISTS")
+            return True
+        assignee = os.environ.get("FB_GITHUB_ASSIGNEE", repo.split("/")[0])
+        names = []
+        for item in report:
+            if not str(item.get("status", "")).startswith("ok"):
+                safe_name = str(item.get("source", "Facebook"))[:70]
+                safe_status = re.sub(r"[^a-z_0-9]", "_",
+                                     str(item.get("status", "error")).lower())[:60]
+                names.append(f"- {safe_name}: {safe_status}")
+        body = (
+            "Facebook Watcher nie mogl odczytac wszystkich skonfigurowanych stron. "
+            "To alarm o jakosci monitoringu, NIE stwierdzenie, ze brak nowych wpisow.\n\n"
+            + "\n".join(names)
+            + "\n\nSprawdz dziennik wykonania GitHub Actions. "
+              "Facebook czasem pokazuje tylko pojedyncze publiczne posty.\n\n"
+            + f"Powiadomienie dla @{assignee}\n\n"
+              "<!-- fbwatch:health-v1 -->"
+        )
+        result = request_json("POST", base + "/issues", token, {
+            "title": "[FB Watch] Uwaga: czesc zrodel nieczytelna",
+            "body": body,
+            "assignees": [assignee],
+        })
+        print(f"HEALTH_ALERT_CREATED issue={result.get('number', 'unknown')}")
+        return True
+    except Exception as exc:
+        print(f"HEALTH_ALERT_FAILURE type={type(exc).__name__}")
+        return False
