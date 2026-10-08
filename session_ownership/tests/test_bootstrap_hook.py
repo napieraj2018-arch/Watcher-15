@@ -10,7 +10,7 @@ class BootstrapHookTests(unittest.TestCase):
         ast.parse((ROOT/"bootstrap.py").read_text(encoding="utf-8"))
     def test_guard_has_explicit_opt_in_and_is_off_by_default(self):
         text=(ROOT/"bootstrap.py").read_text(encoding="utf-8")
-        self.assertIn('AI_BROWSER_SESSION_GUARD", "0"',text)
+        self.assertIn("AI_BROWSER_SESSION_GUARD', '0'",text)
         self.assertIn('from capability_guard import install as _install_capability_guard',text)
         self.assertIn('_install_capability_guard(globals())',text)
     def test_guard_installed_after_error_reporting(self):
