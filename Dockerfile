@@ -10,6 +10,8 @@ COPY steel_context_fix.py /app/steel_context_fix.py
 COPY auth_status_v052.py /app/auth_status_v052.py
 COPY test_auth_status_052.py /app/test_auth_status_052.py
 COPY test_profile_recovery_051.py /app/test_profile_recovery_051.py
-RUN python -m py_compile /app/bootstrap.py /app/entrypoint.py /app/steel_runtime.py /app/steel_context_fix.py /app/auth_status_v052.py && python -c "import httpx, starlette, steel_runtime, steel_context_fix, auth_status_v052; from playwright.async_api import BrowserContext; assert hasattr(BrowserContext, 'set_storage_state')" && python /app/test_auth_status_052.py && python /app/test_profile_recovery_051.py
+COPY mcp_error_reporting.py /app/mcp_error_reporting.py
+COPY test_mcp_error_reporting.py /app/test_mcp_error_reporting.py
+RUN python -m py_compile /app/bootstrap.py /app/entrypoint.py /app/steel_runtime.py /app/steel_context_fix.py /app/auth_status_v052.py /app/mcp_error_reporting.py && python -c "import httpx, starlette, steel_runtime, steel_context_fix, auth_status_v052, mcp_error_reporting; from mcp.server.mcpserver.exceptions import ToolError; from playwright.async_api import BrowserContext; assert hasattr(BrowserContext, 'set_storage_state')" && python /app/test_auth_status_052.py && python /app/test_profile_recovery_051.py && python /app/test_mcp_error_reporting.py
 EXPOSE 10000
 CMD ["sh", "-c", "if [ \"$AI_BROWSER_ENGINE\" = \"steel\" ]; then exec python /app/bootstrap.py; else exec python /app/entrypoint.py; fi"]
