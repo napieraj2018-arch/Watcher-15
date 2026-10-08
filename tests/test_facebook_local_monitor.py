@@ -62,6 +62,14 @@ class WatcherUnitTests(unittest.TestCase):
         self.assertFalse(watch.is_time_label("Reels"))
         self.assertFalse(watch.is_time_label(""))
 
+    def test_recent_post_age(self):
+        self.assertEqual(watch.age_minutes("14 godz."), 840)
+        self.assertEqual(watch.age_minutes("1 dzień"), 1440)
+        self.assertEqual(watch.age_minutes("15 min"), 15)
+        self.assertEqual(watch.age_minutes("2h"), 120)
+        self.assertEqual(watch.age_minutes("wczoraj"), 1440)
+        self.assertIsNone(watch.age_minutes("Oct 8"))
+
     def test_missing_story_id(self):
         self.assertIsNone(watch.canonical_link(
             "/story.php?fbclid=tracking", "https://www.facebook.com/page"))
