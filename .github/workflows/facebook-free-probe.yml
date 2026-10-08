@@ -1,0 +1,69 @@
+name: Facebook — darmowy test odczytu 2 stron
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/facebook-free-probe.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: facebook-free-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Test public page access without Facebook login
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          import urllib.request
+          import urllib.error
+          import xml.etree.ElementTree as ET
+
+          targets = {
+              "Spotted RADOM - public page": "https://www.facebook.com/p/Spotted-RADOM-100044524445707/",
+              "Nie-Polecam w Radomiu - public page": "https://www.facebook.com/polecamradom/",
+              "Spotted RADOM - public RSSHub": "https://rsshub.app/facebook/page/100044524445707",
+              "Nie-Polecam - public RSSHub": "https://rsshub.app/facebook/page/polecamradom",
+          }
+          headers = {
+              "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.7",
+          }
+          for name, url in targets.items():
+              try:
+                  request = urllib.request.Request(url, headers=headers)
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      content_type = response.headers.get("Content-Type", "")
+                      final_url = response.geturl()
+                      raw = response.read(1500000)
+                      body = raw.decode("utf-8", errors="replace")
+                      post_link_count = len(set(re.findall(
+                          r'(?:/posts/|/permalink/|/story\\.php|/reel/)[^"\\s<>]*',
+                          body,
+                      )))
+                      login_wall = any(x in body.lower() for x in [
+                          "log into facebook", "zaloguj się do facebooka",
+                          "login.php?next", "login to facebook",
+                      ])
+                      items = len(re.findall(r'<item(?:\\s|>)', body))
+                      is_feed = ("xml" in content_type or "<rss" in body[:2000] or "<feed" in body[:2000])
+                      print(f"{name}: status={response.status} bytes={len(raw)} post_links={post_link_count} feed_items={items} is_feed={is_feed} login_wall={login_wall} redirect_host={urllib.parse.urlparse(final_url).hostname}")
+                      if is_feed:
+                          try:
+                              root = ET.fromstring(body)
+                              print(f"  XML parsed, root={root.tag}, entries={len(root.findall('.//item')) + len(root.findall('.//{http://www.w3.org/2005/Atom}entry'))}")
+                          except ET.ParseError:
+                              print("  XML parse failed")
+              except urllib.error.HTTPError as exc:
+                  print(f"{name}: HTTP={exc.code} - unavailable")
+              except Exception as exc:
+                  print(f"{name}: request_failed={type(exc).__name__}")
+          PY
