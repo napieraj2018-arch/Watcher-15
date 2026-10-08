@@ -1,0 +1,75 @@
+name: Facebook Radom Watcher — 15 min (free)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/facebook_local_monitor.py"
+      - "src/facebook_notify.py"
+      - "config/facebook_local_monitor.json"
+      - ".github/workflows/facebook-local-monitor-15m.yml"
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: facebook-local-monitor-production
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.FB_WATCH_ENABLED != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONUNBUFFERED: "1"
+      FB_WATCH_STATE: ".fb-monitor/state.json"
+      FB_GITHUB_ISSUE_ALERTS: "true"
+      FB_GITHUB_ASSIGNEE: "napieraj2018-arch"
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout approved monitor code
+        uses: actions/checkout@v4
+
+      - name: Restore historical post hashes
+        uses: actions/cache/restore@v4
+        with:
+          path: ".fb-monitor/state.json"
+          key: facebook-public-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            facebook-public-v1-
+
+      - name: Install Playwright Chromium for public page previews
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.56.0
+          python -m playwright install --with-deps chromium
+
+      - name: Check two public Radom sources (read-only)
+        shell: bash
+        run: |
+          set +e
+          python -u -m src.facebook_local_monitor
+          code=$?
+          set -e
+          echo "$code" > .facebook_monitor_exit
+          echo "MONITOR_EXIT_CODE=$code"
+
+      - name: Save deduplication data (hashes only)
+        if: ${{ hashFiles('.fb-monitor/state.json') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ".fb-monitor/state.json"
+          key: facebook-public-v1-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Report failed checks
+        shell: bash
+        run: |
+          code=$(cat .facebook_monitor_exit)
+          if [ "$code" != 0 ]; then
+            echo "::error::Facebook monitor did not complete; check readable-source and alert status above."
+            exit "$code"
+          fi
