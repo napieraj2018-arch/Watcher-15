@@ -31,6 +31,11 @@ jobs:
         run: python -m playwright install --with-deps chromium
       - name: Test automatic open and queue through real Chromium
         run: python -m unittest discover -s ux/connected/tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install local axe-core for browser accessibility tests
+        run: npm install --no-save --no-package-lock axe-core@4.10.3
       - name: Re-run original mobile interaction regressions
         run: python -m unittest discover -s ux/mobile/tests -v
       - name: Re-run tenant-aware broker regressions
