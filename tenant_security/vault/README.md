@@ -41,6 +41,24 @@ Workflow `.github/workflows/tenant-rls-ci.yml` runs in order:
 The encrypted fixtures are intentionally synthetic and do not contain actual
 cookies or localStorage.
 
+## Verified server-side storage adapter
+
+`service.py` is an **internal-only** service without HTTP routes. It runs
+an independently bound tenant vault-role connection, verifies
+`authenticated_tenant()`, seals raw bytes with AES-GCM locally, invokes the
+atomic database append function and returns a revision **only after COMMIT**.
+A mismatched role, revoked login, stale version, failed COMMIT or tampered
+ciphertext produces a fixed, non-sensitive error. The BFF user-facing role
+cannot select or write encrypted profile bytes.
+
+The integrated CI suite currently contains **43 BFF/queue tests and
+58 encrypted-vault/adapter tests**, plus SQL policy/queue proof and
+independent 16-connection races. Latest known passing run:
+https://github.com/napieraj2018-arch/Watcher-15/actions/runs/37990116214
+
+These results are CI test evidence, **not** independent acceptance or
+proof of operation against real browser profiles.
+
 ## STILL BLOCKED before commercial launch
 
 1. Actual multi-tenant identity provider and customer session issuance.
