@@ -38,8 +38,11 @@ class DemoMobileWebKit(unittest.TestCase):
         self.errors=[]
         self.network=[]
         self.console_errors=[]
+        self.api_responses=[]
         self.page.on("request",lambda req:self.bad_requests.append(req.url)
                      if not req.url.startswith(self.base) else None)
+        self.page.on("response",lambda resp:self.api_responses.append(resp)
+                     if "/_demo/api/open" in resp.url else None)
         self.page.on("response",lambda resp:self.network.append({
             "path":resp.url.partition(self.base)[2].split("?")[0],
             "status":resp.status
@@ -81,8 +84,15 @@ class DemoMobileWebKit(unittest.TestCase):
                 csp:document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content,
                 domain:document.querySelector('#page-domain')?.textContent
             })""")
+            responses=[]
+            for resp in self.api_responses[-3:]:
+                try:
+                    responses.append({"status":resp.status,"body":resp.text()[:110]})
+                except Exception:
+                    responses.append({"status":resp.status,"body":"unavailable"})
             raise AssertionError("WEBKIT_DEMO_STATE "+repr(state)+" page_errors="+repr(self.errors)
-                                 +" http="+repr(self.network[-9:])+" console="+repr(self.console_errors[-5:])) from exc
+                                 +" http="+repr(self.network[-9:])+" api="+repr(responses)
+                                 +" console="+repr(self.console_errors[-5:])) from exc
 
     def switch(self,name):
         self.page.locator("#workspace-switch").click()
