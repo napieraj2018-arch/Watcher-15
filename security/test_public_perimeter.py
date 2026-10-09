@@ -53,12 +53,14 @@ class PublicPerimeterTests(unittest.TestCase):
         code, text = request(ENGINE + "/health/context")
         self.assertEqual(code, 200, "PUBLIC_HEALTH_NOT_AVAILABLE")
         data = json.loads(text)
-        self.assertEqual(data.get("status"), "ok")
+        self.assertIn(data.get("status"), {"ok", "degraded"})
         self.assertEqual(data.get("runtime"), "steel")
+        self.assertEqual(set(data), {"status", "runtime", "version"})
         serialized = json.dumps(data).lower()
         for forbidden in ("secret", "bearer ", "private_key", "master_key", "access_token", "refresh_token", "cookie", "password_value", "profile_state"):
             self.assertNotIn(forbidden, serialized, "HEALTH_RESPONSE_MUST_NOT_REVEAL_SECRETS")
-        self.assertIsInstance(data.get("credentials_configured"), bool)
+        for private_key in ("credentials_configured", "native_profiles", "controller_memory", "local_chrome_processes", "context_mode"):
+            self.assertNotIn(private_key, data)
 
     def test_liveness_has_no_public_profile_list(self):
         code, text = request(ENGINE + "/health/context")

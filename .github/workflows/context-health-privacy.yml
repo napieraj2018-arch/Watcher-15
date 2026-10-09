@@ -1,0 +1,24 @@
+name: AI Browser context health privacy
+on:
+  push:
+    branches:
+      - context-health-privacy-20261010
+    paths:
+      - "steel_context_fix.py"
+      - "test_context_health_private.py"
+      - "security/test_public_perimeter.py"
+      - "Dockerfile"
+      - ".github/workflows/context-health-privacy.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  docker-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build actual production Docker image and run all unit regressions
+        run: docker build --progress=plain -t aib-context-private .
+      - name: Test public and private context responses offline
+        run: docker run --rm --entrypoint python aib-context-private /app/test_context_health_private.py
