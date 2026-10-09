@@ -71,7 +71,7 @@ a{color:var(--primary)}.app{min-height:100dvh;display:grid;grid-template-columns
 .mobile-profile .profile-logo{width:29px;height:29px;border-radius:9px;font-size:13px}
 .browser{border-radius:0;box-shadow:none;border-left:0;border-right:0;min-height:calc(100dvh - 235px)}
 .browser-top{padding:8px 12px 12px}.tabs{display:none}.address-row{margin:0;gap:5px}.address-row .desktop-nav{display:none}
-.address-field{min-height:46px;border-radius:12px}.site{padding:24px 24px;min-height:calc(100dvh - 325px)}.window-icon{width:69px;height:69px;border-radius:21px}.site h2{font-size:22px}.site p{font-size:13px}
+.address-field{min-height:46px;border-radius:12px}.address-field input{font-size:16px}.site{padding:24px 24px;min-height:calc(100dvh - 325px)}.window-icon{width:69px;height:69px;border-radius:21px}.site h2{font-size:22px}.site p{font-size:13px}
 .window-bottom{min-height:48px;padding:10px 18px}.tip{margin:13px 14px;border-radius:12px;padding:13px}
 .bottom-bar{position:fixed;z-index:11;bottom:0;left:0;right:0;display:flex;align-items:center;justify-content:space-around;gap:2px;background:#fff;border-top:1px solid #dbe3ef;padding:8px 11px calc(8px + env(safe-area-inset-bottom));box-shadow:0 -5px 20px #223c6410}
 .bottom-bar .icon-button{width:51px;height:49px;min-width:47px;min-height:49px}
@@ -124,7 +124,7 @@ a{color:var(--primary)}.app{min-height:100dvh;display:grid;grid-template-columns
 <button type="button" class="icon-button desktop-nav" data-action="back" aria-label="Wstecz" title="Wstecz"><svg><use href="#i-left"/></svg></button>
 <button type="button" class="icon-button desktop-nav" data-action="forward" aria-label="Dalej" title="Dalej"><svg><use href="#i-right"/></svg></button>
 <button type="button" class="icon-button desktop-nav" data-action="reload" aria-label="Odśwież" title="Odśwież"><svg><use href="#i-reload"/></svg></button>
-<form id="address-form" class="address-field" autocomplete="off">
+<form id="address-form" class="address-field" autocomplete="off" novalidate>
 <svg><use href="#i-lock"/></svg><input id="address" aria-label="Adres strony" type="url" inputmode="url" autocapitalize="none" spellcheck="false" value="https://example.com/" required placeholder="Wpisz adres strony">
 </form>
 <button type="button" class="icon-button" data-action="more" aria-label="Więcej opcji" title="Więcej"><svg><use href="#i-more"/></svg></button>
@@ -206,8 +206,8 @@ function switchProfile(id){if(!profile(id))return;activeProfile=id;const tab=cur
 function navigateTo(value){
  let raw=value.trim();if(!raw)return;
  if(!/^https?:\/\//i.test(raw))raw="https://"+raw;
- let parsed;try{parsed=new URL(raw)}catch{say("Nieprawidłowy adres");return}
- if(parsed.protocol!=="https:"){say("W tym podglądzie dostępne są tylko adresy HTTPS");return}
+ let parsed;try{parsed=new URL(raw)}catch{$("address").value=current().history[current().index];say("Nieprawidłowy adres");return}
+ if(parsed.protocol!=="https:"||parsed.username||parsed.password){$("address").value=current().history[current().index];say("Podaj bezpieczny adres HTTPS bez hasła w adresie");return}
  const tab=current();tab.history=tab.history.slice(0,tab.index+1);tab.history.push(parsed.href);tab.index++;
  tab.title=parsed.hostname.slice(0,34);render();say("Podgląd interfejsu — nie wysłano żądania sieciowego");
 }
