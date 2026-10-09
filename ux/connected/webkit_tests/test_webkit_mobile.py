@@ -59,7 +59,7 @@ class DemoMobileWebKit(unittest.TestCase):
         try:
             self.page.wait_for_function(
                 "(needle)=>document.querySelector('#connection-label').textContent.includes(needle)",
-                expected,timeout=timeout)
+                arg=expected,timeout=timeout)
         except Exception as exc:
             state=self.page.evaluate("""() => ({
                 label:document.querySelector('#connection-label')?.textContent,
