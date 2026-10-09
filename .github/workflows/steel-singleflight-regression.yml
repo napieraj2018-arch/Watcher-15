@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - steel-singleflight-20261009
+      - steel-release-quarantine-20261009
     paths:
       - "steel_runtime.py"
       - "test_steel_singleflight.py"

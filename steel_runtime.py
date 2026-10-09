@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 import httpx
 from starlette.responses import JSONResponse
 
-VERSION = "0.4.3"
+VERSION = "0.4.4"
 API = "https://api.steel.dev/v1"
 HEADERS = {"cache-control": "no-store"}
 
@@ -55,6 +55,9 @@ class Engine:
         # Checking only active sessions before the first await races with
         # simultaneous browser_start calls and can consume extra Steel sessions.
         self._launch_lock = asyncio.Lock()
+        # Once the provider outcome is unknown, no new session may launch
+        # until an independently authenticated reconciliation occurs.
+        self._quarantined = False
         self.authenticated = False
         self.timeout_ms = 900000
 
@@ -98,10 +101,13 @@ class Engine:
     async def _launch_serialized(self, chromium):
         # A session that is closing still counts until Steel confirms release.
         # Never create a replacement while the previous release is in flight.
+        if self._quarantined:
+            raise SteelFailure('STEEL_SESSION_QUARANTINED')
         if self.remote:
             raise SteelFailure('STEEL_SESSION_LIMIT_1')
         remote_id = str(uuid.uuid4())
         browser = None
+        creation_confirmed = False
         try:
             data = await self.request('POST', '/sessions', {
                 'sessionId': remote_id,
@@ -117,7 +123,11 @@ class Engine:
             })
             returned_id = str(data.get('id', ''))
             if returned_id != remote_id:
+                # Releasing the REQUESTED id cannot prove that an unexpected
+                # provider-returned id was removed. Fail closed.
+                self._quarantined = True
                 raise SteelFailure('STEEL_SESSION_ID_MISMATCH')
+            creation_confirmed = True
             self.authenticated = True
             endpoint = 'wss://connect.steel.dev?' + urlencode({
                 'apiKey': os.environ['STEEL_API_KEY'].strip(), 'sessionId': remote_id})
@@ -129,10 +139,19 @@ class Engine:
             self.remote[remote_id] = remote
             return remote
         except BaseException:
+            # A timed-out/invalid create response may have started a provider
+            # session. A 404 for our requested id is NOT proof otherwise.
+            if not creation_confirmed:
+                self._quarantined = True
             if browser is not None:
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(browser.close(), 5)
-            await self.release(remote_id)
+            confirmed_released = False
+            try:
+                confirmed_released = await self.release(remote_id)
+            finally:
+                if not confirmed_released:
+                    self._quarantined = True
             raise
 
 
@@ -160,12 +179,20 @@ class RemoteBrowser:
             if self.closed:
                 return
             self.closed = True
+            confirmed_released = False
             try:
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(self.browser.close(), 5)
-                await self.engine.release(self.remote_id)
+                confirmed_released = await self.engine.release(self.remote_id)
             finally:
-                self.engine.remote.pop(self.remote_id, None)
+                if confirmed_released:
+                    self.engine.remote.pop(self.remote_id, None)
+                else:
+                    # Preserve the remote reference; NEVER silently free the
+                    # single session slot on an uncertain provider response.
+                    self.engine._quarantined = True
+            if not confirmed_released:
+                raise SteelFailure('STEEL_REMOTE_RELEASE_UNCONFIRMED')
 
 
 class RemoteChromium:
@@ -360,6 +387,7 @@ def install(ns):
             'local_chrome_processes': local_chrome_count(),
             'controller_memory': memory_info(),
             'active_remote_sessions': len(engine.remote),
+            'requires_reconciliation': engine._quarantined,
             'max_session_seconds': 870, 'proxy_enabled': False, 'captcha_solving': False},
             headers=HEADERS)
     mcp.custom_route('/health/steel', methods=['GET'])(health)

@@ -31,3 +31,25 @@ authorization, or a complete answer to the commercial release gate.
 production deploy needs a separate session-free maintenance window and
 verification of existing `AI_BROWSER_SESSION_GUARD=probe` behavior; Steel
 self-test and real account login must remain separate acceptance stages.
+
+## 09.10.2026 — fail-closed po niepewnym release (kolejny etap)
+
+W dotychczasowym adapterze `Engine.release` mogło zwrócić `False` po dwóch
+nieudanych próbach, ale `RemoteBrowser.close` nadal usuwało wpis z pamięci,
+pozwalając kolejnej sesji wystartować mimo niepotwierdzonego zamknięcia Steel.
+
+Zmiana w 0.4.4:
+- `STEEL_REMOTE_RELEASE_UNCONFIRMED` + stan kwarantanny i zachowany wpis sesji,
+  zamiast fałszywego zwolnienia.
+- Niepotwierdzone tworzenie sesji, błędny identyfikator dostawcy oraz
+  niepotwierdzone sprzątanie przy awarii CDP też wstrzymują nowe starty.
+- `/health/steel` ujawnia jedynie flagę `requires_reconciliation`,
+  bez identyfikatorów, haseł lub cookies.
+- Cztery dodatkowe scenariusze negatywne i korekta scenariusza mismatch w
+  testach bez połączenia z Steel. Wszystkie wcześniejsze testy pozostają.
+
+**Pozostałe ryzyko P0:** stan kwarantanny jest w RAM i znika po restarcie
+kontrolera, więc ten etap NIE chroni automatycznie po awarii instancji. Przed
+sprzedażą niezbędny jest trwały rejestr kwarantanny i dzierżaw w bazie,
+ręcznie potwierdzony brak natywnej sesji u dostawcy oraz test wielu instancji.
+Nie dawać operatorowi przycisku „odblokuj” bez tych dowodów.
