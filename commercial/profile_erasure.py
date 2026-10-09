@@ -128,9 +128,12 @@ class ErasureCoordinator:
             if await self.backend.is_locked(tenant,profile) is not True:
                 return Report("blocked","LOCK_NOT_VERIFIED")
 
-        # Refuse progress if fencing disappears mid-operation.
+        # A tombstone is not a substitute for verifying that an earlier
+        # running session actually ended. Never delete an in-use profile.
         if await self.backend.is_locked(tenant,profile) is not True:
             return Report("blocked","LOCK_NOT_VERIFIED")
+        if await self.backend.sessions_state(tenant,profile)!="empty":
+            return Report("blocked","ACTIVE_OR_UNKNOWN_SESSIONS")
 
         provider=await self.backend.provider_profile_id(tenant,profile)
         if not isinstance(provider,str) or not UUID.fullmatch(provider):
