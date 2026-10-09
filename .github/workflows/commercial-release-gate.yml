@@ -4,6 +4,7 @@ on:
     branches:
       - commercial-readiness-audit-20261009
       - ai-browser-cloud
+      - profile-erasure-saga-20261009
     paths:
       - "commercial/**"
       - ".github/workflows/commercial-release-gate.yml"
