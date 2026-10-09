@@ -86,6 +86,19 @@ class ExtractionTests(unittest.TestCase):
         self.unpack([("server.py", "file", b"")])
         self.assertEqual((self.root / "server.py").stat().st_size, 0)
 
+    def test_root_directory_entry_from_standard_tarfile_add(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            (source / "server.py").write_text("SAFE")
+            payload = io.BytesIO()
+            with tarfile.open(fileobj=payload, mode="w:gz") as tf:
+                tf.add(source, arcname=".")
+            payload.seek(0)
+            with tarfile.open(fileobj=payload, mode="r:gz") as tf:
+                safe_extract(tf, self.root)
+            self.assertEqual((self.root / "server.py").read_text(), "SAFE")
+
     def test_repeated_extraction_is_supported(self):
         self.unpack([("server.py", "file", "one")])
         self.unpack([("server.py", "file", "two")])
