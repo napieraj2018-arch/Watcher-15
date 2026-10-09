@@ -6,6 +6,7 @@ on:
       - tenant-task-state-guard-20261009
       - tenant-queue-quota-20261009
       - bff-tenant-session-boundary-20261009
+      - tenant-profile-envelope-vault-20261009
     paths:
       - "tenant_security/**"
       - ".github/workflows/tenant-rls-ci.yml"
@@ -14,19 +15,23 @@ on:
       - ai-browser-cloud
       - tenant-task-state-guard-20261009
       - tenant-queue-quota-20261009
+      - bff-tenant-session-boundary-20261009
     paths:
       - "tenant_security/**"
       - ".github/workflows/tenant-rls-ci.yml"
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: aib-rls-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   isolated-postgres-rls:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     services:
       postgres:
-        image: postgres:16
+        image: public.ecr.aws/docker/library/postgres:16
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
@@ -45,7 +50,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
-          python -m pip install --disable-pip-version-check "psycopg[binary]>=3.2,<3.3"
+          python -m pip install --disable-pip-version-check "psycopg[binary]>=3.2,<3.3" "cryptography==46.0.4"
       - name: Apply tenant RLS candidate to throwaway PostgreSQL only
         run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
       - name: Tenant A/B and state-falsification SQL regression tests
@@ -69,5 +74,16 @@ jobs:
           AI_BROWSER_TEST_TENANT_B_DSN: "postgresql://fixture_tenant_b@127.0.0.1:5432/postgres"
         run: |
           python -m unittest discover -s tenant_security/tests -p 'test_bff_*.py' -v
+      - name: Apply immutable encrypted vault schema on ephemeral PostgreSQL
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/003_encrypted_profile_vault.sql
+      - name: Reject cross-tenant, disabled and unprivileged encrypted profile access
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/vault/tests/test_vault_rls.sql
+      - name: AES-256-GCM, key rotation, RLS, and 16-writer vault integration tests
+        env:
+          AI_BROWSER_TEST_PG_DSN: "postgresql://postgres@127.0.0.1:5432/postgres"
+          AI_BROWSER_TEST_TENANT_A_DSN: "postgresql://fixture_tenant_a@127.0.0.1:5432/postgres"
+          AI_BROWSER_TEST_VAULT_A_DSN: "postgresql://fixture_vault_a@127.0.0.1:5432/postgres"
+          AI_BROWSER_TEST_VAULT_B_DSN: "postgresql://fixture_vault_b@127.0.0.1:5432/postgres"
+        run: python -m unittest discover -s tenant_security/vault/tests -p 'test_*.py' -v
       - name: Confirm no existing accounts or production databases were used
         run: echo "THROWAWAY_POSTGRES_ONLY_NO_FLOOT_RENDER_STEEL_MIGRATION"
