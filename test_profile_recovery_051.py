@@ -19,7 +19,7 @@ class Failure(RuntimeError):
 sys.modules['steel_runtime'] = types.SimpleNamespace(SteelFailure=Failure)
 source = pathlib.Path(__file__).with_name('steel_context_fix.py').read_text()
 tree = ast.parse(source)
-names = {'native_context', 'safe_route', 'exact_origin', 'merge_profile_state', 'synthetic_fixture_evidence'}
+names = {'native_context', 'safe_route', 'exact_origin', 'merge_profile_state', 'synthetic_fixture_evidence', 'synthetic_fixture_exact_evidence'}
 tree.body = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
 ns = {'Path': pathlib.Path, 'json': json, 'deque': collections.deque,
       'time': __import__('time'), 'urlsplit': urlsplit, 'copy': copy}
