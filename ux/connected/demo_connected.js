@@ -8,6 +8,7 @@ const LABELS = Object.freeze({
   clinic: "Przychodnia", architect: "Architekt", demo: "Test"
 });
 const inflight = new Map();
+const lastKnown = new Map();
 const tip = $("page-view").querySelector(".tip");
 
 function currentWorkspace() {
@@ -56,6 +57,7 @@ async function pollJob(workspace,request_id,generation=0) {
 }
 
 function updateStatus(workspace,data){
+  lastKnown.set(workspace,data);
   switch(data.status){
     case "ready":
       present(workspace,"Gotowe","To tylko fikcyjna sesja demonstracyjna. Prawdziwa witryna nie została otwarta.");
@@ -69,10 +71,24 @@ function updateStatus(workspace,data){
     case "expired":
       present(workspace,"Wygasło","Zadanie wygasło. Nowe żądanie wymaga świadomego ponowienia.");
       break;
+    case "released":
+      present(workspace,"Zwolniono","Sesja demonstracyjna została poprawnie zapisana i zwolniona.");
+      break;
     default:
       present(workspace,"Niedostępne","Brak potwierdzenia wykonania. Nic nie zostało opublikowane.");
   }
 }
+
+window.addEventListener("aib:workspace-selected", event=>{
+  const workspace=event.detail?.workspace_id;
+  if(!(workspace in LABELS))return;
+  if(lastKnown.has(workspace)){
+    updateStatus(workspace,lastKnown.get(workspace));
+  } else {
+    $("connection-label").textContent="Symulator lokalny";
+    if(tip)tip.textContent="Brak uruchomionej sesji tej przestrzeni. To wyłącznie test lokalny.";
+  }
+});
 
 window.addEventListener("aib:navigation-intent",async (event)=>{
   const {workspace_id,url,tab_id}=event.detail || {};
@@ -106,7 +122,7 @@ closing.addEventListener("click",async ()=>{
   closing.disabled=true;
   try {
     await jsonRequest("/_demo/api/close",{workspace_id});
-    present(workspace_id,"Zwolniono","Sesja demonstracyjna została poprawnie zapisana i zwolniona.");
+    updateStatus(workspace_id,{status:"released"});
   } catch {
     present(workspace_id,"Nie zwolniono","Ta przestrzeń nie jest właścicielem obecnej sesji.");
   } finally{
