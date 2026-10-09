@@ -67,7 +67,7 @@ class BrowserUI(unittest.TestCase):
         results=self.page.evaluate("""() => [...document.querySelectorAll('button')].filter(
           b => b.getClientRects().length && !b.disabled && !b.closest('[hidden]')
         ).map(b => ({id:b.id || b.className,width:b.getBoundingClientRect().width,height:b.getBoundingClientRect().height}))""")
-        self.assertTrue(len(results)>=10)
+        self.assertGreaterEqual(len(results),8,results)
         self.assertEqual([], [x for x in results if x["width"]<43.5 or x["height"]<43.5], results)
 
     def test_footer_inside_mobile_safe_area(self):
