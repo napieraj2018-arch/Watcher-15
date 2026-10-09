@@ -109,7 +109,7 @@ class BrokerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_other_tenant_cannot_get_request_status(self):
         await self.opena()
-        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+        with self.assertRaisesRegex(BrokerError,"REQUEST_NOT_FOUND"):
             await self.broker.poll(B,KEY_A)
 
     async def test_other_tenant_cannot_close(self):
@@ -284,7 +284,7 @@ class BrokerTests(unittest.IsolatedAsyncioTestCase):
         self.browser.fail_start=True
         response=await self.opena()
         self.assertEqual(await self.opena(),response)
-        with self.assertRaisesRegex(BrokerError,"REQUEST_NOT_FOUND"):
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
             await self.broker.poll(B,KEY_A)
 
     async def test_uncertain_provider_start_prevents_queued_poll(self):
