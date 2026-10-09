@@ -23,10 +23,13 @@ function present(workspace,label,description) {
 }
 
 async function jsonRequest(route, payload) {
+  const nonce=document.querySelector('meta[name="aib-demo-csrf"]')?.content;
+  if (!nonce || nonce.length<40 || nonce.length>80)
+    throw new Error("demo_csrf_not_available");
   const response=await fetch(route,{
     method:"POST",mode:"same-origin",credentials:"same-origin",
     cache:"no-store",redirect:"error",
-    headers:{"content-type":"application/json"},
+    headers:{"content-type":"application/json","X-AIB-Demo-Csrf":nonce},
     body:JSON.stringify(payload)
   });
   if (response.status===401 || response.status===403)
