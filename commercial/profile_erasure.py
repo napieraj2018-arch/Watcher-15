@@ -64,6 +64,9 @@ class Backend(Protocol):
     It must not succeed while a live session is not exclusively stopped.
     """
     async def authorized(self,principal:Principal,profile_id:str)->bool: ...
+    async def verify_fresh_step_up(self,principal:Principal,profile_id:str)->bool: ...
+    # Must validate a fresh, one-use, backend-issued authorization BOUND TO
+    # tenant+user+the precise profile. Principal.confirmed_step_up is not proof.
     async def sessions_state(self,tenant_id:str,profile_id:str)->str: ...
     async def lock_profile(self,tenant_id:str,profile_id:str)->bool: ...
     async def is_locked(self,tenant_id:str,profile_id:str)->bool: ...
@@ -74,6 +77,10 @@ class Backend(Protocol):
     async def contains(self,tenant_id:str,profile_id:str,source:str)->bool|None: ...
     async def finalize(self,tenant_id:str,profile_id:str)->bool: ...
     async def final_tombstone_verified(self,tenant_id:str,profile_id:str)->bool: ...
+    async def erasure_receipts_verified(self,tenant_id:str,profile_id:str)->bool: ...
+    # Independent, durable evidence of provider deletion AND all local stores.
+    # A lone database tombstone cannot satisfy this; keep signed/audited proof
+    # in a restricted retention ledger, never an API response or public log.
 
 class ErasureCoordinator:
     """Single-process proof of the protocol; NOT cross-process locking.
@@ -99,6 +106,12 @@ class ErasureCoordinator:
         if allowed is not True:
             # Same error for wrong tenant and missing target to avoid enumeration.
             raise ErasureError("PROFILE_NOT_ACCESSIBLE")
+        try:
+            step_up=await self.backend.verify_fresh_step_up(principal,request.profile_id)
+        except Exception:
+            raise ErasureError("STEP_UP_VERIFICATION_UNAVAILABLE") from None
+        if step_up is not True:
+            raise ErasureError("STEP_UP_NOT_VERIFIED")
 
         tenant=principal.tenant_id
         profile=request.profile_id
@@ -115,8 +128,11 @@ class ErasureCoordinator:
         # A previous success needs readback. A tombstone in one storage backend
         # alone is not proof that provider / backups were deleted.
         if await self.backend.final_tombstone_verified(tenant,profile) is True:
-            # A production system also needs a signed external erasure receipt.
-            return Report("completed","verified_tombstone",True)
+            # Check independent erasure evidence on EVERY status/retry. A
+            # tombstone may outlive provider data and backup resurrection.
+            if await self.backend.erasure_receipts_verified(tenant,profile) is not True:
+                return Report("paused","ERASURE_RECEIPTS_UNVERIFIED")
+            return Report("completed","verified_tombstone_and_receipts",True)
 
         locked=await self.backend.is_locked(tenant,profile)
         if locked is not True:
@@ -175,4 +191,6 @@ class ErasureCoordinator:
             return Report("paused","FINAL_TOMBSTONE_NOT_ACKNOWLEDGED")
         if await self.backend.final_tombstone_verified(tenant,profile) is not True:
             return Report("paused","FINAL_TOMBSTONE_NOT_VERIFIED")
+        if await self.backend.erasure_receipts_verified(tenant,profile) is not True:
+            return Report("paused","ERASURE_RECEIPTS_UNVERIFIED")
         return Report("completed","provider_and_all_snapshots_verified_gone",True)
