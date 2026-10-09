@@ -398,6 +398,37 @@ class BrokerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(view["technical_session_id_disclosed"])
         self.assertNotIn("PRIVATE",str(view))
 
+    async def test_closed_session_does_not_replay_stale_tab_capability(self):
+        first=await self.opena()
+        self.assertEqual(first["status"],"ready")
+        self.assertIn("tab_id",first)
+        await self.broker.close(A)
+        old=await self.opena()
+        self.assertEqual(old["status"],"closed")
+        self.assertNotIn("tab_id",old)
+        self.assertEqual(len(self.browser.started),1)
+        other=await self.opena(key=KEY_B,url=URL_B)
+        self.assertEqual(other["status"],"ready")
+        self.assertEqual(len(self.browser.started),2)
+
+    async def test_multi_tab_close_revokes_all_old_handles(self):
+        await self.opena()
+        await self.opena(key=KEY_B,url=URL_B)
+        await self.broker.close(A)
+        for key,url in ((KEY_A,URL_A),(KEY_B,URL_B)):
+            with self.subTest(key=key):
+                result=await self.opena(key=key,url=url)
+                self.assertEqual(result["status"],"closed")
+                self.assertNotIn("tab_id",result)
+
+    async def test_failed_close_blocks_replaying_ready_session(self):
+        await self.opena()
+        self.browser.fail_save=True
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.broker.close(A)
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.opena()
+
     async def test_failed_close_does_not_start_other_work(self):
         await self.opena()
         await self.opena(key=KEY_B,url=URL_B,p=B)
