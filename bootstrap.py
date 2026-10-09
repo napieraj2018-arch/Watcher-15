@@ -35,6 +35,9 @@ def safe_extract(tf: tarfile.TarFile, dest: Path):
                 "\\" in name or any(ord(ch) < 32 or ord(ch) == 127 for ch in name)):
             raise RuntimeError("invalid application archive name")
         path = PurePosixPath(name)
+        # tarfile.add(directory, arcname='.') may emit a harmless root entry.
+        if str(path) == "." and member.isdir():
+            continue
         if (path.is_absolute() or ".." in path.parts or str(path) in {"", "."} or
                 (not member.isfile() and not member.isdir())):
             raise RuntimeError("unsupported application archive entry")
