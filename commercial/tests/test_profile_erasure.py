@@ -17,6 +17,10 @@ class FakeBackend:
     def __init__(self):
         self.owner=TENANT
         self.authorized_value=True
+        self.step_up_value=True
+        self.step_up_error=False
+        self.receipts_value=True
+        self.receipts_error=False
         self.session="empty"
         self.locked=False
         self.lock_ack=True
@@ -40,6 +44,12 @@ class FakeBackend:
     async def authorized(self,principal,profile_id):
         self.events.append("authorized")
         return self.authorized_value and principal.tenant_id==self.owner and profile_id==PROFILE
+
+    async def verify_fresh_step_up(self,principal,profile_id):
+        self.events.append("trusted_step_up")
+        if self.step_up_error:
+            raise RuntimeError("FAKE_PRIVATE_STEP_UP_TOKEN")
+        return self.step_up_value and principal.tenant_id==self.owner and profile_id==PROFILE
 
     async def sessions_state(self,tenant,profile):
         self.events.append("sessions")
@@ -100,6 +110,14 @@ class FakeBackend:
     async def final_tombstone_verified(self,tenant,profile):
         self.events.append("verify_final")
         return bool(self.final and self.final_verify)
+
+    async def erasure_receipts_verified(self,tenant,profile):
+        self.events.append("verify_independent_receipts")
+        if self.receipts_error:
+            raise RuntimeError("FAKE_PROVIDER_CREDENTIAL_TOKEN")
+        return bool(self.receipts_value and self.final
+                    and self.provider_present is False
+                    and not any(self.sources.values()))
 
 def request(tenant=TENANT,step_up=True):
     return Request(Principal(tenant,USER,step_up),PROFILE,"erase_permanently")
