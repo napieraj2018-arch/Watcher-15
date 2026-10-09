@@ -1,0 +1,26 @@
+name: Steel session singleflight regression
+on:
+  push:
+    branches:
+      - steel-singleflight-20261009
+    paths:
+      - "steel_runtime.py"
+      - "test_steel_singleflight.py"
+      - "Dockerfile"
+      - ".github/workflows/steel-singleflight-regression.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: steel-singleflight-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  offline-and-production-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run complete image test suite without Steel credentials
+        run: docker build --progress=plain --tag ai-browser-steel-singleflight .
+      - name: Retest race conditions inside the production image
+        run: docker run --rm --entrypoint python ai-browser-steel-singleflight /app/test_steel_singleflight.py

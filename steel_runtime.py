@@ -51,6 +51,10 @@ class SteelFailure(RuntimeError):
 class Engine:
     def __init__(self):
         self.remote = {}
+        # Serialize the entire remote-create/CDP-connect/cleanup sequence.
+        # Checking only active sessions before the first await races with
+        # simultaneous browser_start calls and can consume extra Steel sessions.
+        self._launch_lock = asyncio.Lock()
         self.authenticated = False
         self.timeout_ms = 900000
 
@@ -88,7 +92,13 @@ class Engine:
         return False
 
     async def launch(self, chromium, **_ignored_local_options):
-        if any(not r.closed for r in self.remote.values()):
+        async with self._launch_lock:
+            return await self._launch_serialized(chromium)
+
+    async def _launch_serialized(self, chromium):
+        # A session that is closing still counts until Steel confirms release.
+        # Never create a replacement while the previous release is in flight.
+        if self.remote:
             raise SteelFailure('STEEL_SESSION_LIMIT_1')
         remote_id = str(uuid.uuid4())
         browser = None
