@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - commercial-readiness-audit-20261009
+      - ai-browser-cloud
     paths:
       - "commercial/**"
       - ".github/workflows/commercial-release-gate.yml"
