@@ -44,6 +44,8 @@ class FakeEngine(Engine):
         self.block_create = False
         self.block_release = False
         self.return_wrong_id = False
+        self.fail_release = False
+        self.fail_create = False
         self.create_entered = asyncio.Event()
         self.create_continue = asyncio.Event()
         self.release_entered = asyncio.Event()
@@ -53,12 +55,16 @@ class FakeEngine(Engine):
         # Replaces ALL I/O. No API, browser or paid provider is contacted.
         if method == "POST" and path == "/sessions":
             self.creates += 1
+            if self.fail_create:
+                raise SteelFailure('STEEL_CONNECTION_FAILED')
             if self.block_create:
                 self.create_entered.set()
                 await self.create_continue.wait()
             return {"id": "mismatched-id" if self.return_wrong_id else body["sessionId"]}
         if method == "POST" and path.endswith("/release"):
             self.releases += 1
+            if self.fail_release:
+                raise SteelFailure('STEEL_HTTP_503')
             if self.block_release:
                 self.release_entered.set()
                 await self.release_continue.wait()
@@ -128,16 +134,66 @@ class SteelSingleFlight(unittest.IsolatedAsyncioTestCase):
         await second.close()
         self.assertEqual(engine.creates, 2)
 
-    async def test_mismatched_provider_id_releases_and_unlocks(self):
+    async def test_mismatched_provider_id_quarantines_even_if_release_acknowledged(self):
         engine, chrome = FakeEngine(), FakeChromium()
         engine.return_wrong_id = True
         with self.assertRaisesRegex(SteelFailure, "STEEL_SESSION_ID_MISMATCH"):
             await engine.launch(chrome)
         self.assertEqual(engine.remote, {})
         self.assertEqual(engine.releases, 1)
+        self.assertTrue(engine._quarantined)
         engine.return_wrong_id = False
-        second = await engine.launch(chrome)
-        await second.close()
+        with self.assertRaisesRegex(SteelFailure, "STEEL_SESSION_QUARANTINED"):
+            await engine.launch(chrome)
+        self.assertEqual(engine.creates, 1)
+
+    async def test_uncertain_release_blocks_a_replacement_and_leaves_reference(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        remote = await engine.launch(chrome)
+        engine.fail_release = True
+        with self.assertRaisesRegex(SteelFailure, "STEEL_REMOTE_RELEASE_UNCONFIRMED"):
+            await remote.close()
+        self.assertTrue(engine._quarantined)
+        self.assertIn(remote.remote_id, engine.remote)
+        self.assertEqual(engine.releases, 2)
+        with self.assertRaisesRegex(SteelFailure, "STEEL_SESSION_QUARANTINED"):
+            await engine.launch(chrome)
+        self.assertEqual(engine.creates, 1)
+
+    async def test_uncertain_release_does_not_retry_on_second_close(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        remote = await engine.launch(chrome)
+        engine.fail_release = True
+        with self.assertRaises(SteelFailure):
+            await remote.close()
+        await remote.close()
+        self.assertEqual(engine.releases, 2)
+        self.assertTrue(engine._quarantined)
+        self.assertIn(remote.remote_id, engine.remote)
+
+    async def test_ambiguous_create_is_quarantined_even_if_cleanup_acknowledges(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        engine.fail_create = True
+        with self.assertRaisesRegex(SteelFailure, "STEEL_CONNECTION_FAILED"):
+            await engine.launch(chrome)
+        self.assertTrue(engine._quarantined)
+        self.assertEqual(engine.releases, 1)
+        engine.fail_create = False
+        with self.assertRaisesRegex(SteelFailure, "STEEL_SESSION_QUARANTINED"):
+            await engine.launch(chrome)
+        self.assertEqual(engine.creates, 1)
+
+    async def test_cdp_error_and_failed_release_quarantine(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        engine.fail_release = True
+        chrome.fail_next = True
+        with self.assertRaisesRegex(SteelFailure, "STEEL_CDP_CONNECTION_FAILED"):
+            await engine.launch(chrome)
+        self.assertTrue(engine._quarantined)
+        self.assertEqual(engine.releases, 2)
+        with self.assertRaisesRegex(SteelFailure, "STEEL_SESSION_QUARANTINED"):
+            await engine.launch(chrome)
+        self.assertEqual(engine.creates, 1)
 
     async def test_simultaneous_close_is_idempotent(self):
         engine, chrome = FakeEngine(), FakeChromium()
