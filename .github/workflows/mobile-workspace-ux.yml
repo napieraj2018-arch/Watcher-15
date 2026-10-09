@@ -3,13 +3,14 @@ on:
   push:
     branches:
       - mobile-browser-shell-20261009
+      - browser-mobile-a11y-20261009
       - ai-browser-cloud
     paths:
       - "ux/mobile/**"
       - ".github/workflows/mobile-workspace-ux.yml"
   workflow_dispatch:
 concurrency:
-  group: ai-browser-mobile-ux
+  group: ai-browser-mobile-ux-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
@@ -22,6 +23,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install local axe accessibility engine (no CDN at test runtime)
+        run: npm install --no-save --no-package-lock axe-core@4.10.3
       - name: Install matching Playwright Python client
         run: python -m pip install playwright==1.59.0
       - name: Install Chromium with system dependencies
