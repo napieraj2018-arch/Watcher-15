@@ -4,6 +4,7 @@ on:
     branches:
       - browser-auto-window-demo-20261009
       - ai-browser-cloud
+      - auto-window-localhost-security-20261009
     paths:
       - "ux/connected/**"
       - "workspace_broker/**"
