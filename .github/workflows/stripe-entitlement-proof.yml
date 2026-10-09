@@ -1,0 +1,27 @@
+name: Stripe entitlement fail-closed policy tests
+on:
+  push:
+    branches:
+      - stripe-entitlement-readback-20261009
+    paths:
+      - "stripe_billing/**"
+      - ".github/workflows/stripe-entitlement-proof.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify webhook and readback policy without any live Stripe credentials
+        run: |
+          python -m py_compile stripe_billing/entitlements.py
+          python -m unittest discover -s stripe_billing/tests -p "test_entitlements.py" -v
+          python -m unittest discover -s stripe_billing/tests -p "test_webhook.py" -v
+      - name: Report sandbox-only evidence
+        run: echo "STRIPE_ENTITLEMENT_POLICY_MOCK_ONLY_NO_PRODUCTS_NO_CUSTOMER_BILLING"
