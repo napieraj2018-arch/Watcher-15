@@ -311,6 +311,14 @@ class Broker:
             except Exception:
                 active.quarantine=True
                 raise BrokerError("BROWSER_REQUIRES_RECOVERY") from None
+            # A successful save closes every tab capability issued by this
+            # specific task. Repeating the original request must never return
+            # a stale "ready" tab that points to a released browser process.
+            for job in self.requests.values():
+                if (job.principal==p and job.workspace_id==active.workspace_id
+                        and job.state=="ready"):
+                    job.state="closed"
+                    job.tab_id=None
             self.active=None
             return {"closed":True,"profile_saved":True,"next_request_pending":bool(self.queue)}
 
