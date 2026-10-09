@@ -70,6 +70,12 @@ class BrowserUI(unittest.TestCase):
         self.assertGreaterEqual(len(results),8,results)
         self.assertEqual([], [x for x in results if x["width"]<43.5 or x["height"]<43.5], results)
 
+    def test_address_input_large_enough_to_avoid_ios_focus_zoom(self):
+        px=self.page.locator("#address").evaluate("el => parseFloat(getComputedStyle(el).fontSize)")
+        self.assertGreaterEqual(px,16)
+        self.page.locator("#address").focus()
+        self.assertFalse(self.page.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1"))
+
     def test_footer_inside_mobile_safe_area(self):
         bounds=self.page.locator(".toolbar").bounding_box()
         self.assertGreaterEqual(bounds["x"],0)
@@ -103,7 +109,7 @@ class BrowserUI(unittest.TestCase):
                 self.assertTrue(self.page.locator("#welcome").is_visible())
 
     def test_quick_links_are_safe_demo_only(self):
-        self.page.get_by_role("button",name="Meta Business").click()
+        self.page.get_by_role("button",name="Meta Suite").click()
         self.assertIn("business.facebook.com",self.page.locator("#page-domain").inner_text())
         self.assertTrue(all(x.startswith("http://127.0.0.1:") for x in self.requests))
 
