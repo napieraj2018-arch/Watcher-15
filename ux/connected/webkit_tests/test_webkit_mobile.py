@@ -92,6 +92,7 @@ class DemoMobileWebKit(unittest.TestCase):
                     responses.append({"status":resp.status,"body":"unavailable"})
             raise AssertionError("WEBKIT_DEMO_STATE "+repr(state)+" page_errors="+repr(self.errors)
                                  +" http="+repr(self.network[-9:])+" api="+repr(responses)
+                                 +" origin_check="+repr(getattr(self.http,"last_origin_check",None))
                                  +" console="+repr(self.console_errors[-5:])) from exc
 
     def switch(self,name):
