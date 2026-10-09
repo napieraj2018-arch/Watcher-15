@@ -62,7 +62,9 @@ class AutoOpenDemoTests(unittest.TestCase):
     def request_api(self,path,data,origin=None):
         payload=json.dumps(data).encode("utf-8")
         request=Request(self.base+path,data=payload,method="POST",
-            headers={"content-type":"application/json","Origin":origin if origin is not None else self.base})
+            headers={"content-type":"application/json",
+                     "X-AIB-Demo-Csrf":self.http.csrf_token,
+                     "Origin":origin if origin is not None else self.base})
         try:
             with urlopen(request,timeout=4) as response:
                 return response.status,json.loads(response.read())
@@ -189,7 +191,8 @@ class AutoOpenDemoTests(unittest.TestCase):
         }).encode("utf-8")
         req=Request(self.base+"/_demo/api/open",data=payload,method="POST",
             headers={"Host":"evil.example.test","Origin":"http://evil.example.test",
-                     "content-type":"application/json"})
+                     "content-type":"application/json",
+                     "X-AIB-Demo-Csrf":self.http.csrf_token})
         with self.assertRaises(HTTPError) as caught:
             urlopen(req,timeout=4)
         self.assertEqual(caught.exception.code,403)
@@ -221,6 +224,54 @@ class AutoOpenDemoTests(unittest.TestCase):
                     urlopen(req,timeout=4)
                 self.assertEqual(caught.exception.code,403)
                 self.assertEqual(self.http.adapter.count,0)
+
+    def test_webkit_style_missing_origin_with_valid_nonce_allowed(self):
+        # Origin may be omitted by an engine for same-origin non-CORS POST.
+        # Local server-issued nonce + exact Host protects this path.
+        payload=json.dumps({
+            "workspace_id":"clinic","url":"https://business.facebook.com/",
+            "request_id":"webkit-origin-00001","tab_id":1
+        }).encode("utf-8")
+        req=Request(self.base+"/_demo/api/open",data=payload,method="POST",
+            headers={"content-type":"application/json",
+                     "X-AIB-Demo-Csrf":self.http.csrf_token})
+        with urlopen(req,timeout=4) as response:
+            outcome=json.loads(response.read())
+        self.assertEqual(outcome["status"],"ready")
+        self.assertEqual(self.http.adapter.count,1)
+
+    def test_no_origin_and_no_nonce_is_rejected(self):
+        payload=json.dumps({
+            "workspace_id":"clinic","url":"https://business.facebook.com/",
+            "request_id":"no-nonce-test-0001","tab_id":1
+        }).encode("utf-8")
+        req=Request(self.base+"/_demo/api/open",data=payload,method="POST",
+            headers={"content-type":"application/json"})
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(req,timeout=4)
+        self.assertEqual(caught.exception.code,403)
+        self.assertEqual(self.http.adapter.count,0)
+
+    def test_wrong_nonce_with_correct_origin_is_rejected(self):
+        payload=json.dumps({
+            "workspace_id":"clinic","url":"https://business.facebook.com/",
+            "request_id":"wrong-nonce-test-01","tab_id":1
+        }).encode("utf-8")
+        req=Request(self.base+"/_demo/api/open",data=payload,method="POST",
+            headers={"content-type":"application/json",
+                     "Origin":self.base,
+                     "X-AIB-Demo-Csrf":"attacker-does-not-know-the-token"})
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(req,timeout=4)
+        self.assertEqual(caught.exception.code,403)
+        self.assertEqual(self.http.adapter.count,0)
+
+    def test_demo_issued_nonce_is_not_in_address_bar(self):
+        self.assertTrue(self.http.csrf_token)
+        self.assertEqual(self.page.url,self.base+"/demo")
+        self.assertNotIn(self.http.csrf_token,self.page.url)
+        token=self.page.locator('meta[name="aib-demo-csrf"]').get_attribute("content")
+        self.assertEqual(token,self.http.csrf_token)
 
     def test_demo_rejects_invalid_content_type(self):
         payload=b'{"workspace_id":"clinic"}'
