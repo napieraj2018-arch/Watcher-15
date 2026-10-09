@@ -1,0 +1,34 @@
+name: Exact synthetic profile restoration diagnostics
+on:
+  push:
+    branches:
+      - exact-fixture-recovery-20261009
+    paths:
+      - "steel_context_fix.py"
+      - "test_profile_recovery_051.py"
+      - "test_synthetic_fixture_exact.py"
+      - "Dockerfile"
+      - ".github/workflows/exact-fixture-recovery.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile and run fixture-only diagnostic tests
+        run: |
+          python -m py_compile steel_context_fix.py test_profile_recovery_051.py test_synthetic_fixture_exact.py
+          python -m unittest test_profile_recovery_051 test_synthetic_fixture_evidence test_synthetic_fixture_exact test_portable_precedence -v
+  full-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production-equivalent container and run all embedded tests
+        run: docker build --progress=plain --tag aib-exact-fixture-ci .
