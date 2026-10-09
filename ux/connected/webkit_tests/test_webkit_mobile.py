@@ -36,8 +36,20 @@ class DemoMobileWebKit(unittest.TestCase):
         self.page=self.ctx.new_page()
         self.bad_requests=[]
         self.errors=[]
+        self.network=[]
+        self.console_errors=[]
         self.page.on("request",lambda req:self.bad_requests.append(req.url)
                      if not req.url.startswith(self.base) else None)
+        self.page.on("response",lambda resp:self.network.append({
+            "path":resp.url.partition(self.base)[2].split("?")[0],
+            "status":resp.status
+        }) if resp.url.startswith(self.base) else None)
+        self.page.on("requestfailed",lambda req:self.network.append({
+            "path":req.url.partition(self.base)[2].split("?")[0],
+            "failure":req.failure
+        }))
+        self.page.on("console",lambda msg:self.console_errors.append(
+            msg.text[:360]) if msg.type=="error" else None)
         self.page.on("pageerror",lambda e:self.errors.append(str(e)))
         self.page.goto(self.base+"/demo",wait_until="networkidle")
 
@@ -66,9 +78,11 @@ class DemoMobileWebKit(unittest.TestCase):
                 placeholder:document.querySelector('#page-view .tip')?.textContent,
                 secureContext:window.isSecureContext,
                 randomUUID:typeof crypto.randomUUID,
+                csp:document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content,
                 domain:document.querySelector('#page-domain')?.textContent
             })""")
-            raise AssertionError("WEBKIT_DEMO_STATE "+repr(state)+" page_errors="+repr(self.errors)) from exc
+            raise AssertionError("WEBKIT_DEMO_STATE "+repr(state)+" page_errors="+repr(self.errors)
+                                 +" http="+repr(self.network[-9:])+" console="+repr(self.console_errors[-5:])) from exc
 
     def switch(self,name):
         self.page.locator("#workspace-switch").click()
