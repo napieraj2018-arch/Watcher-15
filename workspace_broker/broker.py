@@ -105,6 +105,7 @@ class Broker:
         self.max_tabs=max_tabs
         self.lock=asyncio.Lock()
         self.workspaces={}
+        seen_profiles=set()
         for w in workspaces:
             if not isinstance(w,Workspace):
                 raise BrokerError("INVALID_WORKSPACE")
@@ -121,8 +122,16 @@ class Broker:
             key=(w.tenant_id,w.workspace_id)
             if key in self.workspaces:
                 raise BrokerError("DUPLICATE_WORKSPACE")
+            if w.profile in seen_profiles:
+                # A profile name is a persistent browser identity, not merely
+                # a label. Sharing it across workspaces could mix credentials.
+                raise BrokerError("PROFILE_REUSED_BETWEEN_WORKSPACES")
+            seen_profiles.add(w.profile)
             self.workspaces[key]=w
         self.active:Active|None=None
+        # An uncertain provider start must be reconciled by an operator.
+        # Do not hand out another tenant context while its outcome is unknown.
+        self.quarantined=False
         self.queue:deque[Pending]=deque()
         self.requests:dict[tuple[str,str,str,str],Pending]={}
 
@@ -170,8 +179,9 @@ class Broker:
             self.active=Active(job.principal,job.workspace_id,sid,{tab})
             job.tab_id=tab;job.state="ready"
         except Exception:
-            # Never automatically resubmit a failed authentication/session
-            # creation. Caller sees a fixed code and must reconcile separately.
+            # Provider may have created a native session before its response
+            # failed. Isolate the entire controller until explicit reconciliation.
+            self.quarantined=True
             job.state="paused"
             job.error="START_UNCONFIRMED_NO_AUTOMATIC_RETRY"
 
@@ -189,7 +199,7 @@ class Broker:
                     or old.target!=target):
                     raise BrokerError("IDEMPOTENCY_KEY_CONFLICT")
                 return self._receipt(old)
-            if self.active and self.active.quarantine:
+            if self.quarantined or (self.active and self.active.quarantine):
                 raise BrokerError("BROWSER_REQUIRES_RECOVERY")
             job=Pending(p,workspace_id,request_id,target,self.clock())
             self.requests[key]=job
@@ -221,7 +231,7 @@ class Broker:
     async def poll(self,p:Principal,request_id:str):
         validate_identity(p)
         async with self.lock:
-            if self.active and self.active.quarantine:
+            if self.quarantined or (self.active and self.active.quarantine):
                 raise BrokerError("BROWSER_REQUIRES_RECOVERY")
             self._expire_old_queue()
             job=self.requests.get(self._request_key(p,request_id))
@@ -256,6 +266,8 @@ class Broker:
     async def close(self,p:Principal):
         validate_identity(p)
         async with self.lock:
+            if self.quarantined:
+                raise BrokerError("BROWSER_REQUIRES_RECOVERY")
             active=self.active
             if active is None or active.principal!=p:
                 raise BrokerError("TASK_NOT_OWNER")
