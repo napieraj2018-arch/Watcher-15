@@ -84,6 +84,63 @@ def merge_profile_state(native, backup):
     return result
 
 
+
+def synthetic_fixture_evidence(native=None, portable=None, resolved=None):
+    """Non-sensitive consistency diagnostics ONLY for the disposable test site.
+
+    The function never returns a cookie, storage key, storage value, digest,
+    account identity, token, or domain. It only counts test-origin values and
+    compares equality in memory. Callers must restrict this to SteelSelfTest.
+    """
+    from urllib.parse import unquote
+    test_origin = 'https://ai-browser-vault.floot.app'
+    test_host = 'ai-browser-vault.floot.app'
+
+    def extract(state):
+        if not isinstance(state, dict):
+            return (), ()
+        cookies = []
+        for item in state.get('cookies', []) or []:
+            if not isinstance(item, dict):
+                continue
+            host = item.get('domain')
+            value = item.get('value')
+            if (isinstance(host, str) and host.lstrip('.').lower() == test_host
+                    and isinstance(value, str) and value):
+                cookies.append(value)
+        storage = []
+        for entry in state.get('origins', []) or []:
+            if not isinstance(entry, dict) or entry.get('origin') != test_origin:
+                continue
+            for item in entry.get('localStorage', []) or []:
+                if isinstance(item, dict) and isinstance(item.get('value'), str) and item['value']:
+                    storage.append(item['value'])
+        return tuple(cookies[:30]), tuple(storage[:30])
+
+    def overlaps(left, right):
+        return any(a == b for a in left for b in right)
+
+    def summary(state):
+        cookies, storage = extract(state)
+        return {
+            'test_cookie_values': len(cookies),
+            'test_local_storage_values': len(storage),
+            'identical_pair_present': overlaps(cookies, storage),
+            'url_decoded_pair_present': overlaps(tuple(unquote(x) for x in cookies), storage),
+        }
+
+    n_cookies, n_storage = extract(native)
+    p_cookies, p_storage = extract(portable)
+    return {
+        'source': 'synthetic_fixture_only',
+        'native': summary(native),
+        'portable': summary(portable),
+        'resolved': summary(resolved),
+        'native_cookie_vs_portable_storage': overlaps(n_cookies, p_storage),
+        'portable_cookie_vs_native_storage': overlaps(p_cookies, n_storage),
+    }
+
+
 async def native_context(remote, **options):
     from steel_runtime import SteelFailure
     if getattr(remote, '_native_context_claimed', False):
@@ -125,6 +182,9 @@ async def native_context(remote, **options):
             merged = (merge_profile_state(state, current) if prefer_portable
                       else merge_profile_state(current, state))
             binding['portable_priority_used'] = prefer_portable
+            if binding.get('profile') == 'SteelSelfTest':
+                binding['synthetic_fixture_evidence'] = synthetic_fixture_evidence(
+                    current, state, merged)
             if merged != current:
                 await context.set_storage_state(merged)
                 binding['backup_recovery_applied'] = True
@@ -353,6 +413,9 @@ def install(ns):
             'portable_backup': save_status.get(sid, {'ok': None}),
             'authentication': await auth_probe(session),
             'saved_login_configured': bool(os.environ.get('AI_BROWSER_CREDENTIALS_JSON', ''))})
+        if session.profile == 'SteelSelfTest':
+            result['synthetic_fixture_evidence'] = binding.get(
+                'synthetic_fixture_evidence', {'source':'not_available'})
         return result
 
     async def start(*args, **kwargs):
