@@ -425,6 +425,33 @@ def saved_credential(credential_id, profile, url):
         raise ReliabilityError('CREDENTIAL_CONFIGURATION_INVALID') from None
 
 
+def context_health_payload(runtime, engine, authorization=""):
+    """Public liveness is minimal; private context details require admin auth.
+
+    Never return credentials, session IDs, browser profile names, tokens or
+    other tenant data. The runtime applies the same timing-safe owner check
+    as the /health/steel endpoint. No request parameters choose the actor.
+    """
+    public = {
+        'status': 'degraded' if engine._quarantined else 'ok',
+        'runtime': 'steel',
+        'version': VERSION,
+    }
+    if runtime.admin_health_authorized(authorization):
+        public.update({
+            'context_mode': 'provider_native',
+            'native_profiles': True,
+            'portable_backup_interval_seconds': 45,
+            'password_retry': False,
+            'credentials_configured': bool(
+                os.environ.get('AI_BROWSER_CREDENTIALS_JSON', '')
+            ),
+            'local_chrome_processes': runtime.local_chrome_count(),
+            'controller_memory': runtime.memory_info(),
+        })
+    return public
+
+
 def install(ns):
     if os.environ.get('AI_BROWSER_ENGINE', '').lower() != 'steel':
         return
@@ -623,13 +650,12 @@ def install(ns):
         'Strona wymaga dodatkowego potwierdzenia albo blokuje tę przeglądarkę.',
         'Logowanie nie zostało potwierdzone. Dalsze automatyczne próby są zatrzymane.')
 
-    async def health(_request):
-        return JSONResponse({'status': 'ok', 'runtime': 'steel', 'version': VERSION,
-            'context_mode': 'provider_native', 'native_profiles': True,
-            'portable_backup_interval_seconds': 45, 'password_retry': False,
-            'credentials_configured': bool(os.environ.get('AI_BROWSER_CREDENTIALS_JSON', '')),
-            'local_chrome_processes': runtime.local_chrome_count(),
-            'controller_memory': runtime.memory_info()}, headers=HEADERS)
+    async def health(request):
+        payload = context_health_payload(runtime, engine,
+            request.headers.get('authorization', ''))
+        return JSONResponse(payload, headers={**HEADERS,
+            'x-content-type-options': 'nosniff',
+            'referrer-policy': 'no-referrer'})
 
     async def diagnostics(request):
         rec = ns['_setup_record'](request)
