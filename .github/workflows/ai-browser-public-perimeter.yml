@@ -3,8 +3,13 @@ on:
   push:
     branches:
       - aib-open-perimeter-tests-20261009
+      - ai-browser-cloud
     paths:
       - "security/test_public_perimeter.py"
+      - "bootstrap.py"
+      - "auth_status_v052.py"
+      - "steel_context_fix.py"
+      - "Dockerfile"
       - ".github/workflows/ai-browser-public-perimeter.yml"
   workflow_dispatch:
 permissions:
