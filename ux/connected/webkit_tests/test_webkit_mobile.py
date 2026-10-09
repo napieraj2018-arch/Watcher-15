@@ -51,7 +51,24 @@ class DemoMobileWebKit(unittest.TestCase):
 
     def enter(self,url):
         self.page.locator("#address").fill(url)
-        self.page.locator("#address-form").press("Enter")
+        # Press the *input* as a real iPhone user would, rather than sending
+        # an Enter key event to the FORM element (engine-dependent behavior).
+        self.page.locator("#address").press("Enter")
+
+    def assertStatus(self,expected,timeout=6000):
+        try:
+            self.page.wait_for_function(
+                "(needle)=>document.querySelector('#connection-label').textContent.includes(needle)",
+                expected,timeout=timeout)
+        except Exception as exc:
+            state=self.page.evaluate("""() => ({
+                label:document.querySelector('#connection-label')?.textContent,
+                placeholder:document.querySelector('#page-view .tip')?.textContent,
+                secureContext:window.isSecureContext,
+                randomUUID:typeof crypto.randomUUID,
+                domain:document.querySelector('#page-domain')?.textContent
+            })""")
+            raise AssertionError("WEBKIT_DEMO_STATE "+repr(state)+" page_errors="+repr(self.errors)) from exc
 
     def switch(self,name):
         self.page.locator("#workspace-switch").click()
