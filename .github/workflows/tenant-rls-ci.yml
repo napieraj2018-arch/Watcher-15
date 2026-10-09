@@ -1,8 +1,17 @@
-name: Browser product tenant RLS proof
+name: Browser product tenant RLS and BFF proof
 on:
   push:
     branches:
       - tenant-rls-isolation-20261009
+      - tenant-task-state-guard-20261009
+      - tenant-queue-quota-20261009
+      - bff-tenant-session-boundary-20261009
+    paths:
+      - "tenant_security/**"
+      - ".github/workflows/tenant-rls-ci.yml"
+  pull_request:
+    branches:
+      - ai-browser-cloud
       - tenant-task-state-guard-20261009
       - tenant-queue-quota-20261009
     paths:
@@ -14,7 +23,7 @@ permissions:
 jobs:
   isolated-postgres-rls:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     services:
       postgres:
         image: postgres:16
@@ -29,17 +38,36 @@ jobs:
           --health-retries 12
     steps:
       - uses: actions/checkout@v4
-      - name: Install PostgreSQL CLI on the throwaway runner
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-      - name: Apply candidate schema to fresh ephemeral database only
-        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
-      - name: Prove tenant A/B/disabled-role isolation and provider-reference secrecy
-        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_isolation.sql
-      - name: Atomic per-tenant task quota and idempotency tests
-        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_queue_quota.sql
-      - name: Check real concurrency through 16 independent tenant DB connections
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install PostgreSQL client and ephemeral-test-only BFF dependency
         run: |
-          python -m pip install "psycopg[binary]==3.2.10"
-          python tenant_security/tests/test_queue_parallel.py
-      - name: Confirm no schemas are deployed outside temporary CI PostgreSQL
-        run: echo "SQL_PROOF_ONLY_NO_PRODUCTION_MIGRATION"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          python -m pip install --disable-pip-version-check "psycopg[binary]>=3.2,<3.3"
+      - name: Apply tenant RLS candidate to throwaway PostgreSQL only
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
+      - name: Tenant A/B and state-falsification SQL regression tests
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_isolation.sql
+      - name: Test quota, idempotent enqueue and rejected direct INSERT
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_queue_quota.sql
+      - name: Test 16 concurrent PostgreSQL clients and independent tenant limits
+        run: python tenant_security/tests/test_queue_parallel.py
+      - name: Apply separate BFF session registry to throwaway PostgreSQL only
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/002_bff_session_auth.sql
+      - name: Assert real PostgreSQL integration fixture is enabled
+        env:
+          AI_BROWSER_TEST_PG_DSN: "postgresql://postgres@127.0.0.1:5432/postgres"
+        run: |
+          python -c "import os,psycopg; assert os.environ['AI_BROWSER_TEST_PG_DSN'].startswith('postgresql://postgres@127.0.0.1:5432/')"
+      - name: Execute offline BFF and 2-tenant live PostgreSQL regression suite
+        env:
+          AI_BROWSER_TEST_PG_DSN: "postgresql://postgres@127.0.0.1:5432/postgres"
+          AI_BROWSER_TEST_BFF_AUTH_DSN: "postgresql://fixture_bff_auth@127.0.0.1:5432/postgres"
+          AI_BROWSER_TEST_TENANT_A_DSN: "postgresql://fixture_tenant_a@127.0.0.1:5432/postgres"
+          AI_BROWSER_TEST_TENANT_B_DSN: "postgresql://fixture_tenant_b@127.0.0.1:5432/postgres"
+        run: |
+          python -m unittest discover -s tenant_security/tests -p 'test_bff_*.py' -v
+      - name: Confirm no existing accounts or production databases were used
+        run: echo "THROWAWAY_POSTGRES_ONLY_NO_FLOOT_RENDER_STEEL_MIGRATION"
