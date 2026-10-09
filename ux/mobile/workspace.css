@@ -141,7 +141,7 @@ h1,h2,p{overflow-wrap:break-word}
 .toast {position:fixed;z-index:50;bottom:calc(93px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);
         padding:11px 17px;border-radius:12px;box-shadow:0 12px 30px rgba(17,33,54,.16);
         background:#23354e;color:white;font-size:12px;max-width:min(360px,90%);text-align:center}
-@keyframes sheet-slide {from {transform:translateY(12px);opacity:.5}to {transform:translateY(0);opacity:1}}
+@keyframes sheet-slide {from {transform:translateY(12px)}to {transform:translateY(0)}}
 @media (max-width:500px){
   .masthead {padding-left:15px;padding-right:13px}
   .session-strip {padding-left:17px;padding-right:17px;min-height:37px;font-size:10px}
