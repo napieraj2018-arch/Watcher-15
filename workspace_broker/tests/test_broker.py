@@ -353,6 +353,82 @@ class BrokerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer["status"],"paused")
         self.assertTrue(self.broker.quarantined)
 
+    async def test_missing_provider_inventory_quarantines_before_request_recorded(self):
+        async def unavailable(): return None
+        self.browser.sessions=unavailable
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.opena()
+        self.assertTrue(self.broker.quarantined)
+        self.assertEqual(self.broker.requests,{})
+        self.assertEqual(self.browser.started,[])
+
+    async def test_malformed_provider_inventory_cannot_be_treated_as_empty(self):
+        async def malformed(): return [{}]
+        self.browser.sessions=malformed
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.opena()
+        self.assertTrue(self.broker.quarantined)
+        self.assertEqual(self.browser.started,[])
+
+    async def test_raised_provider_inventory_error_is_sanitized(self):
+        async def failed(): raise RuntimeError("DO_NOT_EXPOSE_PRIVATE_PROVIDER_KEY")
+        self.browser.sessions=failed
+        with self.assertRaises(BrokerError) as ctx:
+            await self.opena()
+        self.assertNotIn("PRIVATE_PROVIDER_KEY",str(ctx.exception))
+        self.assertTrue(self.broker.quarantined)
+
+    async def test_poll_with_unknown_inventory_never_starts_queued_job(self):
+        self.browser.running=[{"session_id":"someone-else"}]
+        await self.opena()
+        self.browser.running=[]
+        async def failed(): raise RuntimeError("PRIVATE_PROVIDER_ERROR")
+        self.browser.sessions=failed
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.broker.poll(A,KEY_A)
+        self.assertTrue(self.broker.quarantined)
+        self.assertEqual(self.browser.started,[])
+
+    async def test_summary_shows_recovery_without_exposing_provider(self):
+        async def failed(): raise RuntimeError("PRIVATE")
+        self.browser.sessions=failed
+        with self.assertRaises(BrokerError): await self.opena()
+        view=await self.broker.summary(A)
+        self.assertTrue(view["recovery_required"])
+        self.assertFalse(view["technical_session_id_disclosed"])
+        self.assertNotIn("PRIVATE",str(view))
+
+    async def test_closed_session_does_not_replay_stale_tab_capability(self):
+        first=await self.opena()
+        self.assertEqual(first["status"],"ready")
+        self.assertIn("tab_id",first)
+        await self.broker.close(A)
+        old=await self.opena()
+        self.assertEqual(old["status"],"closed")
+        self.assertNotIn("tab_id",old)
+        self.assertEqual(len(self.browser.started),1)
+        other=await self.opena(key=KEY_B,url=URL_B)
+        self.assertEqual(other["status"],"ready")
+        self.assertEqual(len(self.browser.started),2)
+
+    async def test_multi_tab_close_revokes_all_old_handles(self):
+        await self.opena()
+        await self.opena(key=KEY_B,url=URL_B)
+        await self.broker.close(A)
+        for key,url in ((KEY_A,URL_A),(KEY_B,URL_B)):
+            with self.subTest(key=key):
+                result=await self.opena(key=key,url=url)
+                self.assertEqual(result["status"],"closed")
+                self.assertNotIn("tab_id",result)
+
+    async def test_failed_close_blocks_replaying_ready_session(self):
+        await self.opena()
+        self.browser.fail_save=True
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.broker.close(A)
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.opena()
+
     async def test_failed_close_does_not_start_other_work(self):
         await self.opena()
         await self.opena(key=KEY_B,url=URL_B,p=B)

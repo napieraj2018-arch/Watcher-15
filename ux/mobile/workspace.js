@@ -96,6 +96,13 @@ function pushPage(url) {
   tab.position=tab.history.length-1;
   updateBrowser();
   el("viewport").scrollTop=0;
+  // A trusted same-origin BFF may listen for this intent. In the standalone
+  // prototype there is no listener and no network activity.
+  if (url) {
+    window.dispatchEvent(new CustomEvent("aib:navigation-intent", {
+      detail: {workspace_id: state.workspace, tab_id: tab.id, url}
+    }));
+  }
 }
 function navigate(input) {
   const url=requireHttpsAddress(input);
@@ -173,6 +180,9 @@ function buildWorkspaceList() {
     row.addEventListener("click",()=>{
       state.workspace=workspace.id;
       updateBrowser();closeSheet();inform("Przełączono przestrzeń: "+workspace.label);
+      window.dispatchEvent(new CustomEvent("aib:workspace-selected", {
+        detail: {workspace_id:workspace.id}
+      }));
     });
     holder.append(row);
   }
