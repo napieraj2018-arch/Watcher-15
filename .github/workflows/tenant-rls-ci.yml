@@ -17,6 +17,7 @@ on:
       - tenant-task-state-guard-20261009
       - tenant-queue-quota-20261009
       - bff-tenant-session-boundary-20261009
+      - tenant-profile-envelope-vault-20261009
     paths:
       - "tenant_security/**"
       - ".github/workflows/tenant-rls-ci.yml"
