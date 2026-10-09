@@ -87,31 +87,23 @@ class DemoMobileWebKit(unittest.TestCase):
 
     def test_new_address_auto_starts_without_live_button(self):
         self.enter("https://business.facebook.com/latest/home")
-        self.page.wait_for_function(
-            "()=>document.querySelector('#connection-label').textContent.includes('Gotowe')",
-            timeout=6000)
+        self.assertStatus("Gotowe")
         self.assertEqual(self.http.adapter.count,1)
         self.assertEqual(self.http.adapter.current[0]["mode"],"read_only")
         self.assertEqual(self.page.get_by_role("button",name="Uruchom sesję").count(),0)
 
     def test_another_workspace_queued_then_resumes(self):
         self.enter("https://business.facebook.com/latest/home")
-        self.page.wait_for_function(
-            "()=>document.querySelector('#connection-label').textContent.includes('Gotowe')",
-            timeout=6000)
+        self.assertStatus("Gotowe")
         self.switch("Architekt")
         self.enter("https://www.google.com/")
-        self.page.wait_for_function(
-            "()=>document.querySelector('#connection-label').textContent.includes('kolejce')",
-            timeout=6000)
+        self.assertStatus("kolejce")
         self.assertEqual(len(self.http.broker.queue),1)
         self.switch("Przychodnia")
         self.page.locator("#open-menu").click()
         self.page.locator("#demo-end-task").click()
         self.switch("Architekt")
-        self.page.wait_for_function(
-            "()=>document.querySelector('#connection-label').textContent.includes('Gotowe')",
-            timeout=10000)
+        self.assertStatus("Gotowe",timeout=10000)
         self.assertEqual(self.http.adapter.count,2)
 
     def test_sheet_escape_restores_focus(self):
@@ -129,15 +121,11 @@ class DemoMobileWebKit(unittest.TestCase):
 
     def test_background_tab_status_and_separation(self):
         self.enter("https://www.google.com/")
-        self.page.wait_for_function(
-            "()=>document.querySelector('#connection-label').textContent.includes('Gotowe')",
-            timeout=6000)
+        self.assertStatus("Gotowe")
         self.page.locator("#open-tabs").click()
         self.page.locator("#new-tab").click()
         self.enter("https://github.com/")
-        self.page.wait_for_function(
-            "()=>document.querySelector('#connection-label').textContent.includes('Gotowe')",
-            timeout=6000)
+        self.assertStatus("Gotowe")
         self.assertEqual(self.http.adapter.count,1)
         self.assertEqual(len(self.http.broker.active.tab_ids),2)
 
