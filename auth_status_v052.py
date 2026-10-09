@@ -181,9 +181,33 @@ def credential_readiness(profile, url):
 
 
 def redact_log_text(value):
-    value = re.sub(r'(/mcp/)[^\s?\"\x27]+', r'\1[redacted]', value)
-    return re.sub(r'([?&](?:[^=&\s]*token|[^=&\s]*key|code|password|secret|capability|authorization)=)[^&\s\"\x27]+',
-                  r'\1[redacted]', value, flags=re.I)
+    """Mask capability URLs, OAuth parameters and bearer tokens before logging.
+
+    The returned text is for diagnostics only. Do not use it for routing or
+    cryptographic verification. This filter is defense-in-depth, not an
+    alternative to never logging secrets in the first place.
+    """
+    if not isinstance(value, str):
+        return value
+    # A site-hosted MCP uses a secret-like opaque path segment. Keep the route
+    # prefix only; avoid recording tokenized endpoint suffixes.
+    value = re.sub(r'(/mcp/)[^\s?\"\x27/]+', r'\1[redacted]', value, flags=re.I)
+    # The one-time mobile setup path itself is a temporary bearer capability.
+    value = re.sub(
+        r'(/(?:setup|profile-setup|mobile-login|login-window)/)'
+        r'[A-Za-z0-9_-]{16,}(?=/|[?\s\"\x27]|$)',
+        r'\1[redacted]', value, flags=re.I)
+    # OAuth state, session handoff and API keys can appear in query strings.
+    value = re.sub(
+        r'([?&](?:[^=&\s]*(?:token|key|code|password|secret|capability|'
+        r'authorization|state|nonce|session_id|signature))=)'
+        r'[^&\s\"\x27<>]+',
+        r'\1[redacted]', value, flags=re.I)
+    # Some libraries report auth headers as text.
+    value = re.sub(
+        r'(\bBearer\s+)[A-Za-z0-9._~+/-]{8,}',
+        r'\1[redacted]', value, flags=re.I)
+    return value
 
 
 class AccessSecretFilter(logging.Filter):
