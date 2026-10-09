@@ -213,6 +213,9 @@ class Broker:
                 if (old.principal!=p or old.workspace_id!=workspace_id
                     or old.target!=target):
                     raise BrokerError("IDEMPOTENCY_KEY_CONFLICT")
+                if (self.active and self.active.quarantine
+                        and old.state=="ready"):
+                    raise BrokerError("BROWSER_REQUIRES_RECOVERY")
                 return self._receipt(old)
             if self.quarantined or (self.active and self.active.quarantine):
                 raise BrokerError("BROWSER_REQUIRES_RECOVERY")
