@@ -30,6 +30,19 @@ Oficjalna dokumentacja profilów potwierdza, że przechowują pełną zawartoś�
 - Po niepewnej operacji nie przywracaj dostępu i nie uruchamiaj automatycznej serii powtórzeń.
 - Przy wznowieniu zweryfikuj aktualny stan wszystkich repozytoriów, pomijając już sprawdzone, nieistniejące dane.
 
+## 09.10.2026 — zabezpieczenie przed fałszywym potwierdzeniem usunięcia
+
+Wykryto niebezpieczną lukę w **procedurze testowej**: wcześniej pojedynczy odczyt `final_tombstone_verified=True` mógł zakończyć powtórne żądanie statusem `completed`, nawet gdy zdalny profil lub kopia pojawiły się ponownie. Flaga `confirmed_step_up=True` przekazana przez wywołującego także nie jest wystarczającym dowodem świeżego potwierdzenia użytkownika.
+
+Od teraz koordynator dodatkowo wymaga:
+- `verify_fresh_step_up(principal, profile_id) is True` od zaufanego, uwierzytelnionego backendu przed uruchomieniem jakiejkolwiek operacji destrukcyjnej. Backend ma zweryfikować świeżość, jednorazowość oraz związanie potwierdzenia z dokładnym użytkownikiem, tenantem i profilem. Nie wolno brać tej wartości z pola formularza klienta.
+- `erasure_receipts_verified(tenant, profile_id) is True` **za każdym razem**, także przy odczycie istniejącego tombstone. Ten odczyt ma niezależnie sprawdzać trwałe potwierdzenie usunięcia natywnego profilu Steel oraz **wszystkich** zaszyfrowanych kopii, archiwów, plików i nagrań. Poświadczenia/receipts powinny być audytowalne i przechowywane w odseparowanym, ograniczonym retencją dzienniku, bez danych logowania.
+- W przypadku braku dowodów lub niepewności koordynator zwraca `paused`, a nie „usunięto”. Nie uruchamia ponownie kasowania Steel w pętli.
+
+Na gałęzi `erasure-verified-receipts-20261009` przeprowadzono **71 testów syntetycznych**, w tym 13 negatywnych scenariuszy: obce potwierdzenie MFA, brak niezależnego dowodu, przywrócony natywny profil, ponownie dostępna kopia, zawieszone lub błędne API. [GitHub Actions PASS](https://github.com/napieraj2018-arch/Watcher-15/actions/runs/37962639911).
+
+**Istotne ograniczenie:** nowe metody backendu są wyłącznie protokołem. Bez rzeczywistego API usuwania u dostawcy Steel, audytowanego magazynu dowodów, sesji klienta i trwałych dzierżaw nadal NIE wolno uznać funkcji za dostępną produkcyjnie ani oznaczać warunku `profile_deletion` jako zaliczonego.
+
 ## Warunki integracji, których brakuje
 
 - **Backend z tenant auth + step-up** oraz bazą trwałych, transakcyjnych dzierżaw i wstrzymań.
