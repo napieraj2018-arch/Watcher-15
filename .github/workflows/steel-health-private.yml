@@ -1,0 +1,23 @@
+name: Steel private health diagnostics regression
+on:
+  push:
+    branches:
+      - steel-health-private-20261009
+    paths:
+      - "steel_runtime.py"
+      - "test_steel_health_private.py"
+      - "Dockerfile"
+      - ".github/workflows/steel-health-private.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  docker-privacy-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the exact production image with anonymous/admin privacy tests
+        run: docker build --progress=plain -t aib-steel-health-private .
+      - name: Retest private health response without any real provider session
+        run: docker run --rm --entrypoint python aib-steel-health-private /app/test_steel_health_private.py
