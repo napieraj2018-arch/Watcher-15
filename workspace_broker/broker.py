@@ -164,8 +164,16 @@ class Broker:
         return out
 
     async def _available(self)->bool:
-        try:return not await self.adapter.sessions()
-        except Exception:raise BrokerError("BROWSER_AVAILABILITY_UNKNOWN") from None
+        try:
+            inventory=await self.adapter.sessions()
+            if (not isinstance(inventory,list)
+                    or any(not isinstance(row,dict)
+                        or not isinstance(row.get("session_id"),str)
+                        or not row["session_id"] for row in inventory)):
+                raise BrokerError("BROWSER_AVAILABILITY_UNKNOWN")
+            return len(inventory)==0
+        except Exception:
+            raise BrokerError("BROWSER_AVAILABILITY_UNKNOWN") from None
 
     async def _start(self,job:Pending,w:Workspace)->None:
         try:
@@ -229,8 +237,17 @@ class Broker:
             if len(self.queue)>=self.max_queue:
                 self.requests.pop(key,None)
                 raise BrokerError("QUEUE_FULL")
-            if not self.active and not self.queue and await self._available():
-                await self._start(job,w)
+            if not self.active and not self.queue:
+                try:
+                    available=await self._available()
+                except BrokerError:
+                    self.quarantined=True
+                    self.requests.pop(key,None)
+                    raise BrokerError("BROWSER_REQUIRES_RECOVERY") from None
+                if available:
+                    await self._start(job,w)
+                else:
+                    self.queue.append(job)
             else:
                 self.queue.append(job)
             return self._receipt(job)
@@ -252,7 +269,12 @@ class Broker:
                 return self._receipt(job)
             if self.active or not self.queue or self.queue[0] is not job:
                 return self._receipt(job)
-            if not await self._available():
+            try:
+                available=await self._available()
+            except BrokerError:
+                self.quarantined=True
+                raise BrokerError("BROWSER_REQUIRES_RECOVERY") from None
+            if not available:
                 return self._receipt(job)
             self.queue.popleft()
             w=self._workspace(p,job.workspace_id)
@@ -299,4 +321,5 @@ class Broker:
             pending=sum(1 for w in self.queue if w.principal==p)
             return {"my_task_active":mine,"my_queue_items":pending,
                     "other_task_busy":bool(self.active and not mine),
+                    "recovery_required":bool(self.quarantined or (self.active and self.active.quarantine)),
                     "technical_session_id_disclosed":False}
