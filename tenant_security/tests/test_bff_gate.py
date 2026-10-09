@@ -18,6 +18,7 @@ PB = UUID('bbbbbbbb-0000-4000-8000-000000000002')
 SESSION_A = 'A' * 48
 SESSION_B = 'B' * 48
 CSRF = 'X' * 40
+IDEMPOTENCY = 'K' * 40
 ORIGIN = 'https://browser.example.test'
 COOKIE_A = f'{COOKIE_NAME}={SESSION_A}'
 COOKIE_B = f'{COOKIE_NAME}={SESSION_B}'
@@ -26,13 +27,14 @@ COOKIE_B = f'{COOKIE_NAME}={SESSION_B}'
 class FakeRepository:
     data = {A: {WA: [(PA, 'TEST-A')]}, B: {WB: [(PB, 'TEST-B')]}}
     def __init__(self, tenant, *, bound=None, fail_commit=False, raise_on_read=False,
-                 forced_code=None):
+                 forced_code=None, shared_tasks=None):
         self.tenant = tenant
         self.bound = tenant if bound is None else bound
         self.fail_commit = fail_commit
         self.raise_on_read = raise_on_read
         self.tasks = []
         self.forced_code = forced_code
+        self.shared_tasks = shared_tasks if shared_tasks is not None else {}
 
     def __enter__(self): return self
     def __exit__(self, *_):
@@ -51,6 +53,12 @@ class FakeRepository:
             return ("profile_not_available", None)
         if self.forced_code:
             return (self.forced_code, "queued" if self.forced_code == "existing" else None)
+        bound = (tenant, workspace, profile)
+        if task in self.shared_tasks:
+            if self.shared_tasks[task] != bound:
+                return ("idempotency_conflict", None)
+            return ("existing", "queued")
+        self.shared_tasks[task] = bound
         self.tasks.append((tenant, workspace, profile, task))
         return ("created", "queued")
 
@@ -65,6 +73,7 @@ class BoundaryTests(unittest.TestCase):
         self.fail_read = False
         self.auth_unavailable = False
         self.forced_code = None
+        self.saved_tasks = {}
         def resolver(digest):
             if self.auth_unavailable: raise RuntimeError('secret-backed DB unavailable')
             for token, principal in self.active.items():
@@ -74,14 +83,18 @@ class BoundaryTests(unittest.TestCase):
         def repository_factory(tenant):
             repo = FakeRepository(tenant, bound=self.force_bound,
                                   fail_commit=self.fail_commit, raise_on_read=self.fail_read,
-                                  forced_code=self.forced_code)
+                                  forced_code=self.forced_code, shared_tasks=self.saved_tasks)
             self.repositories.append(repo)
             return repo
         self.bff = TenantBFF(resolver, repository_factory, allowed_origin=ORIGIN)
 
     def request(self, method='GET', workspace=WA, resource='profiles', cookie=COOKIE_A, **kwargs):
+        extra = kwargs.pop('extra_headers', {}) or {}
+        if method == 'POST':
+            extra = {'HTTP_IDEMPOTENCY_KEY': IDEMPOTENCY, **extra}
         return exercise_wsgi(self.bff, method=method,
-            path=f'/api/workspaces/{workspace}/{resource}', cookie=cookie, **kwargs)
+            path=f'/api/workspaces/{workspace}/{resource}', cookie=cookie,
+            extra_headers=extra, **kwargs)
 
     def test_a_only_reads_a_profile(self):
         code, doc, headers = self.request()
@@ -218,7 +231,8 @@ class BoundaryTests(unittest.TestCase):
                'PATH_INFO': f'/api/workspaces/{WA}/tasks',
                'CONTENT_TYPE': 'application/json', 'CONTENT_LENGTH': str(len(data)),
                'wsgi.input': ExactLengthStream(data), 'HTTP_COOKIE': COOKIE_A,
-               'HTTP_ORIGIN': ORIGIN, 'HTTP_X_AIB_CSRF': CSRF}
+               'HTTP_ORIGIN': ORIGIN, 'HTTP_X_AIB_CSRF': CSRF,
+               'HTTP_IDEMPOTENCY_KEY': IDEMPOTENCY}
         got = {}
         def start_response(status, headers):
             got['code'] = int(status[:3])
@@ -262,6 +276,64 @@ class BoundaryTests(unittest.TestCase):
                 code, doc, _ = self.request(method="POST", resource="tasks",
                     origin=ORIGIN, csrf=CSRF, body={"profile_id": str(PA)})
                 self.assertEqual(code, expected)
+
+
+    def test_retry_same_key_is_idempotent(self):
+        first, data_first, _ = self.request(method="POST", resource="tasks",
+            origin=ORIGIN, csrf=CSRF, body={"profile_id": str(PA)})
+        second, data_second, _ = self.request(method="POST", resource="tasks",
+            origin=ORIGIN, csrf=CSRF, body={"profile_id": str(PA)})
+        self.assertEqual((first, second), (202, 200))
+        self.assertEqual(data_first["task_id"], data_second["task_id"])
+        self.assertEqual(len(self.saved_tasks), 1)
+
+    def test_different_retry_keys_create_distinct_tasks(self):
+        first, data_first, _ = self.request(method="POST", resource="tasks",
+            origin=ORIGIN, csrf=CSRF, body={"profile_id": str(PA)})
+        second, data_second, _ = self.request(method="POST", resource="tasks",
+            origin=ORIGIN, csrf=CSRF, body={"profile_id": str(PA)},
+            extra_headers={"HTTP_IDEMPOTENCY_KEY": "P" * 40})
+        self.assertEqual((first, second), (202, 202))
+        self.assertNotEqual(data_first["task_id"], data_second["task_id"])
+        self.assertEqual(len(self.saved_tasks), 2)
+
+    def test_retry_key_is_scoped_to_authenticated_user(self):
+        first, first_data, _ = self.request(method="POST", resource="tasks",
+            origin=ORIGIN, csrf=CSRF, body={"profile_id": str(PA)})
+        other_user = UUID("abababab-0000-4000-8000-abababababab")
+        self.active[SESSION_B] = Principal(A, other_user, "operator",
+            hashlib.sha256(CSRF.encode()).hexdigest())
+        second, second_data, _ = self.request(method="POST", resource="tasks",
+            cookie=COOKIE_B, origin=ORIGIN, csrf=CSRF,
+            body={"profile_id": str(PA)})
+        self.assertEqual((first, second), (202, 202))
+        self.assertNotEqual(first_data["task_id"], second_data["task_id"])
+
+    def test_missing_and_invalid_idempotency_keys_rejected(self):
+        for key in (None, "short", "has spaces included", "x" * 97, "bad,key"):
+            with self.subTest(key=key):
+                code, data, _ = exercise_wsgi(
+                    self.bff, method="POST",
+                    path=f"/api/workspaces/{WA}/tasks", cookie=COOKIE_A,
+                    origin=ORIGIN, csrf=CSRF, body={"profile_id": str(PA)},
+                    extra_headers=({"HTTP_IDEMPOTENCY_KEY": key} if key else {}),
+                )
+                self.assertEqual((code, data),
+                    (400, {"error": "invalid_idempotency_key"}))
+
+    def test_duplicate_json_property_fails_closed(self):
+        body = ('{"profile_id":"' + str(PA) + '","profile_id":"' + str(PA) + '"}').encode()
+        code, data, _ = self.request(method="POST", resource="tasks",
+            origin=ORIGIN, csrf=CSRF, body=body)
+        self.assertEqual((code, data), (400, {"error": "invalid_json"}))
+        self.assertEqual(self.repositories, [])
+
+    def test_nonfinite_json_values_are_rejected(self):
+        for raw in (b'{"profile_id":NaN}', b'{"profile_id":Infinity}'):
+            with self.subTest(raw=raw):
+                code, data, _ = self.request(method="POST", resource="tasks",
+                    origin=ORIGIN, csrf=CSRF, body=raw)
+                self.assertEqual((code, data), (400, {"error": "invalid_json"}))
 
 
 if __name__ == '__main__':

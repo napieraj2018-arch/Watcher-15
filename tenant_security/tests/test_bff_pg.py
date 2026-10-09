@@ -1,6 +1,8 @@
 """Integration test against throwaway PostgreSQL 16 only, NEVER customer DB."""
 import hashlib
 import os
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 import unittest
 from uuid import UUID
 
@@ -24,6 +26,7 @@ ORIGIN = 'https://browser.example.test'
 TOKEN_A = 'C' * 48
 TOKEN_B = 'D' * 48
 CSRF = 'R' * 48
+IDEMPOTENCY = 'J' * 40
 
 
 @unittest.skipUnless(psycopg and os.environ.get('AI_BROWSER_TEST_PG_DSN'),
@@ -57,11 +60,22 @@ class PostgreSQLTenantBFFTests(unittest.TestCase):
             ServerTenantConnections({A: cls.a_dsn, B: cls.b_dsn}), allowed_origin=ORIGIN,
         )
 
+    def setUp(self):
+        # Each integration test starts with an empty synthetic queue, since
+        # quota tests intentionally fill it in other CI stages.
+        with psycopg.connect(self.admin_dsn, autocommit=True) as cx:
+            cx.execute('DELETE FROM browser_product.browser_tasks WHERE tenant_id IN (%s,%s)',
+                       (A, B))
+
     def req(self, tenant='a', workspace=None, method='GET', resource='profiles', body=None, **kwargs):
         cookie = f'{COOKIE_NAME}={TOKEN_A if tenant == "a" else TOKEN_B}'
         work = workspace or (WA if tenant == 'a' else WB)
+        extra = kwargs.pop('extra_headers', {}) or {}
+        if method == 'POST':
+            extra = {'HTTP_IDEMPOTENCY_KEY': IDEMPOTENCY, **extra}
         return exercise_wsgi(self.app, method=method,
-            path=f'/api/workspaces/{work}/{resource}', cookie=cookie, body=body, **kwargs)
+            path=f'/api/workspaces/{work}/{resource}', cookie=cookie,
+            body=body, extra_headers=extra, **kwargs)
 
     def test_real_rls_a_cannot_see_b_even_with_tenant_header(self):
         code, doc, _ = self.req(extra_headers={'HTTP_X_TENANT_ID': str(B)})
@@ -127,6 +141,38 @@ class PostgreSQLTenantBFFTests(unittest.TestCase):
         finally:
             with psycopg.connect(self.admin_dsn, autocommit=True) as cx:
                 cx.execute('UPDATE browser_auth.memberships SET enabled=true WHERE principal_id=%s', (UA,))
+
+
+    def test_real_pg_repeat_request_retains_one_task_id(self):
+        first, response_a, _ = self.req(method='POST', resource='tasks',
+            origin=ORIGIN, csrf=CSRF, body={'profile_id': str(PA)})
+        second, response_b, _ = self.req(method='POST', resource='tasks',
+            origin=ORIGIN, csrf=CSRF, body={'profile_id': str(PA)})
+        self.assertEqual((first, second), (202, 200))
+        self.assertEqual(response_a['task_id'], response_b['task_id'])
+        with psycopg.connect(self.a_dsn, autocommit=True) as cx:
+            self.assertEqual(cx.execute(
+                'SELECT COUNT(*) FROM browser_product.browser_tasks').fetchone()[0], 1)
+
+    def test_real_pg_16_concurrent_bff_enqueues_respect_atomic_quota(self):
+        workers = 16
+        barrier = Barrier(workers)
+        def submit(index):
+            barrier.wait(timeout=20)
+            return self.req(method='POST', resource='tasks',
+                origin=ORIGIN, csrf=CSRF, body={'profile_id': str(PA)},
+                extra_headers={'HTTP_IDEMPOTENCY_KEY': 'K' * 32 + str(index).zfill(4)})
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(submit, range(workers)))
+        codes = [r[0] for r in results]
+        self.assertEqual(codes.count(202), 10)
+        self.assertEqual(codes.count(429), 6)
+        self.assertTrue(all(r[1].get('error') == 'tenant_queue_full'
+                            for r in results if r[0] == 429))
+        with psycopg.connect(self.a_dsn, autocommit=True) as cx:
+            self.assertEqual(cx.execute(
+                "SELECT COUNT(*) FROM browser_product.browser_tasks "
+                "WHERE state='queued'").fetchone()[0], 10)
 
 
 if __name__ == '__main__':

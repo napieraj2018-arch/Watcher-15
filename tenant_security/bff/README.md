@@ -72,3 +72,15 @@ SQL, 16-way DB concurrency, then BFF with actual PostgreSQL.
 Do not conflate green CI with a production queue: authentic cookie issuance,
 request retry idempotency, cross-service session leasing and spending limits
 remain pending. The code remains non-production.
+
+## HTTP retry idempotency (synthetic BFF only)
+
+A POST /tasks requires `Idempotency-Key` (16–96 URL-safe characters).
+The UI MUST issue a new cryptographically random key for each intentional
+user operation and reuse that key on network retries. The BFF derives a stable
+opaque task UUID from the **server-resolved tenant + user + workspace + key**,
+then relies on PostgreSQL's atomic `enqueue_task` for replay and quota checks.
+A retry returns the existing task, not an additional paid browser job.
+Requests with missing/invalid keys, duplicate JSON properties, NaN and Infinity
+are rejected before database access. These tests do not cover actual retries
+through a production reverse proxy, real authentication or payment systems.

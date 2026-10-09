@@ -9,17 +9,18 @@ Not wired to Floot, MCP, Steel or Render. Never deploy this prototype as-is.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from hashlib import sha256
+from hashlib import blake2b, sha256
 from hmac import compare_digest
 from http import HTTPStatus
 from io import BytesIO
 from json import dumps, loads
 import re
 from typing import Callable, Protocol
-from uuid import UUID, uuid4
+from uuid import UUID
 
 COOKIE_NAME = "__Host-aib_session"
 COOKIE_VALUE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
+IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9_-]{16,96}$")
 HEX_DIGEST = re.compile(r"^[a-f0-9]{64}$")
 CSRF_VALUE = re.compile(r"^[A-Za-z0-9_-]{24,128}$")
 ROUTES = re.compile(r"^/api/workspaces/([0-9a-fA-F-]{36})/(profiles|tasks)$")
@@ -69,6 +70,30 @@ def _session_token(raw_header: object) -> str | None:
     if len(matches) != 1 or not COOKIE_VALUE.fullmatch(matches[0]):
         return None
     return matches[0]
+
+
+def _strict_json_pairs(pairs):
+    output = {}
+    for key, value in pairs:
+        if key in output:
+            raise ValueError("duplicate_json_property")
+        output[key] = value
+    return output
+
+
+def _reject_nonfinite(_):
+    raise ValueError("nonfinite_json_number")
+
+
+def _stable_task_id(principal: Principal, workspace: UUID, key: str) -> UUID:
+    # The key comes from a client-generated random nonce, but ID collision
+    # protection never relies on it being secret. Identity and workspace are
+    # proven by the server session resolver and RLS connection.
+    material = (b"ai-browser-task-v1\\0" + principal.tenant_id.bytes +
+                principal.user_id.bytes + workspace.bytes + b"\\0" +
+                key.encode("ascii"))
+    return UUID(bytes=blake2b(material, digest_size=16,
+                             person=b"aib_task_v1").digest(), version=4)
 
 
 def _as_uuid(value: object) -> UUID | None:
@@ -155,7 +180,8 @@ class TenantBFF:
                 raw = environ["wsgi.input"].read(length)
                 if len(raw) != length:
                     return _response(start_response, 400, {"error": "invalid_length"})
-                payload = loads(raw)
+                payload = loads(raw, object_pairs_hook=_strict_json_pairs,
+                                parse_constant=_reject_nonfinite)
             except (ValueError, UnicodeError, KeyError, TypeError):
                 return _response(start_response, 400, {"error": "invalid_json"})
             if not isinstance(payload, dict) or set(payload) != {"profile_id"}:
@@ -164,6 +190,10 @@ class TenantBFF:
             profile = _as_uuid(payload["profile_id"])
             if profile is None:
                 return _response(start_response, 400, {"error": "invalid_profile"})
+            retry_key = environ.get("HTTP_IDEMPOTENCY_KEY")
+            if not isinstance(retry_key, str) or not IDEMPOTENCY_KEY.fullmatch(retry_key):
+                return _response(start_response, 400,
+                                 {"error": "invalid_idempotency_key"})
 
         try:
             with self.repository_factory(principal.tenant_id) as repo:
@@ -177,7 +207,7 @@ class TenantBFF:
                     result = repo.list_profiles(principal.tenant_id, workspace)
                     result_status, result_payload = 200, {"profiles": result}
                 else:
-                    task_id = uuid4()
+                    task_id = _stable_task_id(principal, workspace, retry_key)
                     queue_code, queue_state = repo.enqueue(
                         principal.tenant_id, workspace, profile, task_id
                     )
