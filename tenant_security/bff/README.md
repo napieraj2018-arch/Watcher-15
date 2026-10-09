@@ -29,7 +29,7 @@ directly into ai-browser-cloud or migrate any live profile/cookie database.
 CI: `Browser product tenant RLS and BFF proof` on ephemeral PostgreSQL 16,
 with synthetic tenant A/B users and no external logins or browser sessions.
 
-- 21 positive/negative Python boundary tests: anonymous/forged tenant/
+- 23 positive/negative Python boundary tests: anonymous/forged tenant/
   duplicate cookies/role mismatch/CSRF/Origin/state injection, and fail-closed
   behavior when the database COMMIT fails.
 - 8 PostgreSQL-backed integration tests: tenant A/B isolation via actual
@@ -37,8 +37,8 @@ with synthetic tenant A/B users and no external logins or browser sessions.
   revocation, permission-denied session table, bad tenant DSN and viewer denial.
 - Earlier SQL test suite from PR #98 is rerun before BFF tests.
 
-Successful run (29/29, plus SQL suite):
-https://github.com/napieraj2018-arch/Watcher-15/actions/runs/37982826329
+Latest verified run (31/31, plus SQL suite):
+https://github.com/napieraj2018-arch/Watcher-15/actions/runs/37983230546
 
 The CI-only PostgreSQL service uses a disposable test-only trust mode.
 **Never use trust authentication in production.**
