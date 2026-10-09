@@ -4,6 +4,7 @@ on:
     branches:
       - tenant-rls-isolation-20261009
       - tenant-task-state-guard-20261009
+      - tenant-queue-quota-20261009
     paths:
       - "tenant_security/**"
       - ".github/workflows/tenant-rls-ci.yml"
@@ -34,5 +35,11 @@ jobs:
         run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
       - name: Prove tenant A/B/disabled-role isolation and provider-reference secrecy
         run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_isolation.sql
+      - name: Atomic per-tenant task quota and idempotency tests
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_queue_quota.sql
+      - name: Check real concurrency through 16 independent tenant DB connections
+        run: |
+          python -m pip install "psycopg[binary]==3.2.10"
+          python tenant_security/tests/test_queue_parallel.py
       - name: Confirm no schemas are deployed outside temporary CI PostgreSQL
         run: echo "SQL_PROOF_ONLY_NO_PRODUCTION_MIGRATION"

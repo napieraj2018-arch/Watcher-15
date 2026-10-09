@@ -57,3 +57,26 @@ Po zmianie rola klienta:
 **Granica:** nie utworzono jeszcze autoryzowanego serwisu pracownika z
 kontrolowanymi przejściami stanów. To nie uruchamia realnej kolejki ani
 obsługi zadań. Wdrożenie pozostaje testem osobnej bazy PostgreSQL 16.
+
+
+## 09.10.2026 — atomowa kolejka z limitem, tylko w testowej bazie
+
+Poprzedni schemat pozwalał roli klienta dodawać nieograniczoną liczbę
+`browser_tasks` bezpośrednim `INSERT`, nawet jeżeli stan zadania był zawsze
+`queued`. Przy płatnym dostawcy przeglądarki jest to nieakceptowalne.
+
+W kandydacie:
+- cofnięto bezpośrednie `INSERT` dla ról klientów;
+- `enqueue_task` przyjmuje wyłącznie workspace, profil i id zadania;
+  **tenant wynika wyłącznie z `session_user` powiązanego przez administratora**;
+- tylko profile `ready` w bieżącej firmie mogą otrzymać zadanie;
+- ta sama kombinacja identyfikatora jest idempotentna, inny profil z tym samym
+  `task_id` jest odrzucany nawet przy osiągniętym limicie;
+- `pg_advisory_xact_lock` serializuje zapisy w obrębie tenanta między
+  połączeniami i zabezpiecza limit 10 aktywnych (queued/running) zadań;
+- zamrożony lub wyłączony tenant nie może enqueue; brak wycieku obcych profili.
+
+**Nadal wyłącznie prototyp**. Brak komercyjnego logowania, kontroli ról
+użytkowników w firmie, rzeczywistych limitów kosztowych Steel, workerów
+oraz obsługi zakończenia i anulowania zadań. Wartość 10 jest tylko polityką
+testową. Nie wykonywać migracji na istniejących danych użytkownika.
