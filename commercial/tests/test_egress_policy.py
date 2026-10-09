@@ -71,7 +71,7 @@ class PolicyChecks(unittest.TestCase):
 
     def test_hostname_suffix_trick_rejected(self):
         with self.assertRaisesRegex(EgressBlocked,"HOST_NOT_ALLOWED"):
-            authorize(A,"https://example.com.evil.test/anything",lambda h:["1.1.1.1"],clock=CLOCK)
+            authorize(A,"https://example.com.attacker.org/anything",lambda h:["1.1.1.1"],clock=CLOCK)
 
     def test_internal_hosts_cannot_be_allowlisted(self):
         for host in ("localhost","localhost.local","metadata.internal","evil.invalid",
