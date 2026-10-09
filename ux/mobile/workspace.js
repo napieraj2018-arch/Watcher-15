@@ -180,6 +180,9 @@ function buildWorkspaceList() {
     row.addEventListener("click",()=>{
       state.workspace=workspace.id;
       updateBrowser();closeSheet();inform("Przełączono przestrzeń: "+workspace.label);
+      window.dispatchEvent(new CustomEvent("aib:workspace-selected", {
+        detail: {workspace_id:workspace.id}
+      }));
     });
     holder.append(row);
   }
