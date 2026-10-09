@@ -38,14 +38,10 @@ jobs:
   webkit-iphone-like-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    container: mcr.microsoft.com/playwright/python:v1.59.0-noble
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install WebKit client and browser
-        run: |
-          python -m pip install playwright==1.59.0
-          python -m playwright install --with-deps webkit
+      - name: Use preinstalled Playwright WebKit browser
+        run: python -m pip install playwright==1.59.0
       - name: Check mobile browser UX, queue and WebKit compatibility
         run: python -m unittest discover -s ux/connected/webkit_tests -v
