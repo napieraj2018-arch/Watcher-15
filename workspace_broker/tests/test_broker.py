@@ -257,6 +257,102 @@ class BrokerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({a["status"],b["status"]},{"ready","queued"})
         self.assertEqual(len(self.browser.started),1)
 
+    async def test_profile_identity_cannot_be_shared_across_two_tenants(self):
+        with self.assertRaisesRegex(BrokerError,"PROFILE_REUSED_BETWEEN_WORKSPACES"):
+            Broker(self.browser,[
+              workspace("tenant-A","clinic","Shared - Session"),
+              workspace("tenant-B","clinic","Shared - Session")
+            ])
+
+    async def test_profile_identity_cannot_be_shared_across_two_workspaces(self):
+        with self.assertRaisesRegex(BrokerError,"PROFILE_REUSED_BETWEEN_WORKSPACES"):
+            Broker(self.browser,[
+              workspace("tenant-A","clinic","Shared - Session"),
+              workspace("tenant-A","studio","Shared - Session")
+            ])
+
+    async def test_uncertain_provider_start_quarantines_followup_tenants(self):
+        self.browser.fail_start=True
+        first=await self.opena()
+        self.assertEqual(first["status"],"paused")
+        self.assertTrue(self.broker.quarantined)
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.opena(key=KEY_B,url=URL_B,p=B)
+        self.assertEqual(len(self.browser.started),1)
+
+    async def test_uncertain_start_replay_is_safe_and_does_not_leak_to_others(self):
+        self.browser.fail_start=True
+        response=await self.opena()
+        self.assertEqual(await self.opena(),response)
+        with self.assertRaisesRegex(BrokerError,"REQUEST_NOT_FOUND"):
+            await self.broker.poll(B,KEY_A)
+
+    async def test_uncertain_provider_start_prevents_queued_poll(self):
+        await self.opena()
+        await self.opena(key=KEY_B,url=URL_B,p=B)
+        # Simulate a genuine save failure: no next client can take over.
+        self.browser.fail_save=True
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.broker.close(A)
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.broker.poll(B,KEY_B)
+
+    async def test_adapter_start_session_must_exist_in_inventory(self):
+        original=self.browser.sessions
+        async def no_sessions_after_launch():
+            return [] if self.browser.started else await original()
+        self.browser.sessions=no_sessions_after_launch
+        answer=await self.opena()
+        self.assertEqual(answer["status"],"paused")
+        self.assertTrue(self.broker.quarantined)
+        self.assertEqual(len(self.browser.started),1)
+
+    async def test_adapter_mismatched_session_id_fails_closed(self):
+        original=self.browser.sessions
+        async def wrong_id():
+            if self.browser.started:
+                return [{"session_id":"other-user-controller"}]
+            return await original()
+        self.browser.sessions=wrong_id
+        answer=await self.opena()
+        self.assertEqual(answer["status"],"paused")
+        self.assertTrue(self.broker.quarantined)
+
+    async def test_adapter_wrong_profile_fails_closed(self):
+        original=self.browser.sessions
+        async def wrong_profile():
+            if self.browser.started:
+                return [{"session_id":self.browser.running[0]["session_id"],
+                         "profile":"other-tenant-profile","mode":"read_only"}]
+            return await original()
+        self.browser.sessions=wrong_profile
+        answer=await self.opena()
+        self.assertEqual(answer["status"],"paused")
+        self.assertTrue(self.broker.quarantined)
+
+    async def test_adapter_wrong_mode_fails_closed(self):
+        original=self.browser.sessions
+        async def writable():
+            if self.browser.started:
+                return [{"session_id":self.browser.running[0]["session_id"],
+                         "mode":"write"}]
+            return await original()
+        self.browser.sessions=writable
+        answer=await self.opena()
+        self.assertEqual(answer["status"],"paused")
+        self.assertTrue(self.broker.quarantined)
+
+    async def test_adapter_extra_session_fails_closed(self):
+        original=self.browser.sessions
+        async def two_sessions():
+            if self.browser.started:
+                return [self.browser.running[0],{"session_id":"other-active-task"}]
+            return await original()
+        self.browser.sessions=two_sessions
+        answer=await self.opena()
+        self.assertEqual(answer["status"],"paused")
+        self.assertTrue(self.broker.quarantined)
+
     async def test_failed_close_does_not_start_other_work(self):
         await self.opena()
         await self.opena(key=KEY_B,url=URL_B,p=B)
