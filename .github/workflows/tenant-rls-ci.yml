@@ -7,6 +7,7 @@ on:
       - tenant-queue-quota-20261009
       - bff-tenant-session-boundary-20261009
       - tenant-profile-envelope-vault-20261009
+      - tenant-fenced-steel-slot-20261009
     paths:
       - "tenant_security/**"
       - ".github/workflows/tenant-rls-ci.yml"
@@ -16,6 +17,7 @@ on:
       - tenant-task-state-guard-20261009
       - tenant-queue-quota-20261009
       - bff-tenant-session-boundary-20261009
+      - tenant-profile-envelope-vault-20261009
     paths:
       - "tenant_security/**"
       - ".github/workflows/tenant-rls-ci.yml"
@@ -85,5 +87,17 @@ jobs:
           AI_BROWSER_TEST_VAULT_A_DSN: "postgresql://fixture_vault_a@127.0.0.1:5432/postgres"
           AI_BROWSER_TEST_VAULT_B_DSN: "postgresql://fixture_vault_b@127.0.0.1:5432/postgres"
         run: python -m unittest discover -s tenant_security/vault/tests -p 'test_*.py' -v
+      - name: Apply existing independently tested durable Steel slot proof to temporary PostgreSQL
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f commercial/leases/001_durable_slot.sql
+      - name: Prove standalone durable fencing, release receipts and quarantine
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f commercial/leases/tests/test_protocol.sql
+      - name: Standalone global slot 16-connection regression
+        run: python commercial/leases/tests/test_concurrent.py
+      - name: Replace unscoped slot worker rights with database-verified tenant+task authorization
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/004_tenant_fenced_slot.sql
+      - name: Prove guarded tenant slot, revoked workers, task transitions, receipt and quarantine
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_guarded_slot.sql
+      - name: Prove 16 parallel tenant worker claims with one session starter
+        run: python tenant_security/tests/test_guarded_slot_parallel.py
       - name: Confirm no existing accounts or production databases were used
         run: echo "THROWAWAY_POSTGRES_ONLY_NO_FLOOT_RENDER_STEEL_MIGRATION"
