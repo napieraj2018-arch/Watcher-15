@@ -1,0 +1,31 @@
+name: Meta Business evidence check
+on:
+  push:
+    branches:
+      - meta-business-auth-evidence-20261009
+    paths:
+      - "auth_status_v052.py"
+      - "test_meta_business_evidence_20261009.py"
+      - "Dockerfile"
+      - ".github/workflows/meta-business-evidence.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test Meta Business classification without live accounts
+        run: python -m unittest test_meta_business_evidence_20261009 test_auth_status_052 -v
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image with new tests
+        run: docker build --progress=plain --tag ai-browser-meta-evidence .
