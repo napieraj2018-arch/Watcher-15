@@ -172,6 +172,65 @@ class AutoOpenDemoTests(unittest.TestCase):
         self.assertNotIn("fake-remote-",data)
         self.assertIn('"my_task_active":true',data)
 
+    def test_dns_rebinding_host_cannot_read_demo(self):
+        for host in ("evil.example.test", "127.0.0.1:65534",
+                     "localhost:"+str(self.http.server_port)):
+            with self.subTest(host=host):
+                req=Request(self.base+"/demo",headers={"Host":host})
+                with self.assertRaises(HTTPError) as caught:
+                    urlopen(req,timeout=4)
+                self.assertEqual(caught.exception.code,403)
+                self.assertNotIn("workspace.html",caught.exception.read().decode())
+
+    def test_dns_rebinding_host_and_matching_attacker_origin_both_denied(self):
+        payload=json.dumps({
+            "workspace_id":"clinic","url":"https://business.facebook.com/",
+            "request_id":"host-spoof-test-0001","tab_id":1
+        }).encode("utf-8")
+        req=Request(self.base+"/_demo/api/open",data=payload,method="POST",
+            headers={"Host":"evil.example.test","Origin":"http://evil.example.test",
+                     "content-type":"application/json"})
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(req,timeout=4)
+        self.assertEqual(caught.exception.code,403)
+        self.assertEqual(self.http.adapter.count,0)
+
+    def test_reverse_proxy_identity_headers_cannot_override_loopback(self):
+        for extra in ({"X-Forwarded-Host":"evil.example.test"},
+                      {"Forwarded":"host=evil.example.test;proto=http"},
+                      {"X-Forwarded-Proto":"https"}):
+            with self.subTest(headers=extra):
+                req=Request(self.base+"/demo",headers=extra)
+                with self.assertRaises(HTTPError) as caught:
+                    urlopen(req,timeout=4)
+                self.assertEqual(caught.exception.code,403)
+
+    def test_missing_or_null_origin_does_not_start_browser(self):
+        payload=json.dumps({
+            "workspace_id":"clinic","url":"https://business.facebook.com/",
+            "request_id":"no-origin-test-00001","tab_id":1
+        }).encode("utf-8")
+        for origin in (None,"null","http://127.0.0.1:33333"):
+            with self.subTest(origin=origin):
+                headers={"content-type":"application/json"}
+                if origin is not None:
+                    headers["Origin"]=origin
+                req=Request(self.base+"/_demo/api/open",data=payload,
+                            method="POST",headers=headers)
+                with self.assertRaises(HTTPError) as caught:
+                    urlopen(req,timeout=4)
+                self.assertEqual(caught.exception.code,403)
+                self.assertEqual(self.http.adapter.count,0)
+
+    def test_demo_rejects_invalid_content_type(self):
+        payload=b'{"workspace_id":"clinic"}'
+        req=Request(self.base+"/_demo/api/open",data=payload,method="POST",
+                    headers={"Origin":self.base,"content-type":"text/plain"})
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(req,timeout=4)
+        self.assertEqual(caught.exception.code,415)
+        self.assertEqual(self.http.adapter.count,0)
+
     def test_demo_has_no_external_requests_after_queue_and_close(self):
         self.address("https://www.google.com/")
         self.page.wait_for_function("""() => document.querySelector('#connection-label').textContent.includes('Gotowe')""")
