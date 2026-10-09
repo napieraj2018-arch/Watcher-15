@@ -1,0 +1,204 @@
+"""No browser, accounts or network. Only synthetic tenant IDs."""
+import hashlib
+import unittest
+from dataclasses import replace
+from uuid import UUID
+
+from tenant_security.bff.gate import Principal, TenantBFF, exercise_wsgi, COOKIE_NAME
+
+A = UUID('11111111-1111-4111-8111-111111111111')
+B = UUID('22222222-2222-4222-8222-222222222222')
+USER = UUID('aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa')
+WA = UUID('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+WB = UUID('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
+PA = UUID('aaaaaaaa-0000-4000-8000-000000000001')
+PB = UUID('bbbbbbbb-0000-4000-8000-000000000002')
+SESSION_A = 'A' * 48
+SESSION_B = 'B' * 48
+CSRF = 'X' * 40
+ORIGIN = 'https://browser.example.test'
+COOKIE_A = f'{COOKIE_NAME}={SESSION_A}'
+COOKIE_B = f'{COOKIE_NAME}={SESSION_B}'
+
+
+class FakeRepository:
+    data = {A: {WA: [(PA, 'TEST-A')]}, B: {WB: [(PB, 'TEST-B')]}}
+    def __init__(self, tenant, *, bound=None, fail_commit=False, raise_on_read=False):
+        self.tenant = tenant
+        self.bound = tenant if bound is None else bound
+        self.fail_commit = fail_commit
+        self.raise_on_read = raise_on_read
+        self.tasks = []
+
+    def __enter__(self): return self
+    def __exit__(self, *_):
+        if self.fail_commit:
+            raise RuntimeError('SYNTHETIC commit failed: should never be disclosed')
+
+    def authenticated_tenant(self): return self.bound
+    def workspace_exists(self, tenant, workspace):
+        return tenant == self.tenant and workspace in self.data.get(self.tenant, {})
+    def list_profiles(self, tenant, workspace):
+        if self.raise_on_read: raise RuntimeError('SYNTHETIC SQL error 12345')
+        return [dict(profile_id=str(p), name=n, status='ready')
+                for p, n in self.data[tenant][workspace]]
+    def enqueue(self, tenant, workspace, profile, task):
+        if profile not in dict(self.data.get(tenant, {}).get(workspace, [])).keys():
+            return False
+        self.tasks.append((tenant, workspace, profile, task))
+        return True
+
+
+class BoundaryTests(unittest.TestCase):
+    def setUp(self):
+        self.active = {SESSION_A: Principal(A, USER, 'operator', hashlib.sha256(CSRF.encode()).hexdigest()),
+                       SESSION_B: Principal(B, USER, 'viewer', hashlib.sha256(CSRF.encode()).hexdigest())}
+        self.repositories = []
+        self.force_bound = None
+        self.fail_commit = False
+        self.fail_read = False
+        self.auth_unavailable = False
+        def resolver(digest):
+            if self.auth_unavailable: raise RuntimeError('secret-backed DB unavailable')
+            for token, principal in self.active.items():
+                if hashlib.sha256(token.encode()).hexdigest() == digest:
+                    return principal
+            return None
+        def repository_factory(tenant):
+            repo = FakeRepository(tenant, bound=self.force_bound,
+                                  fail_commit=self.fail_commit, raise_on_read=self.fail_read)
+            self.repositories.append(repo)
+            return repo
+        self.bff = TenantBFF(resolver, repository_factory, allowed_origin=ORIGIN)
+
+    def request(self, method='GET', workspace=WA, resource='profiles', cookie=COOKIE_A, **kwargs):
+        return exercise_wsgi(self.bff, method=method,
+            path=f'/api/workspaces/{workspace}/{resource}', cookie=cookie, **kwargs)
+
+    def test_a_only_reads_a_profile(self):
+        code, doc, headers = self.request()
+        self.assertEqual(code, 200)
+        self.assertEqual([p['name'] for p in doc['profiles']], ['TEST-A'])
+        self.assertNotIn('TEST-B', str(doc))
+        self.assertNotIn('provider_profile_ref', str(doc))
+        self.assertEqual(headers['Cache-Control'], 'no-store, private')
+
+    def test_b_only_reads_b_profile(self):
+        code, doc, _ = self.request(cookie=COOKIE_B, workspace=WB)
+        self.assertEqual(code, 200)
+        self.assertEqual(doc['profiles'][0]['name'], 'TEST-B')
+
+    def test_header_tenant_spoof_is_ignored(self):
+        code, doc, _ = self.request(extra_headers={'HTTP_X_TENANT_ID': str(B)})
+        self.assertEqual(code, 200)
+        self.assertEqual(doc['profiles'][0]['name'], 'TEST-A')
+
+    def test_cross_tenant_workspace_is_404(self):
+        code, doc, _ = self.request(workspace=WB)
+        self.assertEqual((code, doc), (404, {'error': 'not_found'}))
+
+    def test_missing_or_duplicate_or_malformed_cookie_rejected(self):
+        cookies = [None, '', COOKIE_A + '; ' + COOKIE_A,
+                   COOKIE_A.replace('A', '%41'), f'{COOKIE_NAME}=bad',
+                   'irrelevant=abc']
+        for cookie in cookies:
+            with self.subTest(cookie=cookie):
+                self.assertEqual(self.request(cookie=cookie)[0], 401)
+
+    def test_revoked_unknown_token_denied(self):
+        self.active.pop(SESSION_A)
+        self.assertEqual(self.request()[0], 401)
+
+    def test_session_store_failure_is_nonleaking(self):
+        self.auth_unavailable = True
+        code, doc, _ = self.request()
+        self.assertEqual((code, doc), (503, {'error': 'auth_unavailable'}))
+
+    def test_http_rejected_even_with_valid_session(self):
+        self.assertEqual(self.request(scheme='http')[0], 403)
+
+    def test_db_role_misrouting_rejected(self):
+        self.force_bound = B
+        code, doc, _ = self.request()
+        self.assertEqual((code, doc), (503, {'error': 'tenant_binding_unavailable'}))
+
+    def test_unknown_user_role_rejected(self):
+        self.active[SESSION_A] = replace(self.active[SESSION_A], access_role='owner-god')
+        self.assertEqual(self.request()[0], 403)
+
+    def test_post_valid_queue_does_not_accept_client_selected_state(self):
+        code, doc, headers = self.request(method='POST', resource='tasks',
+                            origin=ORIGIN, csrf=CSRF, body={'profile_id': str(PA)})
+        self.assertEqual(code, 202)
+        self.assertEqual(doc['state'], 'queued')
+        self.assertEqual(len(self.repositories[-1].tasks), 1)
+        self.assertEqual(headers['X-Content-Type-Options'], 'nosniff')
+
+    def test_viewer_cannot_mutate_even_with_valid_csrf(self):
+        self.assertEqual(self.request(method='POST', resource='tasks',
+            cookie=COOKIE_B, workspace=WB, origin=ORIGIN, csrf=CSRF,
+            body={'profile_id': str(PB)})[0], 403)
+
+    def test_post_wrong_or_missing_origin_or_csrf_rejected(self):
+        for origin, csrf in [(None, CSRF), ('https://evil.test', CSRF),
+                             (ORIGIN, None), (ORIGIN, 'Y' * 40)]:
+            with self.subTest(origin=origin, csrf=csrf):
+                code, _, _ = self.request(method='POST', resource='tasks',
+                    origin=origin, csrf=csrf, body={'profile_id': str(PA)})
+                self.assertEqual(code, 403)
+                self.assertEqual(self.repositories, [])
+
+    def test_forged_client_ids_or_task_state_are_rejected(self):
+        for bad in [
+            {'profile_id': str(PA), 'tenant_id': str(B)},
+            {'profile_id': str(PA), 'state': 'done'},
+            {'profile_id': str(PA), 'workspace_id': str(WB)},
+            {'profile_id': str(PA), 'task_id': str(PB)},
+        ]:
+            with self.subTest(fields=list(bad)):
+                code, _, _ = self.request(method='POST', resource='tasks',
+                    origin=ORIGIN, csrf=CSRF, body=bad)
+                self.assertEqual(code, 400)
+                self.assertEqual(self.repositories, [])
+
+    def test_post_cross_tenant_profile_never_queues(self):
+        code, doc, _ = self.request(method='POST', resource='tasks',
+            origin=ORIGIN, csrf=CSRF, body={'profile_id': str(PB)})
+        self.assertEqual((code, doc), (404, {'error': 'not_found'}))
+        self.assertEqual(self.repositories[-1].tasks, [])
+
+    def test_post_wrong_content_type(self):
+        self.assertEqual(self.request(method='POST', resource='tasks',
+            origin=ORIGIN, csrf=CSRF, body={'profile_id': str(PA)},
+            content_type='text/plain')[0], 415)
+
+    def test_db_read_exception_no_leak(self):
+        self.fail_read = True
+        code, doc, _ = self.request()
+        self.assertEqual((code, doc), (503, {'error': 'backend_unavailable'}))
+        self.assertNotIn('SYNTHETIC', str(doc))
+
+    def test_commit_failure_never_returns_202(self):
+        self.fail_commit = True
+        code, doc, _ = self.request(method='POST', resource='tasks',
+            origin=ORIGIN, csrf=CSRF, body={'profile_id': str(PA)})
+        self.assertEqual((code, doc), (503, {'error': 'backend_unavailable'}))
+
+    def test_invalid_uuid_and_unknown_route(self):
+        self.assertEqual(exercise_wsgi(self.bff, path='/api/workspaces/notuuid/profiles')[0], 404)
+        self.assertEqual(exercise_wsgi(self.bff, path='/api/workspaces/'+str(WA)+'/delete')[0], 404)
+
+    def test_no_client_role_fallback_when_data_binding_missing(self):
+        self.force_bound = None
+        self.assertEqual(self.request()[0], 200)
+        self.force_bound = B
+        self.assertEqual(self.request()[0], 503)
+
+    def test_cookie_or_body_never_returned_in_errors(self):
+        code, doc, _ = self.request(cookie=COOKIE_A + '; ' + COOKIE_A)
+        self.assertEqual(code, 401)
+        self.assertNotIn(SESSION_A, str(doc))
+
+
+if __name__ == '__main__':
+    unittest.main()
