@@ -75,6 +75,9 @@ BEGIN
      OR rec.should_start IS DISTINCT FROM true
      OR rec.lease_generation IS NULL
   THEN RAISE EXCEPTION 'REAL_QUEUED_JOB_CANNOT_CLAIM'; END IF;
+  -- Test-only reference, NEVER an authorization source for server code.
+  PERFORM set_config('test.fixture_slot_generation',
+                     rec.lease_generation::text,false);
 
   SELECT * INTO rec FROM browser_product.claim_guarded_slot(
     'aaaaaaaa-3333-4333-8333-333333333333',
@@ -92,10 +95,8 @@ BEGIN
     'aaaaaaaa-9999-4999-8999-999999999999',rec.lease_generation)
   THEN RAISE EXCEPTION 'TENANT_CANNOT_ACTIVATE_REAL_JOB'; END IF;
 
-  SELECT t.state INTO state FROM browser_product.browser_tasks t
-  WHERE t.tenant_id='11111111-1111-4111-8111-111111111111'
-    AND t.task_id='aaaaaaaa-3333-4333-8333-333333333333';
-  IF state<>'running' THEN RAISE EXCEPTION 'TASK_NOT_ATOMICALLY_RUNNING'; END IF;
+  -- The worker has NO direct SELECT on task rows; an independent
+  -- privileged test assertion checks 'running' after this block.
 
   SELECT * INTO rec FROM browser_product.claim_guarded_slot(
     'aaaaaaaa-3333-4333-8333-333333333333',
@@ -106,22 +107,31 @@ BEGIN
   IF NOT browser_product.extend_guarded_slot(
     'aaaaaaaa-3333-4333-8333-333333333333',
     'aaaaaaaa-9999-4999-8999-999999999999',
-    (SELECT generation FROM browser_slot_guard.slots LIMIT 1),300)
+    current_setting('test.fixture_slot_generation')::bigint,300)
   THEN RAISE EXCEPTION 'TENANT_CANNOT_EXTEND_OWN_ACTIVE_LEASE'; END IF;
 
   IF NOT browser_product.begin_close_guarded_slot(
     'aaaaaaaa-3333-4333-8333-333333333333',
     'aaaaaaaa-9999-4999-8999-999999999999',
-    (SELECT generation FROM browser_slot_guard.slots LIMIT 1))
+    current_setting('test.fixture_slot_generation')::bigint)
   THEN RAISE EXCEPTION 'BEGIN_CLOSE_FAILED'; END IF;
 
   IF browser_product.finish_guarded_slot(
     'aaaaaaaa-3333-4333-8333-333333333333',
     'aaaaaaaa-9999-4999-8999-999999999999',
-    (SELECT generation FROM browser_slot_guard.slots LIMIT 1))
+    current_setting('test.fixture_slot_generation')::bigint)
   THEN RAISE EXCEPTION 'RELEASE_WITHOUT_PROVIDER_AND_VAULT_RECEIPT'; END IF;
 END $test$;
 RESET SESSION AUTHORIZATION;
+DO $test$
+DECLARE task_status text;
+BEGIN
+  SELECT state INTO task_status FROM browser_product.browser_tasks
+   WHERE tenant_id='11111111-1111-4111-8111-111111111111'
+     AND task_id='aaaaaaaa-3333-4333-8333-333333333333';
+  IF task_status<>'running'
+  THEN RAISE EXCEPTION 'TASK_NOT_ATOMICALLY_RUNNING'; END IF;
+END $test$;
 
 SET SESSION AUTHORIZATION fixture_guarded_b;
 DO $test$
@@ -135,7 +145,7 @@ BEGIN
   IF browser_product.finish_guarded_slot(
     'aaaaaaaa-3333-4333-8333-333333333333',
     'aaaaaaaa-9999-4999-8999-999999999999',
-    (SELECT generation FROM browser_slot_guard.slots LIMIT 1))
+    current_setting('test.fixture_slot_generation')::bigint)
   THEN RAISE EXCEPTION 'TENANT_B_FINISHED_TENANT_A'; END IF;
 END $test$;
 RESET SESSION AUTHORIZATION;
@@ -146,7 +156,7 @@ DECLARE gen bigint;
 BEGIN
   -- This is a CI-only fake receipt. Real verifier must independently confirm
   -- remote provider closure and encrypted vault persistence.
-  SELECT generation INTO gen FROM browser_slot_guard.slots;
+  SELECT current_setting('test.fixture_slot_generation')::bigint INTO gen;
   IF NOT browser_slot_guard.record_verified_release(
     'aaaaaaaa-9999-4999-8999-999999999999',gen,true,true)
   THEN RAISE EXCEPTION 'SYNTHETIC_RECEIPT_REJECTED'; END IF;
@@ -157,15 +167,13 @@ SET SESSION AUTHORIZATION fixture_guarded_a;
 DO $test$
 DECLARE gen bigint; task_status text;
 BEGIN
-  SELECT generation INTO gen FROM browser_slot_guard.slots;
+  SELECT current_setting('test.fixture_slot_generation')::bigint INTO gen;
   IF NOT browser_product.finish_guarded_slot(
     'aaaaaaaa-3333-4333-8333-333333333333',
     'aaaaaaaa-9999-4999-8999-999999999999',gen)
   THEN RAISE EXCEPTION 'VERIFIED_SLOT_DID_NOT_CLOSE'; END IF;
-  SELECT state INTO task_status FROM browser_product.browser_tasks
-   WHERE task_id='aaaaaaaa-3333-4333-8333-333333333333';
-  IF task_status<>'paused'
-  THEN RAISE EXCEPTION 'PROVIDER_RELEASE_FALSELY_MARKED_TASK_DONE'; END IF;
+  -- The database task state is checked by the independent admin fixture,
+  -- since even a tenant broker role cannot select task rows directly.
 
   IF browser_product.extend_guarded_slot(
     'aaaaaaaa-3333-4333-8333-333333333333',
@@ -173,6 +181,15 @@ BEGIN
   THEN RAISE EXCEPTION 'STALE_LEASE_EXTENDED_AFTER_RELEASE'; END IF;
 END $test$;
 RESET SESSION AUTHORIZATION;
+DO $test$
+DECLARE task_status text;
+BEGIN
+  SELECT state INTO task_status FROM browser_product.browser_tasks
+   WHERE tenant_id='11111111-1111-4111-8111-111111111111'
+     AND task_id='aaaaaaaa-3333-4333-8333-333333333333';
+  IF task_status<>'paused'
+  THEN RAISE EXCEPTION 'PROVIDER_RELEASE_FALSELY_MARKED_TASK_DONE'; END IF;
+END $test$;
 
 -- Another tenant receives a later generation only after verified release.
 SET SESSION AUTHORIZATION fixture_guarded_b;
@@ -184,6 +201,8 @@ BEGIN
     'bbbbbbbb-9999-4999-8999-999999999999',300);
   IF rec.status_code<>'new' OR rec.granted IS DISTINCT FROM true
   THEN RAISE EXCEPTION 'SECOND_TENANT_STARVED_AFTER_VERIFIED_RELEASE'; END IF;
+  PERFORM set_config('test.fixture_slot_generation',
+                     rec.lease_generation::text,false);
 END $test$;
 RESET SESSION AUTHORIZATION;
 
@@ -216,7 +235,7 @@ BEGIN
   IF browser_product.extend_guarded_slot(
     'bbbbbbbb-3333-4333-8333-333333333333',
     'bbbbbbbb-9999-4999-8999-999999999999',
-    (SELECT generation FROM browser_slot_guard.slots LIMIT 1),300)
+    current_setting('test.fixture_slot_generation')::bigint,300)
   THEN RAISE EXCEPTION 'REVOKED_TENANT_CAN_EXTEND'; END IF;
 END $test$;
 RESET SESSION AUTHORIZATION;
