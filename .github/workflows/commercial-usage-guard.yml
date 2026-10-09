@@ -13,27 +13,19 @@ jobs:
   ephemeral-postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 12
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 4s
-          --health-retries 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Prepare temporary PostgreSQL CLI and client
+      - name: Start local PostgreSQL 16 on disposable CI runner
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client
+          sudo apt-get install -y -qq postgresql-16 postgresql-client-16
+          # LOOPBACK-only trust is permitted only in this disposable CI runner.
+          sudo sed -i '1i host all all 127.0.0.1/32 trust' /etc/postgresql/16/main/pg_hba.conf
+          sudo pg_ctlcluster 16 main restart
+          pg_isready -h 127.0.0.1 -p 5432 -U postgres
           python -m pip install --disable-pip-version-check "psycopg[binary]>=3.2,<3.3"
       - name: Apply only to disposable test Postgres
         run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f commercial/usage_guard/001_vendor_budget.sql
