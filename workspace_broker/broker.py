@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from typing import Any,Protocol
 
 ID=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$")
+PROFILE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$")
 REQUEST=re.compile(r"^[A-Za-z0-9._-]{12,96}$")
 HOST=re.compile(r"^[a-z0-9][a-z0-9.-]{2,250}[a-z0-9]$")
 
@@ -107,9 +108,11 @@ class Broker:
         for w in workspaces:
             if not isinstance(w,Workspace):
                 raise BrokerError("INVALID_WORKSPACE")
-            for v in (w.tenant_id,w.workspace_id,w.profile):
+            for v in (w.tenant_id,w.workspace_id):
                 if not isinstance(v,str) or not ID.fullmatch(v):
                     raise BrokerError("INVALID_WORKSPACE")
+            if not isinstance(w.profile,str) or not PROFILE.fullmatch(w.profile):
+                raise BrokerError("INVALID_WORKSPACE")
             if not isinstance(w.allowed_hosts,frozenset) or not w.allowed_hosts:
                 raise BrokerError("INVALID_ALLOWLIST")
             for h in w.allowed_hosts:
@@ -121,7 +124,7 @@ class Broker:
             self.workspaces[key]=w
         self.active:Active|None=None
         self.queue:deque[Pending]=deque()
-        self.requests:dict[str,Pending]={}
+        self.requests:dict[tuple[str,str,str,str],Pending]={}
 
     def _workspace(self,p,workspace_id):
         validate_identity(p)
@@ -131,6 +134,16 @@ class Broker:
         if not workspace:
             raise BrokerError("WORKSPACE_NOT_FOUND")
         return workspace
+
+    def _request_key(self,p:Principal,request_id:str):
+        return (p.tenant_id,p.user_id,p.task_id,request_id)
+
+    def _expire_old_queue(self):
+        now=self.clock()
+        while self.queue and now-self.queue[0].created_at>=900:
+            expired=self.queue.popleft()
+            expired.state="expired"
+            expired.error="REQUEST_EXPIRED_RESTART_MANUALLY"
 
     def _receipt(self,job:Pending)->dict[str,Any]:
         out={"status":job.state,"request_id":job.request_id}
@@ -168,8 +181,10 @@ class Broker:
         if not isinstance(request_id,str) or not REQUEST.fullmatch(request_id):
             raise BrokerError("INVALID_REQUEST_ID")
         async with self.lock:
-            if request_id in self.requests:
-                old=self.requests[request_id]
+            self._expire_old_queue()
+            key=self._request_key(p,request_id)
+            if key in self.requests:
+                old=self.requests[key]
                 if (old.principal!=p or old.workspace_id!=workspace_id
                     or old.target!=target):
                     raise BrokerError("IDEMPOTENCY_KEY_CONFLICT")
@@ -177,12 +192,12 @@ class Broker:
             if self.active and self.active.quarantine:
                 raise BrokerError("BROWSER_REQUIRES_RECOVERY")
             job=Pending(p,workspace_id,request_id,target,self.clock())
-            self.requests[request_id]=job
+            self.requests[key]=job
             # Reuse only for the same user, tenant, task and workspace.
             if (self.active and self.active.principal==p
                     and self.active.workspace_id==workspace_id):
                 if len(self.active.tab_ids)>=self.max_tabs:
-                    self.requests.pop(request_id,None)
+                    self.requests.pop(key,None)
                     raise BrokerError("WORKSPACE_TAB_LIMIT")
                 try:
                     resp=await self.adapter.new_tab(self.active.remote_session_id,target)
@@ -195,7 +210,7 @@ class Broker:
                     job.state="paused";job.error="TAB_UNCONFIRMED_NO_RETRY"
                 return self._receipt(job)
             if len(self.queue)>=self.max_queue:
-                self.requests.pop(request_id,None)
+                self.requests.pop(key,None)
                 raise BrokerError("QUEUE_FULL")
             if not self.active and not self.queue and await self._available():
                 await self._start(job,w)
@@ -206,7 +221,7 @@ class Broker:
     async def poll(self,p:Principal,request_id:str):
         validate_identity(p)
         async with self.lock:
-            job=self.requests.get(request_id)
+            job=self.requests.get(self._request_key(p,request_id))
             if not job or job.principal!=p:
                 raise BrokerError("REQUEST_NOT_FOUND")
             if job.state!="queued":
@@ -227,7 +242,7 @@ class Broker:
     async def cancel(self,p:Principal,request_id:str):
         validate_identity(p)
         async with self.lock:
-            job=self.requests.get(request_id)
+            job=self.requests.get(self._request_key(p,request_id))
             if not job or job.principal!=p:
                 raise BrokerError("REQUEST_NOT_FOUND")
             if job.state!="queued":
