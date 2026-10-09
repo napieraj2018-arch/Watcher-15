@@ -80,6 +80,9 @@ def safe_json_parse(raw:bytes):
 
 class DemoServer(HTTPServer):
     def __init__(self,address,handler=None):
+        # One synthetic same-origin nonce per loopback test process. Never
+        # reuse the demonstration token as production authentication.
+        self.csrf_token=secrets.token_urlsafe(32)
         self.broker,self.adapter=demo_broker()
         super().__init__(address,handler or Handler)
 
@@ -121,6 +124,10 @@ class Handler(BaseHTTPRequestHandler):
         if kind=="html":
             source=(STATIC/"workspace.html").read_text("utf-8")
             source=source.replace("connect-src 'none'","connect-src 'self'")
+            if "</head>" not in source:
+                raise BrokerError("UNEXPECTED_DEMO_TEMPLATE")
+            source=source.replace("</head>",
+                '<meta name="aib-demo-csrf" content="'+self.server.csrf_token+'"></head>',1)
             needle='<script type="module" src="./workspace.js"></script>'
             if needle not in source:raise BrokerError("UNEXPECTED_DEMO_TEMPLATE")
             source=source.replace(needle,needle+'\n  <script type="module" src="./demo_connected.js"></script>')
@@ -172,8 +179,16 @@ class Handler(BaseHTTPRequestHandler):
         path=urlsplit(self.path)
         if path.path not in ("/_demo/api/open","/_demo/api/close") or path.query:
             return self._json(404,{"error":"not_found"})
-        if self.headers.get("Origin")!=self._origin():
+        # WebKit may omit Origin on a same-origin POST. A server-issued,
+        # non-URL nonce in a custom header remains mandatory in every case.
+        # Explicit cross-origin Origin values are always rejected.
+        origin=self.headers.get("Origin")
+        if origin is not None and origin!=self._origin():
             return self._json(403,{"error":"ORIGIN_REQUIRED"})
+        token=self.headers.get("X-AIB-Demo-Csrf","")
+        if (not isinstance(token,str) or
+                not secrets.compare_digest(token,self.server.csrf_token)):
+            return self._json(403,{"error":"DEMO_CSRF_REQUIRED"})
         if self.headers.get("content-type","").split(";")[0]!="application/json":
             return self._json(415,{"error":"JSON_REQUIRED"})
         try:
