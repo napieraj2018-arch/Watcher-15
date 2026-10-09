@@ -80,6 +80,9 @@ def safe_json_parse(raw:bytes):
 
 class DemoServer(HTTPServer):
     def __init__(self,address,handler=None):
+        # One synthetic same-origin nonce per loopback test process. Never
+        # reuse the demonstration token as production authentication.
+        self.csrf_token=secrets.token_urlsafe(32)
         self.broker,self.adapter=demo_broker()
         super().__init__(address,handler or Handler)
 
@@ -87,6 +90,23 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version="HTTP/1.0"  # Close each connection; local single-thread test server only.
     def log_message(self,*_args):
         pass
+
+    def _origin(self):
+        # The demo is loopback-only. Never derive accepted Origins from an
+        # untrusted Host or reverse-proxy header (DNS rebinding defense).
+        return "http://127.0.0.1:"+str(self.server.server_port)
+
+    def _request_is_loopback(self):
+        return (
+            self.server.server_address[0] == "127.0.0.1"
+            and self.headers.get_all("Host",[]) == [
+                "127.0.0.1:"+str(self.server.server_port)
+            ]
+            and not any(self.headers.get(key) for key in (
+                "Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto"
+            ))
+        )
+
     def _send(self,status:int,data:bytes,content_type:str):
         self.send_response(status)
         self.send_header("content-type",content_type)
@@ -106,6 +126,10 @@ class Handler(BaseHTTPRequestHandler):
         if kind=="html":
             source=(STATIC/"workspace.html").read_text("utf-8")
             source=source.replace("connect-src 'none'","connect-src 'self'")
+            if "</head>" not in source:
+                raise BrokerError("UNEXPECTED_DEMO_TEMPLATE")
+            source=source.replace("</head>",
+                '<meta name="aib-demo-csrf" content="'+self.server.csrf_token+'"></head>',1)
             needle='<script type="module" src="./workspace.js"></script>'
             if needle not in source:raise BrokerError("UNEXPECTED_DEMO_TEMPLATE")
             source=source.replace(needle,needle+'\n  <script type="module" src="./demo_connected.js"></script>')
@@ -120,6 +144,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200,body,mime)
 
     def do_GET(self):
+        if not self._request_is_loopback():
+            return self._json(403,{"error":"LOOPBACK_HOST_REQUIRED"})
         path=urlsplit(self.path)
         try:
             if path.path in ("/","/demo","/demo/"):
@@ -150,11 +176,35 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(503,{"error":"DEMO_UNAVAILABLE"})
 
     def do_POST(self):
+        if not self._request_is_loopback():
+            return self._json(403,{"error":"LOOPBACK_HOST_REQUIRED"})
         path=urlsplit(self.path)
         if path.path not in ("/_demo/api/open","/_demo/api/close") or path.query:
             return self._json(404,{"error":"not_found"})
-        expected="http://"+self.headers.get("Host","")
-        if self.headers.get("Origin")!=expected:
+        # A custom nonce is mandatory regardless of Origin. Without it,
+        # cross-site forms and opaque/sandboxed origins cannot control tasks.
+        token=self.headers.get("X-AIB-Demo-Csrf","")
+        if (not isinstance(token,str) or
+                not secrets.compare_digest(token,self.server.csrf_token)):
+            return self._json(403,{"error":"DEMO_CSRF_REQUIRED"})
+        origins=self.headers.get_all("Origin",[])
+        if len(origins)>1:
+            return self._json(403,{"error":"DUPLICATE_ORIGIN_REJECTED"})
+        origin=origins[0] if origins else None
+        # Some WebKit builds emit 'null' for a loopback synthetic origin.
+        # Only the short-lived, same-origin, server-issued nonce can permit
+        # this exceptional value. Real multi-tenant BFF auth is not provided.
+        if origin not in (None,self._origin(),"null"):
+            try:
+                p=urlsplit(origin)
+                self.server.last_origin_check={
+                    "same_loopback_host":p.hostname=="127.0.0.1",
+                    "port_matches":p.port==self.server.server_port,
+                    "scheme_http":p.scheme=="http",
+                    "has_trailing_slash":origin.endswith("/"),
+                }
+            except (TypeError,ValueError):
+                self.server.last_origin_check={"invalid_origin":True}
             return self._json(403,{"error":"ORIGIN_REQUIRED"})
         if self.headers.get("content-type","").split(";")[0]!="application/json":
             return self._json(415,{"error":"JSON_REQUIRED"})

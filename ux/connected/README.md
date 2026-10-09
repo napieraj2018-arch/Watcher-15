@@ -37,6 +37,14 @@ Workflow: .github/workflows/auto-window-demo-tests.yml
 
 Sprawdza rzeczywisty interfejs w Chromium i wywołania BFF przez localhost. W workflow są również ponawiane podstawowe testy interfejsu i kolejki.
 
+## Zabezpieczenie demonstracyjnego serwera i zgodność Safari
+
+Testowa aplikacja nasłuchuje wyłącznie na loopback 127.0.0.1. Każde żądanie musi mieć dokładny nagłówek Host z właściwym portem; spreparowane lub proxy-forwarded Host są odrzucane, co ogranicza próby DNS rebinding. Każda operacja POST wymaga dodatkowo nieprzewidywalnego tokenu CSRF, dostarczonego w stronie z tego samego serwera i przesłanego w niestandardowym nagłówku. Jawny obcy Origin jest zawsze blokowany. Brak nagłówka Origin lub jego wartość `null` można zaakceptować tylko przy poprawnym tokenie i Host, ponieważ silniki przeglądarek różnią się w wysyłaniu nagłówków same-origin.
+
+Token lokalnego symulatora nie jest loginem, nie trafia do adresu URL i nie służy do autoryzacji rzeczywistych profili. Nie wolno kopiować tego uproszczonego zabezpieczenia bezpośrednio do produkcyjnego BFF; potrzebne są pełne sesje użytkownika, RLS, uprawnienia i trwałe dzierżawy.
+
+CI wykonuje testy Chromium oraz silnika WebKit. Wynik w Linux WebKit jest testem zgodności silnika, ale **nie zastępuje testu na fizycznym iPhonie, iOS Safari i VoiceOver**.
+
 ## Co pozostało do uruchomienia u klientów
 
 Nie można podłączyć tej demonstracji bezpośrednio do aktualnego globalnego MCP. Najpierw wymagane są: uwierzytelnianie kont klienta, oddzielne profile tenanta, rzeczywista kolejka i dzierżawy z transakcyjnym fencing tokenem, bezpieczny reverse proxy do widoku strony, izolacja screenshotów, bezpieczna obsługa MFA, usuwanie danych i limity kosztów.
