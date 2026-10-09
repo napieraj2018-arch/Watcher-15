@@ -15,11 +15,12 @@ COPY test_meta_business_evidence_20261009.py /app/test_meta_business_evidence_20
 COPY test_profile_recovery_051.py /app/test_profile_recovery_051.py
 COPY test_portable_precedence.py /app/test_portable_precedence.py
 COPY test_synthetic_fixture_evidence.py /app/test_synthetic_fixture_evidence.py
+COPY test_synthetic_fixture_exact.py /app/test_synthetic_fixture_exact.py
 COPY mcp_error_reporting.py /app/mcp_error_reporting.py
 COPY test_mcp_error_reporting.py /app/test_mcp_error_reporting.py
 COPY session_ownership/ /app/session_ownership/
 COPY session_ownership/capability_guard.py /app/capability_guard.py
 COPY Dockerfile /app/Dockerfile
-RUN python /app/test_safe_archive_extract.py && python /app/test_cryptography_compat.py && python -m py_compile /app/bootstrap.py /app/entrypoint.py /app/steel_runtime.py /app/steel_context_fix.py /app/auth_status_v052.py /app/mcp_error_reporting.py /app/capability_guard.py && python -c "import httpx, starlette, steel_runtime, steel_context_fix, auth_status_v052, mcp_error_reporting; from mcp.server.mcpserver.exceptions import ToolError; from playwright.async_api import BrowserContext; assert hasattr(BrowserContext, 'set_storage_state')" && python /app/test_auth_status_052.py && python /app/test_meta_business_evidence_20261009.py && python /app/test_profile_recovery_051.py && python /app/test_portable_precedence.py && python /app/test_synthetic_fixture_evidence.py && python /app/test_mcp_error_reporting.py && PYTHONPATH=/app/session_ownership:/app python -m unittest discover -s /app/session_ownership/tests -v
+RUN python /app/test_safe_archive_extract.py && python /app/test_cryptography_compat.py && python -m py_compile /app/bootstrap.py /app/entrypoint.py /app/steel_runtime.py /app/steel_context_fix.py /app/auth_status_v052.py /app/mcp_error_reporting.py /app/capability_guard.py && python -c "import httpx, starlette, steel_runtime, steel_context_fix, auth_status_v052, mcp_error_reporting; from mcp.server.mcpserver.exceptions import ToolError; from playwright.async_api import BrowserContext; assert hasattr(BrowserContext, 'set_storage_state')" && python /app/test_auth_status_052.py && python /app/test_meta_business_evidence_20261009.py && python /app/test_profile_recovery_051.py && python /app/test_portable_precedence.py && python /app/test_synthetic_fixture_evidence.py && python /app/test_synthetic_fixture_exact.py && python /app/test_mcp_error_reporting.py && PYTHONPATH=/app/session_ownership:/app python -m unittest discover -s /app/session_ownership/tests -v
 EXPOSE 10000
 CMD ["sh", "-c", "if [ \"$AI_BROWSER_ENGINE\" = \"steel\" ]; then exec python /app/bootstrap.py; else exec python /app/entrypoint.py; fi"]
