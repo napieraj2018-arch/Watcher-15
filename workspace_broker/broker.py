@@ -221,6 +221,7 @@ class Broker:
     async def poll(self,p:Principal,request_id:str):
         validate_identity(p)
         async with self.lock:
+            self._expire_old_queue()
             job=self.requests.get(self._request_key(p,request_id))
             if not job or job.principal!=p:
                 raise BrokerError("REQUEST_NOT_FOUND")
