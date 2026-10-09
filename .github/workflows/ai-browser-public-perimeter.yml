@@ -1,0 +1,27 @@
+name: AI Browser unauthenticated perimeter
+on:
+  push:
+    branches:
+      - aib-open-perimeter-tests-20261009
+      - ai-browser-cloud
+    paths:
+      - "security/test_public_perimeter.py"
+      - "bootstrap.py"
+      - "auth_status_v052.py"
+      - "steel_context_fix.py"
+      - "Dockerfile"
+      - ".github/workflows/ai-browser-public-perimeter.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  external-anonymous-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run nonmutating unauthenticated production perimeter checks
+        run: python security/test_public_perimeter.py -v
