@@ -87,12 +87,15 @@ def authorize(principal: Principal, resource: Resource, action: str) -> None:
         raise TenantAccessError("INVALID_AUTHORIZATION_REQUEST")
     if principal.tenant_id != resource.tenant_id:
         raise TenantAccessError("RESOURCE_NOT_ACCESSIBLE")
-    if (resource.kind == "billing") != (action == "billing_edit"):
-        if resource.kind == "billing" or action == "billing_edit":
+    if resource.kind == "billing":
+        if action not in {"view", "billing_edit"}:
             raise TenantAccessError("RESOURCE_ACTION_MISMATCH")
+    elif action == "billing_edit":
+        raise TenantAccessError("RESOURCE_ACTION_MISMATCH")
     roles = principal.roles
     if action == "view":
-        allowed = bool(roles & {"viewer", "operator", "admin"})
+        allowed = (bool(roles & {"billing", "admin"}) if resource.kind == "billing"
+                   else bool(roles & {"viewer", "operator", "admin"}))
     elif action == "operate":
         allowed = bool(roles & {"operator", "admin"}) and resource.kind in {"profile", "session", "job", "file"}
     elif action == "billing_edit":
