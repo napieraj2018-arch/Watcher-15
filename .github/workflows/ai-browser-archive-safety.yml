@@ -1,0 +1,33 @@
+name: AI Browser archive safety verification
+on:
+  push:
+    branches:
+      - aib-security-hardening-20261009
+    paths:
+      - "bootstrap.py"
+      - "test_safe_archive_extract.py"
+      - "Dockerfile"
+      - ".github/workflows/ai-browser-archive-safety.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Static compilation
+        run: python -m py_compile test_safe_archive_extract.py
+      - name: Check untrusted archive traversal and links
+        run: python test_safe_archive_extract.py -v
+  production-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image with security tests
+        run: docker build --progress=plain -t aibrowser-archive-security .

@@ -1,5 +1,5 @@
-from pathlib import Path
-import ast, base64, hashlib, hmac, io, os, runpy, sys, tarfile, urllib.request
+from pathlib import Path, PurePosixPath
+import ast, base64, hashlib, hmac, io, os, runpy, shutil, sys, tarfile, urllib.request
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 PAYLOAD_URL = "https://ai-browser-vault.floot.app/_cdn/static/7cc26794-4051-41b8-862f-792995b14e58-ai-browser-core-v041.aib"
@@ -16,12 +16,65 @@ def derive(master: bytes, label: str) -> bytes:
 
 
 def safe_extract(tf: tarfile.TarFile, dest: Path):
-    dest = dest.resolve()
-    for m in tf.getmembers():
-        target = (dest / m.name).resolve()
-        if dest not in target.parents and target != dest:
-            raise RuntimeError("unsafe payload path")
-    tf.extractall(dest)
+    """Extract an authenticated application archive without filesystem links.
+
+    Validate every member before writing anything. The authenticated payload is
+    still treated as structured input; a symlink or hardlink in an archive must
+    never redirect a later write outside the application directory.
+    """
+    dest = Path(dest).resolve()
+    members = tf.getmembers()
+    if not 1 <= len(members) <= 1000:
+        raise RuntimeError("invalid application archive member count")
+    validated = []
+    seen = set()
+    total = 0
+    for member in members:
+        name = member.name
+        if (not isinstance(name, str) or not name or len(name) > 512 or
+                "\\" in name or any(ord(ch) < 32 or ord(ch) == 127 for ch in name)):
+            raise RuntimeError("invalid application archive name")
+        path = PurePosixPath(name)
+        # tarfile.add(directory, arcname='.') may emit a harmless root entry.
+        if str(path) == "." and member.isdir():
+            continue
+        if (path.is_absolute() or ".." in path.parts or str(path) in {"", "."} or
+                (not member.isfile() and not member.isdir())):
+            raise RuntimeError("unsupported application archive entry")
+        normalized = str(path)
+        if normalized in seen:
+            raise RuntimeError("duplicate application archive entry")
+        seen.add(normalized)
+        target = dest.joinpath(*path.parts)
+        if not target.resolve().is_relative_to(dest) or target.resolve() == dest:
+            raise RuntimeError("unsafe application archive path")
+        current = dest
+        for part in path.parts:
+            current = current / part
+            if current.is_symlink():
+                raise RuntimeError("application archive path uses a symlink")
+        if member.isfile():
+            if member.size < 0 or member.size > 20_000_000:
+                raise RuntimeError("application archive file too large")
+            total += member.size
+            if total > 80_000_000:
+                raise RuntimeError("application archive too large")
+        validated.append((member, target))
+    files = {str(PurePosixPath(m.name)) for m in members if m.isfile()}
+    if any(str(parent) in files for m in members
+           for parent in list(PurePosixPath(m.name).parents) if str(parent) != "."):
+        raise RuntimeError("application archive file/directory conflict")
+    dest.mkdir(parents=True, exist_ok=True)
+    for member, target in validated:
+        if member.isdir():
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            source = tf.extractfile(member)
+            if source is None:
+                raise RuntimeError("application archive data missing")
+            with source, target.open("wb") as output:
+                shutil.copyfileobj(source, output, length=1024 * 1024)
 
 
 def load_mobile_repair(dest: Path) -> None:
