@@ -29,15 +29,15 @@ directly into ai-browser-cloud or migrate any live profile/cookie database.
 CI: `Browser product tenant RLS and BFF proof` on ephemeral PostgreSQL 16,
 with synthetic tenant A/B users and no external logins or browser sessions.
 
-- 23 positive/negative Python boundary tests: anonymous/forged tenant/
+- 27 positive/negative Python boundary tests: anonymous/forged tenant/
   duplicate cookies/role mismatch/CSRF/Origin/state injection, and fail-closed
   behavior when the database COMMIT fails.
 - 8 PostgreSQL-backed integration tests: tenant A/B isolation via actual
   RLS roles, cross-tenant profile rejection, real enqueue state, session
   revocation, permission-denied session table, bad tenant DSN and viewer denial.
-- Earlier SQL test suite from PR #98 is rerun before BFF tests.
+- Earlier SQL test suites from PRs #98 and #100, including quota, direct-INSERT blocking, and 16 PostgreSQL connections, run before BFF tests.
 
-Latest verified run (31/31, plus SQL suite):
+Previous BFF-only verified run (31/31, SQL quota not integrated):
 https://github.com/napieraj2018-arch/Watcher-15/actions/runs/37983230546
 
 The CI-only PostgreSQL service uses a disposable test-only trust mode.
@@ -60,3 +60,15 @@ The CI-only PostgreSQL service uses a disposable test-only trust mode.
 
 **CI green means only that the synthetic test boundary worked, NOT that
 the application is safe to sell. Product launch remains NO-GO.**
+
+## Incremental quota-BFF integration
+
+Stack on draft PR #100 (atomic queue + tenant quota). The BFF no longer writes
+`browser_tasks` directly; it invokes `browser_product.enqueue_task` through
+its least-privileged, tenant-bound DB login. Database-returned quota and
+idempotency states determine HTTP responses. The same CI now exercises quota
+SQL, 16-way DB concurrency, then BFF with actual PostgreSQL.
+
+Do not conflate green CI with a production queue: authentic cookie issuance,
+request retry idempotency, cross-service session leasing and spending limits
+remain pending. The code remains non-production.

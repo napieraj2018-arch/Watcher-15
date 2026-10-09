@@ -178,10 +178,22 @@ class TenantBFF:
                     result_status, result_payload = 200, {"profiles": result}
                 else:
                     task_id = uuid4()
-                    if not repo.enqueue(principal.tenant_id, workspace, profile, task_id):
+                    queue_code, queue_state = repo.enqueue(
+                        principal.tenant_id, workspace, profile, task_id
+                    )
+                    if queue_code in ("created", "existing"):
+                        result_status = 202 if queue_code == "created" else 200
+                        result_payload = {"task_id": str(task_id), "state": queue_state}
+                    elif queue_code == "quota_reached":
+                        result_status, result_payload = 429, {"error": "tenant_queue_full"}
+                    elif queue_code == "profile_not_available":
                         result_status, result_payload = 404, {"error": "not_found"}
+                    elif queue_code == "idempotency_conflict":
+                        result_status, result_payload = 409, {"error": "idempotency_conflict"}
+                    elif queue_code == "unauthorized":
+                        result_status, result_payload = 403, {"error": "forbidden"}
                     else:
-                        result_status, result_payload = 202, {"task_id": str(task_id), "state": "queued"}
+                        result_status, result_payload = 503, {"error": "queue_unavailable"}
             # Only emit 202 AFTER transaction COMMIT succeeds.
             return _response(start_response, result_status, result_payload)
         except Exception:

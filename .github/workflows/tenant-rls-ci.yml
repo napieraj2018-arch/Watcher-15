@@ -4,6 +4,7 @@ on:
     branches:
       - tenant-rls-isolation-20261009
       - tenant-task-state-guard-20261009
+      - tenant-queue-quota-20261009
       - bff-tenant-session-boundary-20261009
     paths:
       - "tenant_security/**"
@@ -12,6 +13,7 @@ on:
     branches:
       - ai-browser-cloud
       - tenant-task-state-guard-20261009
+      - tenant-queue-quota-20261009
     paths:
       - "tenant_security/**"
       - ".github/workflows/tenant-rls-ci.yml"
@@ -48,6 +50,10 @@ jobs:
         run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
       - name: Tenant A/B and state-falsification SQL regression tests
         run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_isolation.sql
+      - name: Test quota, idempotent enqueue and rejected direct INSERT
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_queue_quota.sql
+      - name: Test 16 concurrent PostgreSQL clients and independent tenant limits
+        run: python tenant_security/tests/test_queue_parallel.py
       - name: Apply separate BFF session registry to throwaway PostgreSQL only
         run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/002_bff_session_auth.sql
       - name: Assert real PostgreSQL integration fixture is enabled

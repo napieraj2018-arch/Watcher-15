@@ -39,7 +39,7 @@ VALUES
 SET SESSION AUTHORIZATION fixture_tenant_a;
 
 DO $test$
-DECLARE got int; touched int; identity uuid;
+DECLARE got int; touched int; identity uuid; queue_code text; task_state text;
 BEGIN
   SELECT browser_product.authenticated_tenant() INTO identity;
   IF identity IS DISTINCT FROM '11111111-1111-4111-8111-111111111111'::uuid
@@ -113,17 +113,25 @@ BEGIN
     RAISE EXCEPTION 'A_CREATED_FALSE_RUNNING_TASK';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
-  -- Legitimate client can create only a new QUEUED task using DB default.
-  INSERT INTO browser_product.browser_tasks(
-    tenant_id,workspace_id,task_id,profile_id)
-  VALUES('11111111-1111-4111-8111-111111111111',
+  -- Direct table INSERT is forbidden even for a client's own profile.
+  BEGIN
+    INSERT INTO browser_product.browser_tasks(
+      tenant_id,workspace_id,task_id,profile_id)
+    VALUES('11111111-1111-4111-8111-111111111111',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'aaaaaaaa-7777-4777-8777-777777777777',
+      'aaaaaaaa-0000-4000-8000-000000000001');
+    RAISE EXCEPTION 'CLIENT_BYPASSED_QUEUE_QUOTA';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  -- Only a verified DB login can call the quota-enforcing enqueue function.
+  SELECT status_code,current_state INTO queue_code,task_state
+    FROM browser_product.enqueue_task(
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    'aaaaaaaa-6666-4666-8666-666666666666',
-    'aaaaaaaa-0000-4000-8000-000000000001');
-  SELECT count(*) INTO got FROM browser_product.browser_tasks
-   WHERE task_id='aaaaaaaa-6666-4666-8666-666666666666'
-    AND state='queued';
-  IF got<>1 THEN RAISE EXCEPTION 'OWN_TASK_NOT_QUEUED'; END IF;
+    'aaaaaaaa-0000-4000-8000-000000000001',
+    'aaaaaaaa-6666-4666-8666-666666666666');
+  IF queue_code<>'created' OR task_state<>'queued'
+  THEN RAISE EXCEPTION 'OWN_TASK_NOT_QUEUED'; END IF;
 
   -- The tenant may only create its own workspace/profile.
   INSERT INTO browser_product.workspaces(tenant_id,workspace_id,display_name)
@@ -136,16 +144,12 @@ BEGIN
   SELECT count(*) INTO got FROM browser_product.profiles;
   IF got<>2 THEN RAISE EXCEPTION 'A_COULD_NOT_CREATE_OWN_PROFILE'; END IF;
 
-  BEGIN
-    INSERT INTO browser_product.browser_tasks(tenant_id,workspace_id,task_id,profile_id)
-    VALUES('11111111-1111-4111-8111-111111111111',
-           'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-           'aaaaaaaa-5555-4555-8555-555555555555',
-           'bbbbbbbb-0000-4000-8000-000000000002');
-    RAISE EXCEPTION 'CROSS_TENANT_PROFILE_BOUND_TO_TASK';
-  EXCEPTION WHEN foreign_key_violation THEN
-    NULL;
-  END;
+  SELECT status_code INTO queue_code FROM browser_product.enqueue_task(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'bbbbbbbb-0000-4000-8000-000000000002',
+    'aaaaaaaa-5555-4555-8555-555555555555');
+  IF queue_code<>'profile_not_available'
+  THEN RAISE EXCEPTION 'CROSS_TENANT_PROFILE_BOUND_TO_TASK'; END IF;
 END
 $test$;
 

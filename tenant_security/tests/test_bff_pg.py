@@ -37,6 +37,10 @@ class PostgreSQLTenantBFFTests(unittest.TestCase):
         cls.b_dsn = os.environ['AI_BROWSER_TEST_TENANT_B_DSN']
         with psycopg.connect(cls.admin_dsn, autocommit=True) as cx:
             cx.execute('CREATE ROLE fixture_bff_auth LOGIN IN ROLE browser_bff_auth')
+            # Previous queue concurrency tests deliberately fill tenant A.
+            # Reset only synthetic CI fixtures before the BFF tests.
+            cx.execute('DELETE FROM browser_product.browser_tasks WHERE tenant_id IN (%s,%s)',
+                       (A,B))
             cx.execute("UPDATE browser_product.login_tenant_bindings SET enabled=true WHERE db_role='fixture_tenant_b'")
             for tenant, user, role, token in [
                 (A, UA, 'operator', TOKEN_A), (B, UB, 'viewer', TOKEN_B)

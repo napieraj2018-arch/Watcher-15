@@ -25,12 +25,14 @@ COOKIE_B = f'{COOKIE_NAME}={SESSION_B}'
 
 class FakeRepository:
     data = {A: {WA: [(PA, 'TEST-A')]}, B: {WB: [(PB, 'TEST-B')]}}
-    def __init__(self, tenant, *, bound=None, fail_commit=False, raise_on_read=False):
+    def __init__(self, tenant, *, bound=None, fail_commit=False, raise_on_read=False,
+                 forced_code=None):
         self.tenant = tenant
         self.bound = tenant if bound is None else bound
         self.fail_commit = fail_commit
         self.raise_on_read = raise_on_read
         self.tasks = []
+        self.forced_code = forced_code
 
     def __enter__(self): return self
     def __exit__(self, *_):
@@ -46,9 +48,11 @@ class FakeRepository:
                 for p, n in self.data[tenant][workspace]]
     def enqueue(self, tenant, workspace, profile, task):
         if profile not in dict(self.data.get(tenant, {}).get(workspace, [])).keys():
-            return False
+            return ("profile_not_available", None)
+        if self.forced_code:
+            return (self.forced_code, "queued" if self.forced_code == "existing" else None)
         self.tasks.append((tenant, workspace, profile, task))
-        return True
+        return ("created", "queued")
 
 
 class BoundaryTests(unittest.TestCase):
@@ -60,6 +64,7 @@ class BoundaryTests(unittest.TestCase):
         self.fail_commit = False
         self.fail_read = False
         self.auth_unavailable = False
+        self.forced_code = None
         def resolver(digest):
             if self.auth_unavailable: raise RuntimeError('secret-backed DB unavailable')
             for token, principal in self.active.items():
@@ -68,7 +73,8 @@ class BoundaryTests(unittest.TestCase):
             return None
         def repository_factory(tenant):
             repo = FakeRepository(tenant, bound=self.force_bound,
-                                  fail_commit=self.fail_commit, raise_on_read=self.fail_read)
+                                  fail_commit=self.fail_commit, raise_on_read=self.fail_read,
+                                  forced_code=self.forced_code)
             self.repositories.append(repo)
             return repo
         self.bff = TenantBFF(resolver, repository_factory, allowed_origin=ORIGIN)
@@ -224,6 +230,38 @@ class BoundaryTests(unittest.TestCase):
             origin=ORIGIN, csrf=CSRF, body=b'{"profile_id":"bad')
         self.assertEqual(code, 400)
 
+
+
+    def test_quota_limit_returns_429_and_not_success(self):
+        self.forced_code = "quota_reached"
+        code, doc, _ = self.request(method="POST", resource="tasks", origin=ORIGIN,
+            csrf=CSRF, body={"profile_id": str(PA)})
+        self.assertEqual((code, doc), (429, {"error": "tenant_queue_full"}))
+        self.assertEqual(self.repositories[-1].tasks, [])
+
+    def test_existing_idempotency_state_returned_only_from_database(self):
+        self.forced_code = "existing"
+        code, doc, _ = self.request(method="POST", resource="tasks", origin=ORIGIN,
+            csrf=CSRF, body={"profile_id": str(PA)})
+        self.assertEqual(code, 200)
+        self.assertEqual(doc["state"], "queued")
+
+    def test_queue_failure_is_fail_closed_not_202(self):
+        for status in ("unavailable", "unknown_state"):
+            with self.subTest(status=status):
+                self.forced_code = status
+                code, doc, _ = self.request(method="POST", resource="tasks",
+                    origin=ORIGIN, csrf=CSRF, body={"profile_id": str(PA)})
+                self.assertEqual((code, doc), (503, {"error": "queue_unavailable"}))
+
+    def test_queue_stale_or_unauthorized_rejected(self):
+        for status, expected in (("unauthorized", 403),
+                                 ("idempotency_conflict", 409)):
+            with self.subTest(status=status):
+                self.forced_code = status
+                code, doc, _ = self.request(method="POST", resource="tasks",
+                    origin=ORIGIN, csrf=CSRF, body={"profile_id": str(PA)})
+                self.assertEqual(code, expected)
 
 
 if __name__ == '__main__':

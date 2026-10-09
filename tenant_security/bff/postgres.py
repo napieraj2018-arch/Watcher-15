@@ -68,22 +68,16 @@ class PgTenantRepository:
         return [dict(profile_id=str(r[0]), name=r[1], status=r[2]) for r in rows]
 
     def enqueue(self, tenant_id: UUID, workspace_id: UUID, profile_id: UUID, task_id: UUID):
-        # Foreign keys ensure profile belongs to SAME workspace and tenant.
-        # State is deliberately absent from INSERT; DB default is queued.
-        # A missing profile is 404; no permission to edit lifecycle state.
+        # Never perform direct INSERT: the PostgreSQL role has no INSERT grant.
+        # The privileged, tenant-scoped function performs membership checks,
+        # serialization, queue quota, ID collision handling and default state.
+        # The database derives tenant identity from SESSION_USER, not JSON.
         row = self.connection.execute(
-            "SELECT 1 FROM browser_product.profiles "
-            "WHERE tenant_id=%s AND workspace_id=%s AND profile_id=%s",
-            (tenant_id, workspace_id, profile_id)
+            "SELECT status_code,current_state "
+            "FROM browser_product.enqueue_task(%s,%s,%s)",
+            (workspace_id, profile_id, task_id)
         ).fetchone()
-        if not row:
-            return False
-        self.connection.execute(
-            "INSERT INTO browser_product.browser_tasks(tenant_id,workspace_id,task_id,profile_id) "
-            "VALUES(%s,%s,%s,%s)",
-            (tenant_id, workspace_id, task_id, profile_id)
-        )
-        return True
+        return (row[0], row[1]) if row else ("unavailable", None)
 
 
 class ServerTenantConnections:
