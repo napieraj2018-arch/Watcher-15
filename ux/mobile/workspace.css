@@ -92,7 +92,7 @@ h1,h2,p{overflow-wrap:break-word}
 .address-bar:focus-within {background:#fff;border-color:#8eb4e3;box-shadow:0 0 0 3px rgba(45,111,203,.08)}
 .address-lock {width:17px;height:17px;color:#8090a3;margin-right:6px}
 .address-bar input {appearance:none;-webkit-appearance:none;background:transparent;border:0;outline:none;box-shadow:none;
-                    min-width:0;flex:1;color:#21324b;font-size:12px;text-overflow:ellipsis;padding:10px 0}
+                    min-width:0;flex:1;color:#21324b;font-size:16px;text-overflow:ellipsis;padding:10px 0}
 .address-bar input:focus-visible {outline:none}
 .address-bar input::placeholder {color:#92a0b1}
 .address-bar input::-webkit-search-cancel-button {display:none}
@@ -150,13 +150,13 @@ h1,h2,p{overflow-wrap:break-word}
   .welcome {padding:36px 20px 26px}
   .welcome h1 {font-size:32px}
   .quick-grid {gap:10px}
-  .quick-link {padding:8px;min-height:68px;gap:8px;font-size:11.5px}
+  .quick-link {padding:8px;min-height:68px;gap:8px;font-size:12.5px}
   .quick-symbol {width:38px;height:38px}
   .bottom-wrap{padding:9px 5px calc(10px + env(safe-area-inset-bottom,0px))}
   .toolbar {grid-template-columns:44px 44px minmax(70px,1fr) 44px 44px;gap:2px;padding:4px;border-radius:17px}
   .tool-button {width:44px;height:46px}
   .address-bar {min-height:45px;padding-left:8px}
-  .address-bar input {font-size:11px}
+  .address-bar input {font-size:16px}
   .address-lock {width:14px;margin-right:4px}
   .address-go{min-width:44px;width:44px}
 }
