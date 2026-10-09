@@ -1,0 +1,24 @@
+name: AI Browser profile deletion fail-closed
+on:
+  push:
+    branches:
+      - block-unsafe-profile-delete-20261009
+    paths:
+      - "profile_delete_guard.py"
+      - "test_profile_delete_guard.py"
+      - "bootstrap.py"
+      - "Dockerfile"
+      - ".github/workflows/profile-delete-deny-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production-image-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build exact Docker image and run all embedded regressions
+        run: docker build --progress=plain -t aib-erase-deny .
+      - name: Verify profile delete MCP cannot touch the provider
+        run: docker run --rm --entrypoint python aib-erase-deny /app/test_profile_delete_guard.py
