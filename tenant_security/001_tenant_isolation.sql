@@ -129,9 +129,11 @@ GRANT UPDATE(display_name)
 
 GRANT SELECT(tenant_id,workspace_id,task_id,profile_id,state)
   ON browser_product.browser_tasks TO browser_product_client;
-GRANT INSERT(tenant_id,workspace_id,task_id,profile_id,state)
-  ON browser_product.browser_tasks TO browser_product_client;
-GRANT UPDATE(state)
+-- Customer-facing connections can ONLY enqueue with DEFAULT state='queued'.
+-- Lifecycle state (running/done/cancelled/paused) is controlled by a separate
+-- authenticated BFF worker with auditable transitions. A client may not spoof
+-- success, cancel another actor's job or hide running provider usage.
+GRANT INSERT(tenant_id,workspace_id,task_id,profile_id)
   ON browser_product.browser_tasks TO browser_product_client;
 
 COMMIT;

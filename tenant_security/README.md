@@ -40,3 +40,20 @@ Model osobnej roli DB per tenant wymaga automatycznego zarządzania tysiącami k
 RLS nie zastępuje: autoryzacji w BFF, transakcyjnych dzierżaw i kolejki, ochrony egress/SSRF, szyfrowania sekretów, 2FA, pełnego usuwania natywnych profili i backupów, polityki retencji ani audytu penetracyjnego.
 
 To jest test wyłącznie warstwy danych, nie ukończony produkt.
+
+
+## Poprawka bezpieczeństwa z 09.10 — autorytatywny stan zadania
+
+Testowana wcześniej rola klienta posiadała `GRANT INSERT(...,state)` i
+`GRANT UPDATE(state)`. To umożliwiało bezpośrednie oznaczenie zadania jako
+`running`/`done` mimo braku potwierdzenia backendu.
+
+Po zmianie rola klienta:
+- może dodać zadanie bez kolumny `state`, ze stanem domyślnym `queued`;
+- nie może zmienić stanu istniejącego zadania;
+- nie może utworzyć zadania z dowolnie ustawionym `state`;
+- nadal ma dostęp RLS tylko do swojego tenant_id.
+
+**Granica:** nie utworzono jeszcze autoryzowanego serwisu pracownika z
+kontrolowanymi przejściami stanów. To nie uruchamia realnej kolejki ani
+obsługi zadań. Wdrożenie pozostaje testem osobnej bazy PostgreSQL 16.

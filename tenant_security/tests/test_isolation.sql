@@ -91,6 +91,39 @@ BEGIN
 
   IF has_table_privilege(session_user,'browser_product.login_tenant_bindings','SELECT')
   THEN RAISE EXCEPTION 'A_COULD_READ_ROLE_BINDINGS'; END IF;
+  -- Task states are server-authoritative. The client cannot inject
+  -- running/done at INSERT nor alter an existing task state after enqueue.
+  IF has_column_privilege(session_user,'browser_product.browser_tasks','state','INSERT')
+     OR has_column_privilege(session_user,'browser_product.browser_tasks','state','UPDATE')
+  THEN RAISE EXCEPTION 'A_CLIENT_HAS_LIFECYCLE_PRIVILEGES'; END IF;
+
+  BEGIN
+    UPDATE browser_product.browser_tasks SET state='done'
+     WHERE tenant_id='11111111-1111-4111-8111-111111111111';
+    RAISE EXCEPTION 'A_SPOOFED_TASK_DONE';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO browser_product.browser_tasks(
+      tenant_id,workspace_id,task_id,profile_id,state)
+    VALUES('11111111-1111-4111-8111-111111111111',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'aaaaaaaa-5555-4555-8555-555555555555',
+      'aaaaaaaa-0000-4000-8000-000000000001','running');
+    RAISE EXCEPTION 'A_CREATED_FALSE_RUNNING_TASK';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  -- Legitimate client can create only a new QUEUED task using DB default.
+  INSERT INTO browser_product.browser_tasks(
+    tenant_id,workspace_id,task_id,profile_id)
+  VALUES('11111111-1111-4111-8111-111111111111',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'aaaaaaaa-6666-4666-8666-666666666666',
+    'aaaaaaaa-0000-4000-8000-000000000001');
+  SELECT count(*) INTO got FROM browser_product.browser_tasks
+   WHERE task_id='aaaaaaaa-6666-4666-8666-666666666666'
+    AND state='queued';
+  IF got<>1 THEN RAISE EXCEPTION 'OWN_TASK_NOT_QUEUED'; END IF;
 
   -- The tenant may only create its own workspace/profile.
   INSERT INTO browser_product.workspaces(tenant_id,workspace_id,display_name)
@@ -104,11 +137,11 @@ BEGIN
   IF got<>2 THEN RAISE EXCEPTION 'A_COULD_NOT_CREATE_OWN_PROFILE'; END IF;
 
   BEGIN
-    INSERT INTO browser_product.browser_tasks(tenant_id,workspace_id,task_id,profile_id,state)
+    INSERT INTO browser_product.browser_tasks(tenant_id,workspace_id,task_id,profile_id)
     VALUES('11111111-1111-4111-8111-111111111111',
            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
            'aaaaaaaa-5555-4555-8555-555555555555',
-           'bbbbbbbb-0000-4000-8000-000000000002','queued');
+           'bbbbbbbb-0000-4000-8000-000000000002');
     RAISE EXCEPTION 'CROSS_TENANT_PROFILE_BOUND_TO_TASK';
   EXCEPTION WHEN foreign_key_violation THEN
     NULL;
