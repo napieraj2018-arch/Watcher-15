@@ -8,6 +8,7 @@ import pathlib
 import sys
 import threading
 import unittest
+import http.client
 from urllib.error import HTTPError
 from urllib.request import Request,urlopen
 
@@ -272,6 +273,67 @@ class AutoOpenDemoTests(unittest.TestCase):
         self.assertNotIn(self.http.csrf_token,self.page.url)
         token=self.page.locator('meta[name="aib-demo-csrf"]').get_attribute("content")
         self.assertEqual(token,self.http.csrf_token)
+
+    def test_webkit_null_origin_only_accepted_with_valid_nonce(self):
+        payload=json.dumps({
+            "workspace_id":"clinic","url":"https://business.facebook.com/",
+            "request_id":"webkit-null-origin-001","tab_id":1
+        }).encode("utf-8")
+        allowed=Request(self.base+"/_demo/api/open",data=payload,method="POST",
+            headers={"content-type":"application/json",
+                     "Origin":"null",
+                     "X-AIB-Demo-Csrf":self.http.csrf_token})
+        with urlopen(allowed,timeout=4) as response:
+            data=json.loads(response.read())
+        self.assertEqual(data["status"],"ready")
+        self.assertEqual(self.http.adapter.count,1)
+
+    def test_webkit_null_origin_without_nonce_denied(self):
+        payload=json.dumps({
+            "workspace_id":"clinic","url":"https://business.facebook.com/",
+            "request_id":"webkit-null-no-csrf-01","tab_id":1
+        }).encode("utf-8")
+        denied=Request(self.base+"/_demo/api/open",data=payload,method="POST",
+            headers={"content-type":"application/json","Origin":"null"})
+        with self.assertRaises(HTTPError) as rejected:
+            urlopen(denied,timeout=4)
+        self.assertEqual(rejected.exception.code,403)
+        self.assertEqual(self.http.adapter.count,0)
+
+    def test_two_host_headers_cannot_bypass_localhost_check(self):
+        conn=http.client.HTTPConnection("127.0.0.1",self.http.server_port,timeout=4)
+        try:
+            conn.putrequest("GET","/demo",skip_host=True)
+            conn.putheader("Host","127.0.0.1:"+str(self.http.server_port))
+            conn.putheader("Host","evil.example.test")
+            conn.endheaders()
+            response=conn.getresponse()
+            self.assertEqual(response.status,403)
+            response.read()
+        finally:
+            conn.close()
+
+    def test_two_origin_headers_cannot_bypass_csrf_check(self):
+        payload=json.dumps({
+            "workspace_id":"clinic","url":"https://business.facebook.com/",
+            "request_id":"duplicate-origin-00001","tab_id":1
+        }).encode("utf-8")
+        conn=http.client.HTTPConnection("127.0.0.1",self.http.server_port,timeout=4)
+        try:
+            conn.putrequest("POST","/_demo/api/open",skip_host=True)
+            conn.putheader("Host","127.0.0.1:"+str(self.http.server_port))
+            conn.putheader("Origin",self.base)
+            conn.putheader("Origin","null")
+            conn.putheader("Content-Type","application/json")
+            conn.putheader("X-AIB-Demo-Csrf",self.http.csrf_token)
+            conn.putheader("Content-Length",str(len(payload)))
+            conn.endheaders(payload)
+            response=conn.getresponse()
+            self.assertEqual(response.status,403)
+            response.read()
+            self.assertEqual(self.http.adapter.count,0)
+        finally:
+            conn.close()
 
     def test_demo_rejects_invalid_content_type(self):
         payload=b'{"workspace_id":"clinic"}'
