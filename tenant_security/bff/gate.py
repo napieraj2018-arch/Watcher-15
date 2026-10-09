@@ -152,7 +152,7 @@ class TenantBFF:
                 length = int(environ.get("CONTENT_LENGTH", "-1"))
                 if length < 1 or length > MAX_BODY:
                     return _response(start_response, 413, {"error": "invalid_size"})
-                raw = environ["wsgi.input"].read(MAX_BODY + 1)
+                raw = environ["wsgi.input"].read(length)
                 if len(raw) != length:
                     return _response(start_response, 400, {"error": "invalid_length"})
                 payload = loads(raw)
