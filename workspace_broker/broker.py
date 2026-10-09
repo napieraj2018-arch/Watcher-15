@@ -175,6 +175,13 @@ class Broker:
                 raise BrokerError("START_UNCONFIRMED")
             if self.active is not None:
                 raise BrokerError("EXCLUSIVE_OWNERSHIP_CONFLICT")
+            observed=await self.adapter.sessions()
+            if (not isinstance(observed,list) or len(observed)!=1
+                    or not isinstance(observed[0],dict)
+                    or observed[0].get("session_id")!=sid
+                    or observed[0].get("profile",w.profile)!=w.profile
+                    or observed[0].get("mode","read_only")!="read_only"):
+                raise BrokerError("START_SESSION_IDENTITY_NOT_VERIFIED")
             tab=secrets.token_urlsafe(18)
             self.active=Active(job.principal,job.workspace_id,sid,{tab})
             job.tab_id=tab;job.state="ready"
