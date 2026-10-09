@@ -33,7 +33,8 @@ class BrowserMock:
         self.started.append({"profile":profile,"url":url,"mode":mode})
         if self.fail_start:raise RuntimeError("SIMULATED_PROVIDER_DOWN_PRIVATE_INFO")
         if self.running:raise RuntimeError("SIMULATED_BUSY")
-        row={"session_id":"internal-browser-id-"+str(len(self.started))}
+        row={"session_id":"internal-browser-id-"+str(len(self.started)),
+             "profile":profile, "mode":mode}
         self.running=[row]
         return row
     async def new_tab(self,session_id,url):
@@ -352,6 +353,102 @@ class BrokerTests(unittest.IsolatedAsyncioTestCase):
         answer=await self.opena()
         self.assertEqual(answer["status"],"paused")
         self.assertTrue(self.broker.quarantined)
+
+    async def test_provider_start_without_profile_metadata_is_quarantined(self):
+        original=self.browser.sessions
+        async def missing_profile():
+            rows=await original()
+            for row in rows: row.pop("profile",None)
+            return rows
+        self.browser.sessions=missing_profile
+        result=await self.opena()
+        self.assertEqual(result["status"],"paused")
+        self.assertTrue(self.broker.quarantined)
+        self.assertFalse(self.broker.active)
+
+    async def test_provider_start_without_mode_metadata_is_quarantined(self):
+        original=self.browser.sessions
+        async def missing_mode():
+            rows=await original()
+            for row in rows: row.pop("mode",None)
+            return rows
+        self.browser.sessions=missing_mode
+        result=await self.opena()
+        self.assertEqual(result["status"],"paused")
+        self.assertTrue(self.broker.quarantined)
+
+    async def test_stolen_profile_before_new_tab_quarantined_without_tab(self):
+        await self.opena()
+        self.browser.running[0]["profile"]="tenant-other-profile"
+        response=await self.opena(key=KEY_B,url=URL_B)
+        self.assertEqual(response["status"],"paused")
+        self.assertFalse(self.browser.opened)
+        self.assertTrue(self.broker.active.quarantine)
+
+    async def test_mode_changed_before_new_tab_quarantined(self):
+        await self.opena()
+        self.browser.running[0]["mode"]="write"
+        response=await self.opena(key=KEY_B,url=URL_B)
+        self.assertEqual(response["status"],"paused")
+        self.assertFalse(self.browser.opened)
+        self.assertTrue(self.broker.active.quarantine)
+
+    async def test_disappearing_session_before_new_tab_quarantined(self):
+        await self.opena()
+        self.browser.running=[]
+        response=await self.opena(key=KEY_B,url=URL_B)
+        self.assertEqual(response["status"],"paused")
+        self.assertFalse(self.browser.opened)
+        self.assertTrue(self.broker.active.quarantine)
+
+    async def test_missing_mode_before_close_refuses_to_stop(self):
+        await self.opena()
+        self.browser.running[0].pop("mode")
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.broker.close(A)
+        self.assertFalse(self.browser.stopped)
+        self.assertTrue(self.broker.active.quarantine)
+
+    async def test_changed_provider_profile_before_close_does_not_stop_other_tenant(self):
+        await self.opena()
+        self.browser.running[0]["profile"]="Other - Tenant"
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.broker.close(A)
+        self.assertFalse(self.browser.stopped)
+        self.assertTrue(self.broker.active.quarantine)
+
+    async def test_uncertain_tab_creation_quarantines_future_tasks(self):
+        await self.opena()
+        self.browser.fail_tab=True
+        result=await self.opena(key=KEY_B,url=URL_B)
+        self.assertEqual(result["status"],"paused")
+        self.assertTrue(self.broker.active.quarantine)
+        with self.assertRaisesRegex(BrokerError,"BROWSER_REQUIRES_RECOVERY"):
+            await self.opena(key=KEY_C,p=B,url=URL_B)
+
+    async def test_post_tab_inventory_change_quarantines(self):
+        await self.opena()
+        original=self.browser.sessions
+        async def switches_after_new_tab():
+            rows=await original()
+            if self.browser.opened:
+                rows[0]["profile"]="Someone Else"
+            return rows
+        self.browser.sessions=switches_after_new_tab
+        result=await self.opena(key=KEY_B,url=URL_B)
+        self.assertEqual(result["status"],"paused")
+        self.assertEqual(len(self.browser.opened),1)
+        self.assertTrue(self.broker.active.quarantine)
+
+    async def test_provider_inventory_exception_before_stop_is_redacted(self):
+        await self.opena()
+        async def broken():
+            raise RuntimeError("PROVIDER_CREDENTIAL_SHOULD_NOT_APPEAR")
+        self.browser.sessions=broken
+        with self.assertRaises(BrokerError) as caught:
+            await self.broker.close(A)
+        self.assertEqual(str(caught.exception),"BROWSER_REQUIRES_RECOVERY")
+        self.assertFalse(self.browser.stopped)
 
     async def test_missing_provider_inventory_quarantines_before_request_recorded(self):
         async def unavailable(): return None

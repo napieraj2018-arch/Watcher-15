@@ -5,6 +5,7 @@ on:
       - browser-auto-window-demo-20261009
       - ai-browser-cloud
       - auto-window-webkit-csrf-20261009
+      - broker-strict-provider-identity-20261009
     paths:
       - "ux/connected/**"
       - "workspace_broker/**"
@@ -14,7 +15,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: browser-auto-window-demo
+  group: browser-auto-window-demo-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   browser-integrated-smoke:
