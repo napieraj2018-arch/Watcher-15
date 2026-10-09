@@ -45,6 +45,32 @@ def google_identity_matches(labels, body_text):
     return len(control_ids) == 1 and control_ids <= visible_ids
 
 
+def business_dashboard_visible(url, body):
+    """Only detect the layout of a protected Meta Business Suite dashboard.
+
+    This is NOT proof of the account identity or authorization for a specific
+    Page. Page names, IDs, cookies and tokens are never returned.
+    """
+    if not isinstance(body, str) or not isinstance(url, str):
+        return False
+    try:
+        from urllib.parse import parse_qs
+        p = urlsplit(url)
+        asset = parse_qs(p.query, keep_blank_values=False).get('asset_id', [])
+        if (p.scheme != 'https' or p.hostname != 'business.facebook.com'
+                or p.path.rstrip('/') != '/latest/home'
+                or len(asset) != 1 or not re.fullmatch(r'[0-9]{10,22}', asset[0])):
+            return False
+    except (TypeError, ValueError):
+        return False
+    text = body[:30000]
+    polish = ('Edytuj stronę na Facebooku', 'Obserwatorzy na Facebooku',
+              'Obserwujący na Instagramie', 'Utwórz post')
+    english = ('Edit Facebook Page', 'Facebook followers',
+               'Instagram followers', 'Create post')
+    return all(label in text for label in polish) or all(label in text for label in english)
+
+
 def result(stage, authenticated=None, **extra):
     return {'stage': stage, 'authenticated': authenticated, **extra}
 
@@ -83,6 +109,24 @@ async def inspect_session(session):
             return result('unverified', provider='google', reason='identity_not_confirmed')
         if host == 'accounts.google.com':
             return result('not_authenticated', False, provider='google', next_action='check_login_flow')
+        if host == 'business.facebook.com':
+            if path.startswith(('/business/loginpage', '/login')):
+                return result('not_authenticated', False, provider='meta_business',
+                              next_action='account_switch_or_explicit_login_required')
+            if path.rstrip('/') == '/latest/home':
+                body = await page.locator('body').inner_text(timeout=3000)
+                if page.url != initial_url:
+                    return result('unverified', provider='meta_business',
+                                  reason='page_changed_during_check')
+                if business_dashboard_visible(initial_url, body):
+                    # A functioning dashboard cannot be classified as logged
+                    # out merely because mobile Facebook cookies are absent.
+                    # Caller must still confirm the selected business identity.
+                    return result('session_present_unverified', provider='meta_business',
+                                  evidence='protected_dashboard_visible',
+                                  next_action='verify_business_identity_without_login')
+                return result('unverified', provider='meta_business',
+                              next_action='inspect_current_business_page_without_login')
         if host in META_HOSTS or host in IG_HOSTS:
             required = {'c_user', 'xs'} if host in META_HOSTS else {'sessionid', 'ds_user_id'}
             cookies = await session.context.cookies(origin)
@@ -94,7 +138,11 @@ async def inspect_session(session):
                 # while a potentially valid session is awaiting page validation.
                 return result('session_present_unverified', provider='meta' if host in META_HOSTS else 'instagram',
                               next_action='verify_protected_page_without_login')
-            return result('not_authenticated', False, next_action='check_saved_credential')
+            if host in META_HOSTS:
+                return result('unverified', provider='meta',
+                              next_action='verify_protected_page_without_login')
+            return result('not_authenticated', False, provider='instagram',
+                          next_action='check_saved_credential')
         return result('unverified', reason='provider_not_verified')
     except Exception:
         return result('temporarily_unavailable', reason='read_failed_no_login_retry')
