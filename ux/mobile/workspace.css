@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  --bg:#f7f8fb; --surface:#ffffff; --ink:#172339; --subtle:#68758a;
+  --bg:#f7f8fb; --surface:#ffffff; --ink:#172339; --subtle:#607187;
   --border:#e5e9f1; --accent:#2d6fcb; --accent-light:#eaf2ff; --outline:#2c65bb;
   --shadow:0 16px 60px rgba(28,45,75,.065); --page:#fcfdff;
 }
@@ -37,7 +37,7 @@ button:disabled {opacity:.32;cursor:not-allowed}
 .connection-dot {display:inline-block;width:8px;height:8px;border-radius:50%;background:#deab54;
                  box-shadow:0 0 0 3px rgba(222,171,84,.16)}
 .strip-divider {width:1px;height:13px;background:#d5dbe6;margin:0 3px}
-.strip-trailing {margin-left:auto;color:#8893a4;font-size:10px}
+.strip-trailing {margin-left:auto;color:#607083;font-size:10px}
 .viewport {flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;
            background:var(--page);margin:0 10px;border:1px solid var(--border);border-radius:20px;
            box-shadow:var(--shadow);position:relative}
@@ -46,7 +46,7 @@ button:disabled {opacity:.32;cursor:not-allowed}
 .welcome-icon {width:64px;height:64px;background:linear-gradient(135deg,#e8f1ff,#f5eefe);
                border-radius:22px;color:#4079c7;display:grid;place-items:center;margin-bottom:20px}
 .welcome-icon .icon {height:33px;width:33px;stroke-width:1.5}
-.eyebrow {font-weight:720;letter-spacing:1.25px;color:#6881a7;font-size:10px;text-transform:uppercase;margin:0 0 9px}
+.eyebrow {font-weight:720;letter-spacing:1.25px;color:#567196;font-size:10px;text-transform:uppercase;margin:0 0 9px}
 h1,h2,p{overflow-wrap:break-word}
 .welcome h1 {font-size:clamp(28px,5vw,39px);line-height:1.15;letter-spacing:-1.55px;margin:0 0 14px;font-weight:755}
 .welcome-sub {margin:0;color:var(--subtle);max-width:470px;font-size:14px;line-height:1.65}
@@ -63,7 +63,7 @@ h1,h2,p{overflow-wrap:break-word}
 .quick-symbol.pink{background:#ffe9f3;color:#b33c85}
 .quick-symbol.black{background:#eef0f5;color:#303744;font-size:12px}
 .welcome-note {display:flex;align-items:flex-start;gap:10px;padding:15px 16px;background:#f7f9fd;
-               border:1px solid #ebedf4;border-radius:13px;color:#748197;font-size:11px;margin-top:28px;line-height:1.55}
+               border:1px solid #ebedf4;border-radius:13px;color:#596a80;font-size:11px;margin-top:28px;line-height:1.55}
 .welcome-note .icon {width:17px;height:17px;flex-shrink:0;margin-top:1px;color:#7188aa}
 .page-view {min-height:100%;display:grid;place-items:center;padding:30px}
 .page-placeholder {text-align:center;max-width:510px;width:100%;padding:32px 16px}
@@ -73,7 +73,7 @@ h1,h2,p{overflow-wrap:break-word}
 .page-placeholder p{font-size:13px;color:var(--subtle);line-height:1.65}
 .page-placeholder .domain-line {color:#3d638c;font-weight:630;font-size:12px;word-break:break-word;margin:0 auto}
 .page-divider {height:1px;width:100%;background:var(--border);margin:25px auto}
-.page-placeholder .tip {color:#9aa6b6;font-size:11px}
+.page-placeholder .tip {color:#5b6b80;font-size:11px}
 .button-secondary{display:inline-flex;align-items:center;justify-content:center;gap:9px;border:1px solid #d1dfef;
                 background:#fff;color:#3764a5;border-radius:12px;padding:9px 16px;min-height:48px;
                 margin-top:14px;font-weight:690;font-size:12px}
@@ -94,7 +94,7 @@ h1,h2,p{overflow-wrap:break-word}
 .address-bar input {appearance:none;-webkit-appearance:none;background:transparent;border:0;outline:none;box-shadow:none;
                     min-width:0;flex:1;color:#21324b;font-size:16px;text-overflow:ellipsis;padding:10px 0}
 .address-bar input:focus-visible {outline:none}
-.address-bar input::placeholder {color:#92a0b1}
+.address-bar input::placeholder {color:#5b6b80}
 .address-bar input::-webkit-search-cancel-button {display:none}
 .address-go {width:43px;height:44px;min-width:43px;border-radius:10px;display:grid;place-items:center;background:transparent;color:#426b9b}
 .address-go .icon {width:17px;height:17px}
@@ -116,7 +116,7 @@ h1,h2,p{overflow-wrap:break-word}
 .tab-miniature {width:45px;height:45px;border-radius:12px;background:#f2f5fc;color:#5482bd;display:grid;place-items:center;flex-shrink:0}
 .tab-miniature .icon {width:23px;height:23px}
 .tab-name {display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;max-width:100%;font-size:13px;font-weight:690}
-.tab-domain {display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;max-width:100%;font-size:11px;color:#7c8ca1;font-weight:450}
+.tab-domain {display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;max-width:100%;font-size:11px;color:#607187;font-weight:450}
 .tab-copy {flex:1;min-width:0}
 .tab-close {width:45px;height:45px;min-width:45px;background:transparent;border-radius:12px;display:grid;place-items:center;color:#7f8ca0}
 .tab-close:hover {background:#f1f4fa}
@@ -134,7 +134,7 @@ h1,h2,p{overflow-wrap:break-word}
 .workspace-title {display:block;font-size:14px;font-weight:720}
 .workspace-caption {display:block;font-size:11px;color:var(--subtle)}
 .workspace-check {width:20px;height:20px;color:#2676b7}
-.sheet-footnote {margin:17px 4px 0;color:#818da0;font-size:11px;line-height:1.6}
+.sheet-footnote {margin:17px 4px 0;color:#607187;font-size:11px;line-height:1.6}
 .menu-item {display:flex;align-items:center;gap:13px;width:100%;padding:12px 14px;min-height:56px;
             background:#fff;border-radius:13px;text-align:left;border:1px solid #eef1f6;margin-top:8px;color:#2d425f;font-size:13px;font-weight:660}
 .menu-item .icon {width:21px;height:21px;color:#6c7e98}
