@@ -47,7 +47,7 @@
     {
       "id": "profile_coherent_restore",
       "status": "blocked",
-      "notes": "Techniczny test SteelSelfTest wykazał niezgodność znaczników po ponownym otwarciu.",
+      "notes": "SteelSelfTest odtwarza zgodną parę testową po dwóch restartach (09.10); niezawodność 99,5% na prawdziwych kontach i wielu tenantach pozostaje nieudowodniona.",
       "attestations": []
     },
     {
