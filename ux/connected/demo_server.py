@@ -87,6 +87,21 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version="HTTP/1.0"  # Close each connection; local single-thread test server only.
     def log_message(self,*_args):
         pass
+
+    def _origin(self):
+        # The demo is loopback-only. Never derive accepted Origins from an
+        # untrusted Host or reverse-proxy header (DNS rebinding defense).
+        return "http://127.0.0.1:"+str(self.server.server_port)
+
+    def _request_is_loopback(self):
+        return (
+            self.server.server_address[0] == "127.0.0.1"
+            and self.headers.get("Host") == "127.0.0.1:"+str(self.server.server_port)
+            and not any(self.headers.get(key) for key in (
+                "Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto"
+            ))
+        )
+
     def _send(self,status:int,data:bytes,content_type:str):
         self.send_response(status)
         self.send_header("content-type",content_type)
@@ -120,6 +135,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200,body,mime)
 
     def do_GET(self):
+        if not self._request_is_loopback():
+            return self._json(403,{"error":"LOOPBACK_HOST_REQUIRED"})
         path=urlsplit(self.path)
         try:
             if path.path in ("/","/demo","/demo/"):
@@ -150,11 +167,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(503,{"error":"DEMO_UNAVAILABLE"})
 
     def do_POST(self):
+        if not self._request_is_loopback():
+            return self._json(403,{"error":"LOOPBACK_HOST_REQUIRED"})
         path=urlsplit(self.path)
         if path.path not in ("/_demo/api/open","/_demo/api/close") or path.query:
             return self._json(404,{"error":"not_found"})
-        expected="http://"+self.headers.get("Host","")
-        if self.headers.get("Origin")!=expected:
+        if self.headers.get("Origin")!=self._origin():
             return self._json(403,{"error":"ORIGIN_REQUIRED"})
         if self.headers.get("content-type","").split(";")[0]!="application/json":
             return self._json(415,{"error":"JSON_REQUIRED"})
