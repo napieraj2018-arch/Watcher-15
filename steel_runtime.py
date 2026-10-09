@@ -7,6 +7,7 @@ This intentionally preserves Playwright's full storage_state (including IDB).
 from __future__ import annotations
 import asyncio
 import contextlib
+import hmac
 import os
 import time
 import uuid
@@ -16,7 +17,7 @@ from urllib.parse import urlencode
 import httpx
 from starlette.responses import JSONResponse
 
-VERSION = "0.4.4"
+VERSION = "0.4.5"
 API = "https://api.steel.dev/v1"
 HEADERS = {"cache-control": "no-store"}
 
@@ -42,6 +43,41 @@ def local_chrome_count():
         except OSError:
             pass
     return count
+
+
+def admin_health_authorized(authorization):
+    """Admin-only health diagnostics. No secret values in outputs or logs."""
+    expected = os.environ.get("AI_BROWSER_ADMIN_TOKEN", "")
+    if (not isinstance(authorization, str) or not authorization.startswith("Bearer ")
+            or len(authorization) > 512 or not 32 <= len(expected) <= 256):
+        return False
+    supplied = authorization[7:]
+    if len(supplied) != len(expected):
+        return False
+    try:
+        return hmac.compare_digest(supplied.encode("ascii"), expected.encode("ascii"))
+    except UnicodeEncodeError:
+        return False
+
+
+def steel_health_payload(engine, authorization=""):
+    """Public liveness stays minimal; private diagnostics require owner token."""
+    public = {
+        "status": "degraded" if engine._quarantined else "ok",
+        "runtime": "steel", "version": VERSION,
+    }
+    if admin_health_authorized(authorization):
+        public.update({
+            "key_configured": bool(os.environ.get("STEEL_API_KEY", "").strip()),
+            "remote_connection_verified": engine.authenticated,
+            "local_chrome_processes": local_chrome_count(),
+            "controller_memory": memory_info(),
+            "active_remote_sessions": len(engine.remote),
+            "requires_reconciliation": engine._quarantined,
+            "max_session_seconds": 870,
+            "proxy_enabled": False, "captcha_solving": False,
+        })
+    return public
 
 
 class SteelFailure(RuntimeError):
@@ -380,16 +416,11 @@ def install(ns):
     idx = html.lower().rfind('</body>')
     ns['_SETUP_HTML'] = html[:idx] + viewer_control + html[idx:] if idx >= 0 else html + viewer_control
 
-    async def health(_request):
-        return JSONResponse({'status': 'ok', 'runtime': 'steel', 'version': VERSION,
-            'key_configured': bool(os.environ.get('STEEL_API_KEY', '').strip()),
-            'remote_connection_verified': engine.authenticated,
-            'local_chrome_processes': local_chrome_count(),
-            'controller_memory': memory_info(),
-            'active_remote_sessions': len(engine.remote),
-            'requires_reconciliation': engine._quarantined,
-            'max_session_seconds': 870, 'proxy_enabled': False, 'captcha_solving': False},
-            headers=HEADERS)
+    async def health(request):
+        return JSONResponse(
+            steel_health_payload(engine, request.headers.get('authorization', '')),
+            headers={**HEADERS, 'x-content-type-options': 'nosniff',
+                     'referrer-policy': 'no-referrer'})
     mcp.custom_route('/health/steel', methods=['GET'])(health)
 
     async def selftest(request):
