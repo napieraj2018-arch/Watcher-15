@@ -37,6 +37,16 @@ def fqdn(host: object) -> str:
         raise EgressBlocked("HOST_INVALID")
     if host.endswith((".local", ".localhost", ".internal", ".invalid", ".test", ".home.arpa")):
         raise EgressBlocked("HOST_INTERNAL_OR_SYNTHETIC")
+    # Numeric DNS names may be interpreted as shortened or alternate-format IPs.
+    # RFC DNS top-level names must not be all numeric for this product policy.
+    if not any("a" <= char <= "z" for char in labels[-1]):
+        raise EgressBlocked("HOST_NUMERIC_OR_IP_LITERAL")
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        raise EgressBlocked("HOST_NUMERIC_OR_IP_LITERAL")
     return host
 
 def canonical_target(url: object) -> str:
@@ -46,7 +56,8 @@ def canonical_target(url: object) -> str:
         raise EgressBlocked("URL_CONTROL_CHARACTER")
     try:
         parsed = urlsplit(url)
-        if parsed.scheme != "https" or parsed.username or parsed.password:
+        if (parsed.scheme != "https" or parsed.username is not None
+                or parsed.password is not None):
             raise EgressBlocked("HTTPS_REQUIRED")
         if parsed.port not in (None, 443):
             raise EgressBlocked("NONSTANDARD_PORT")
