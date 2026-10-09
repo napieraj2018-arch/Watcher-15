@@ -137,11 +137,11 @@ BEGIN
   IF got<>2 THEN RAISE EXCEPTION 'A_COULD_NOT_CREATE_OWN_PROFILE'; END IF;
 
   BEGIN
-    INSERT INTO browser_product.browser_tasks(tenant_id,workspace_id,task_id,profile_id,state)
+    INSERT INTO browser_product.browser_tasks(tenant_id,workspace_id,task_id,profile_id)
     VALUES('11111111-1111-4111-8111-111111111111',
            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
            'aaaaaaaa-5555-4555-8555-555555555555',
-           'bbbbbbbb-0000-4000-8000-000000000002','queued');
+           'bbbbbbbb-0000-4000-8000-000000000002');
     RAISE EXCEPTION 'CROSS_TENANT_PROFILE_BOUND_TO_TASK';
   EXCEPTION WHEN foreign_key_violation THEN
     NULL;
