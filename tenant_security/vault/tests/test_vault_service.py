@@ -118,9 +118,9 @@ class VaultServiceTests(unittest.TestCase):
         self.assertEqual(repr(self.service),"<ProfileVaultService redacted>")
 
     def test_connection_map_never_discloses_dsn(self):
-        mapping=ServerVaultConnections({A:"postgresql://user:fixturepassword@localhost:5432/test"})
+        mapping=ServerVaultConnections({A:"postgresql://fixture-db@localhost:5432/test"})
         self.assertEqual(repr(mapping), "<ServerVaultConnections redacted>")
-        self.assertNotIn("fixturepassword",repr(mapping(A)))
+        self.assertNotIn("fixture-db",repr(mapping(A)))
 
     def test_missing_tenant_dsn_fails_closed(self):
         mapping=ServerVaultConnections({B:"test-only-dsn"})
