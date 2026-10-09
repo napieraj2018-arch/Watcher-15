@@ -2,6 +2,8 @@
 import hashlib
 import unittest
 from dataclasses import replace
+from io import BytesIO
+from json import dumps
 from uuid import UUID
 
 from tenant_security.bff.gate import Principal, TenantBFF, exercise_wsgi, COOKIE_NAME
@@ -198,6 +200,30 @@ class BoundaryTests(unittest.TestCase):
         code, doc, _ = self.request(cookie=COOKIE_A + '; ' + COOKIE_A)
         self.assertEqual(code, 401)
         self.assertNotIn(SESSION_A, str(doc))
+
+    def test_post_reads_only_declared_wsgi_body_length(self):
+        data = dumps({'profile_id': str(PA)}).encode('utf-8')
+        class ExactLengthStream(BytesIO):
+            def read(self, size=-1):
+                if size != len(data):
+                    raise AssertionError('WSGI reader requested more than Content-Length')
+                return super().read(size)
+        env = {'wsgi.url_scheme': 'https', 'REQUEST_METHOD': 'POST',
+               'PATH_INFO': f'/api/workspaces/{WA}/tasks',
+               'CONTENT_TYPE': 'application/json', 'CONTENT_LENGTH': str(len(data)),
+               'wsgi.input': ExactLengthStream(data), 'HTTP_COOKIE': COOKIE_A,
+               'HTTP_ORIGIN': ORIGIN, 'HTTP_X_AIB_CSRF': CSRF}
+        got = {}
+        def start_response(status, headers):
+            got['code'] = int(status[:3])
+        list(self.bff(env, start_response))
+        self.assertEqual(got['code'], 202)
+
+    def test_post_with_truncated_body_rejected(self):
+        code, doc, _ = self.request(method='POST', resource='tasks',
+            origin=ORIGIN, csrf=CSRF, body=b'{"profile_id":"bad')
+        self.assertEqual(code, 400)
+
 
 
 if __name__ == '__main__':
