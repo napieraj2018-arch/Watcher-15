@@ -8,7 +8,7 @@ on:
       - "requirements.txt"
       - "Dockerfile"
       - ".github/workflows/browser-dependency-security.yml"
-      - "security/dependency-audit.md"
+      - "security/**"
   schedule:
     - cron: "43 4 * * 1"
   workflow_dispatch:
@@ -25,10 +25,15 @@ jobs:
           python-version: "3.11"
       - name: Install isolated vulnerability scanner
         run: python -m pip install --disable-pip-version-check "pip-audit>=2.7,<4"
+      - name: Verify secret-safe vulnerability summary
+        run: python -m unittest discover -s security/tests -v
       - name: Check resolved runtime dependencies for published advisories
         run: |
           mkdir -p security
           python -m pip_audit --requirement requirements.txt --strict --format json --output security/dependency-report.json
+      - name: Print bounded package names, advisories and fix versions
+        if: always()
+        run: python security/summarize_audit.py security/dependency-report.json
       - name: Preserve report including scans that fail
         if: always()
         uses: actions/upload-artifact@v4
