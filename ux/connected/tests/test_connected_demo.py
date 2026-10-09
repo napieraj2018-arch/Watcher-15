@@ -276,7 +276,8 @@ class AutoOpenDemoTests(unittest.TestCase):
     def test_demo_rejects_invalid_content_type(self):
         payload=b'{"workspace_id":"clinic"}'
         req=Request(self.base+"/_demo/api/open",data=payload,method="POST",
-                    headers={"Origin":self.base,"content-type":"text/plain"})
+                    headers={"Origin":self.base,"content-type":"text/plain",
+                             "X-AIB-Demo-Csrf":self.http.csrf_token})
         with self.assertRaises(HTTPError) as caught:
             urlopen(req,timeout=4)
         self.assertEqual(caught.exception.code,415)
