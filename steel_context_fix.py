@@ -241,6 +241,42 @@ def synthetic_fixture_exact_evidence(native=None, portable=None, resolved=None, 
     }
 
 
+async def synthetic_fixture_page_readback(page):
+    """Read ONLY booleans from the exact synthetic test page.
+
+    Never evaluate arbitrary customer pages or return cookie/storage values,
+    names, keys, hashes, session IDs or provider references.
+    """
+    url = getattr(page, 'url', None)
+    if url != 'https://ai-browser-vault.floot.app/browser-check':
+        return {'status': 'not_fixture_page'}
+    js = """() => {
+      try {
+        const key = 'aibrowser_public_test_marker';
+        const name = 'aibrowser_test_cookie=';
+        const local = localStorage.getItem(key);
+        const cookie = document.cookie.split('; ').find(x =>
+          x.startsWith(name))?.slice(name.length);
+        return {
+          cookie_present: Boolean(cookie),
+          storage_present: Boolean(local),
+          pair_matches: Boolean(local && cookie && local === cookie)
+        };
+      } catch (_) {
+        return {cookie_present:false,storage_present:false,pair_matches:false};
+      }
+    }"""
+    try:
+        value = await page.evaluate(js)
+    except Exception:
+        return {'status': 'readback_unavailable'}
+    keys = {'cookie_present', 'storage_present', 'pair_matches'}
+    if (not isinstance(value, dict) or set(value) != keys or
+            any(type(value[k]) is not bool for k in keys)):
+        return {'status': 'readback_invalid'}
+    return {'status': 'observed', **value}
+
+
 async def native_context(remote, **options):
     from steel_runtime import SteelFailure
     if getattr(remote, '_native_context_claimed', False):
@@ -282,14 +318,27 @@ async def native_context(remote, **options):
             merged = (merge_profile_state(state, current) if prefer_portable
                       else merge_profile_state(current, state))
             binding['portable_priority_used'] = prefer_portable
-            if binding.get('profile') == 'SteelSelfTest':
-                binding['synthetic_fixture_evidence'] = synthetic_fixture_evidence(
-                    current, state, merged)
-                binding['synthetic_fixture_evidence']['exact_marker'] = (
-                    synthetic_fixture_exact_evidence(current, state, merged))
             if merged != current:
                 await context.set_storage_state(merged)
                 binding['backup_recovery_applied'] = True
+            if binding.get('profile') == 'SteelSelfTest':
+                # The intended state is NOT proof that Playwright accepted it.
+                # Read a new snapshot and distinguish the actual result from
+                # the proposed merged state. Test fixtures ONLY.
+                try:
+                    applied = await context.storage_state(indexed_db=True)
+                except Exception:
+                    applied = None
+                evidence = synthetic_fixture_evidence(current, state, applied)
+                evidence['proposed'] = synthetic_fixture_evidence(
+                    current, state, merged)['resolved']
+                evidence['exact_marker'] = synthetic_fixture_exact_evidence(
+                    current, state, applied)
+                evidence['exact_marker']['proposed'] = (
+                    synthetic_fixture_exact_evidence(
+                        merged, merged, merged)['resolved'])
+                evidence['post_apply_readback_available'] = applied is not None
+                binding['synthetic_fixture_evidence'] = evidence
         else:
             await context.set_storage_state(state)
     if options.get('extra_http_headers'):
@@ -543,8 +592,15 @@ def install(ns):
             'authentication': await auth_probe(session),
             'saved_login_configured': bool(os.environ.get('AI_BROWSER_CREDENTIALS_JSON', ''))})
         if session.profile == 'SteelSelfTest':
-            result['synthetic_fixture_evidence'] = binding.get(
-                'synthetic_fixture_evidence', {'source':'not_available'})
+            evidence = binding.get('synthetic_fixture_evidence')
+            result['synthetic_fixture_evidence'] = (
+                dict(evidence) if isinstance(evidence, dict)
+                else {'source': 'not_available'})
+            # A snapshot immediately after set_storage_state is not
+            # necessarily what document.cookie/localStorage expose once
+            # navigation completes. Check this only on the fixed fixture.
+            result['synthetic_fixture_evidence']['page_readback'] = (
+                await synthetic_fixture_page_readback(session.page))
         return result
 
     async def start(*args, **kwargs):

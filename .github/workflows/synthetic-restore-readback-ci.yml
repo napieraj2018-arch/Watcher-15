@@ -1,0 +1,23 @@
+name: AI Browser synthetic post-restore readback
+on:
+  push:
+    branches:
+      - synthetic-restore-truthful-readback-20261010
+    paths:
+      - "steel_context_fix.py"
+      - "test_synthetic_restore_readback.py"
+      - "Dockerfile"
+      - ".github/workflows/synthetic-restore-readback-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  docker-readback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production Docker image and run all embedded tests
+        run: docker build --progress=plain -t aib-readback-proof .
+      - name: Run synthetic browser storage readback negative tests
+        run: docker run --rm --entrypoint python aib-readback-proof /app/test_synthetic_restore_readback.py
