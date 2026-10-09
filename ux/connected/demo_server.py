@@ -99,7 +99,9 @@ class Handler(BaseHTTPRequestHandler):
     def _request_is_loopback(self):
         return (
             self.server.server_address[0] == "127.0.0.1"
-            and self.headers.get("Host") == "127.0.0.1:"+str(self.server.server_port)
+            and self.headers.get_all("Host",[]) == [
+                "127.0.0.1:"+str(self.server.server_port)
+            ]
             and not any(self.headers.get(key) for key in (
                 "Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto"
             ))
@@ -179,16 +181,31 @@ class Handler(BaseHTTPRequestHandler):
         path=urlsplit(self.path)
         if path.path not in ("/_demo/api/open","/_demo/api/close") or path.query:
             return self._json(404,{"error":"not_found"})
-        # WebKit may omit Origin on a same-origin POST. A server-issued,
-        # non-URL nonce in a custom header remains mandatory in every case.
-        # Explicit cross-origin Origin values are always rejected.
-        origin=self.headers.get("Origin")
-        if origin is not None and origin!=self._origin():
-            return self._json(403,{"error":"ORIGIN_REQUIRED"})
+        # A custom nonce is mandatory regardless of Origin. Without it,
+        # cross-site forms and opaque/sandboxed origins cannot control tasks.
         token=self.headers.get("X-AIB-Demo-Csrf","")
         if (not isinstance(token,str) or
                 not secrets.compare_digest(token,self.server.csrf_token)):
             return self._json(403,{"error":"DEMO_CSRF_REQUIRED"})
+        origins=self.headers.get_all("Origin",[])
+        if len(origins)>1:
+            return self._json(403,{"error":"DUPLICATE_ORIGIN_REJECTED"})
+        origin=origins[0] if origins else None
+        # Some WebKit builds emit 'null' for a loopback synthetic origin.
+        # Only the short-lived, same-origin, server-issued nonce can permit
+        # this exceptional value. Real multi-tenant BFF auth is not provided.
+        if origin not in (None,self._origin(),"null"):
+            try:
+                p=urlsplit(origin)
+                self.server.last_origin_check={
+                    "same_loopback_host":p.hostname=="127.0.0.1",
+                    "port_matches":p.port==self.server.server_port,
+                    "scheme_http":p.scheme=="http",
+                    "has_trailing_slash":origin.endswith("/"),
+                }
+            except (TypeError,ValueError):
+                self.server.last_origin_check={"invalid_origin":True}
+            return self._json(403,{"error":"ORIGIN_REQUIRED"})
         if self.headers.get("content-type","").split(";")[0]!="application/json":
             return self._json(415,{"error":"JSON_REQUIRED"})
         try:
