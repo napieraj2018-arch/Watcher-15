@@ -18,7 +18,7 @@ Kod wyjścia 1 oznacza poprawny manifest z blokadami, 2 błędny manifest, 0 kom
 - Render: działająca pojedyncza instancja, weryfikowane deploye z osobną gałęzią i testami.
 - Floot: opublikowana aplikacja w planie bezpłatnym, aktualnie z widocznością publiczną. Sama dostępność frontendu nie jest równoznaczna z nieautoryzowanym dostępem do API: autoryzacja endpointów wymaga oddzielnego testu. **Nie wdrażać przy sprzedaży publicznego interfejsu administratora.**
 - Zapisane profile: dane w chmurze, lecz nadal globalny katalog nazw; brak izolacji płacących klientów.
-- Działa dostęp do wybranych kont właściciela, ale test znacznika cookie/localStorage dla profilu technicznego wykazał niezgodność po ponownym otwarciu.
+- Profil techniczny SteelSelfTest po zapisaniu świeżej zgodnej pary cookie/localStorage przeszedł dwa ponowne otwarcia na zdalnym Steel (09.10, zgodność PASS). Stara, już niespójna kopia nie została automatycznie naprawiona. Nie dowodzi to niezawodności 99,5% na prawdziwych kontach ani w wieloklienckiej infrastrukturze; warunek komercyjny nadal jest zablokowany.
 - Nowa kontrola właściciela sesji jest w trybie diagnostycznym, nie w egzekwowaniu.
 - Serwer ma limit jednej sesji; brak trwałej kolejki i izolacji limitów dla wielu klientów.
 - Poprawki UX powstają w osobnej gałęzi, nie są obecnym panelem produkcyjnym.
