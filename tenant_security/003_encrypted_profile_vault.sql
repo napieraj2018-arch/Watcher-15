@@ -18,6 +18,8 @@ CREATE TABLE browser_product.profile_versions_secure (
       CHECK (octet_length(encrypted_state) BETWEEN 16 AND 8000016),
     created_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id,profile_id,revision),
+    -- Fail closed on accidental AES-GCM nonce reuse under the same tenant key.
+    UNIQUE (tenant_id,key_id,nonce),
     FOREIGN KEY (tenant_id,workspace_id,profile_id)
       REFERENCES browser_product.profiles(tenant_id,workspace_id,profile_id)
 );
