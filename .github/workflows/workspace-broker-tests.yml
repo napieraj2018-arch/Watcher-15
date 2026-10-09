@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - workspace-autostart-broker-20261009
+      - ai-browser-cloud
     paths:
       - "workspace_broker/**"
       - ".github/workflows/workspace-broker-tests.yml"
