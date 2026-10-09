@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "note": "Audyt pracy nad produktem; nie zawiera sekretów, danych osobowych ani potwierdzenia gotowości do sprzedaży.",
+  "controls": [
+    {
+      "id": "tenant_auth",
+      "status": "blocked",
+      "notes": "Brak potwierdzonego osobnego logowania dla każdego płatnego klienta.",
+      "attestations": []
+    },
+    {
+      "id": "tenant_profile_isolation",
+      "status": "blocked",
+      "notes": "Jeden wspólny katalog nazw profili; brak izolacji danych klientów.",
+      "attestations": []
+    },
+    {
+      "id": "session_owner_leases",
+      "status": "partial",
+      "notes": "Strażnik przetestowany, ale na produkcji w trybie diagnostycznym, bez pełnej egzekucji.",
+      "attestations": []
+    },
+    {
+      "id": "mcp_scoped_credentials",
+      "status": "blocked",
+      "notes": "Dostęp przez prywatne adresy i klucze wymaga per-tenant scope i rotacji.",
+      "attestations": []
+    },
+    {
+      "id": "secrets_vault",
+      "status": "partial",
+      "notes": "Szyfrowane profile istnieją, ale bezpieczny import i unieważnianie haseł nie są potwierdzone.",
+      "attestations": []
+    },
+    {
+      "id": "ssrf_egress",
+      "status": "blocked",
+      "notes": "Brak potwierdzonej ochrony po stronie backendu przed wewnętrznymi adresami.",
+      "attestations": []
+    },
+    {
+      "id": "human_verification",
+      "status": "partial",
+      "notes": "Ręczny proces logowania istnieje, brak kompletnego orkiestratora MFA z właścicielem sesji.",
+      "attestations": []
+    },
+    {
+      "id": "profile_coherent_restore",
+      "status": "blocked",
+      "notes": "Techniczny test SteelSelfTest wykazał niezgodność znaczników po ponownym otwarciu.",
+      "attestations": []
+    },
+    {
+      "id": "profile_deletion",
+      "status": "blocked",
+      "notes": "Brak potwierdzonego usuwania profilu również po stronie Steel i wszystkich wersji kopii.",
+      "attestations": []
+    },
+    {
+      "id": "provider_retention_policy",
+      "status": "blocked",
+      "notes": "Steel opisuje usuwanie nieużywanego profilu po 30 dniach; brak aktywnej polityki utrzymania.",
+      "attestations": []
+    },
+    {
+      "id": "backup_restore",
+      "status": "partial",
+      "notes": "Szyfrowane kopie i 8 bazowych kopii potwierdzone wcześniej; spójne odtworzenie nie zaliczone.",
+      "attestations": []
+    },
+    {
+      "id": "lease_crash_recovery",
+      "status": "blocked",
+      "notes": "Brak produkcyjnych, współdzielonych dzierżaw i bezpiecznej kolejki pomiędzy instancjami.",
+      "attestations": []
+    },
+    {
+      "id": "log_sanitization",
+      "status": "partial",
+      "notes": "Logowanie ścieżki MCP jest redagowane; brak całościowego audytu retencji i dostępów.",
+      "attestations": []
+    },
+    {
+      "id": "per_tenant_quotas",
+      "status": "blocked",
+      "notes": "Obecny limit dotyczy całego kontrolera, nie poszczególnych klientów.",
+      "attestations": []
+    },
+    {
+      "id": "download_upload_isolation",
+      "status": "blocked",
+      "notes": "Brak potwierdzonej kwarantanny pobrań i separacji plików użytkowników.",
+      "attestations": []
+    },
+    {
+      "id": "billing_idempotency",
+      "status": "blocked",
+      "notes": "Nie ma sprawdzonego procesu płatności, odnowień i obsługi webhooków.",
+      "attestations": []
+    },
+    {
+      "id": "production_slo",
+      "status": "blocked",
+      "notes": "Hosting na darmowym planie Render/Floot; brak gwarancji ciągłości i alarmów.",
+      "attestations": []
+    },
+    {
+      "id": "gdpr_deletion_export",
+      "status": "blocked",
+      "notes": "Niezaimplementowany pełny eksport i usuwanie danych użytkownika oraz dokumentacja prawna.",
+      "attestations": []
+    },
+    {
+      "id": "mobile_accessibility",
+      "status": "partial",
+      "notes": "Wersja mobilna w odrębnej gałęzi, testy iPhone jeszcze w toku; nie podłączono do backendu.",
+      "attestations": []
+    },
+    {
+      "id": "consent_action_audit",
+      "status": "partial",
+      "notes": "Tryb read_only/write istnieje, lecz brak ujednoliconego audytu zgód dla wszystkich akcji.",
+      "attestations": []
+    }
+  ]
+}
