@@ -5,6 +5,7 @@ on:
       - synthetic-profile-diagnostics-20261009
     paths:
       - "steel_context_fix.py"
+      - "Dockerfile"
       - "test_profile_recovery_051.py"
       - "test_synthetic_fixture_evidence.py"
       - ".github/workflows/ai-browser-synthetic-diagnostics.yml"
@@ -24,3 +25,12 @@ jobs:
         run: python -m py_compile steel_context_fix.py test_profile_recovery_051.py test_synthetic_fixture_evidence.py
       - name: Run synthetic tests without network or user credentials
         run: python -m unittest test_profile_recovery_051 test_synthetic_fixture_evidence -v
+  docker-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build actual Docker image with all embedded tests
+        run: docker build --progress=plain --tag aibrowser-diagnostics .
+      - name: Verify diagnostic module exists without runtime keys
+        run: docker run --rm --entrypoint python aibrowser-diagnostics -c "import pathlib; assert pathlib.Path('/app/test_synthetic_fixture_evidence.py').is_file(); print('SYNTHETIC_DIAGNOSTICS_INCLUDED')"
