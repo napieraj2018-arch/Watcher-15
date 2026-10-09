@@ -1,0 +1,61 @@
+name: AI Browser cryptography security upgrade
+on:
+  push:
+    branches:
+      - cryptography-50-security-20261009
+    paths:
+      - "requirements.txt"
+      - "Dockerfile"
+      - "test_cryptography_compat.py"
+      - "test_crypto_interop_vector.py"
+      - ".github/workflows/crypto-upgrade-validation.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cryptography-upgrade-20261009
+  cancel-in-progress: true
+jobs:
+  full-browser-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build actual production-style image with proposed cryptography
+        run: docker build --progress=plain --tag ai-browser-crypto-upgrade .
+      - name: Verify installed crypto exact version in isolated image
+        run: docker run --rm --entrypoint python ai-browser-crypto-upgrade -c "from cryptography import __version__; assert __version__ == '50.0.0', __version__; print('CRYPTOGRAPHY_50_AEAD_REGRESSION_PASS')"
+  advisory-clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install public vulnerability scanner
+        run: python -m pip install "pip-audit>=2.7,<4"
+      - name: Verify proposed versions against public security advisories
+        run: python -m pip_audit --requirement requirements.txt --strict
+  old-new-encryption-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install old and new cryptography in separate environments
+        run: |
+          python -m venv /tmp/aib-crypto-old
+          python -m venv /tmp/aib-crypto-new
+          /tmp/aib-crypto-old/bin/python -m pip install cryptography==46.0.7
+          /tmp/aib-crypto-new/bin/python -m pip install cryptography==50.0.0
+      - name: Decrypt old-version synthetic ciphertext with new version
+        run: |
+          /tmp/aib-crypto-old/bin/python test_crypto_interop_vector.py write /tmp/aib-old-vector.bin
+          /tmp/aib-crypto-new/bin/python test_crypto_interop_vector.py read /tmp/aib-old-vector.bin
+      - name: Decrypt new-version synthetic ciphertext with old version
+        run: |
+          /tmp/aib-crypto-new/bin/python test_crypto_interop_vector.py write /tmp/aib-new-vector.bin
+          /tmp/aib-crypto-old/bin/python test_crypto_interop_vector.py read /tmp/aib-new-vector.bin

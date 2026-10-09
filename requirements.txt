@@ -1,7 +1,7 @@
 mcp[cli]>=2.3,<2.4
 playwright==1.59.0
 pydantic>=2.11,<3
-cryptography>=45,<47
+cryptography==50.0.0
 psycopg[binary]>=3.2,<4
 pypdf>=6,<7
 httpx==0.28.1
