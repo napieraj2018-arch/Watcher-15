@@ -100,10 +100,11 @@ class PerProfileIntegration(unittest.IsolatedAsyncioTestCase):
         r,c=remote(current=current)
         r.engine._native_bindings['r']['profile']='SteelSelfTest'
         await ns['native_context'](r,storage_state=backup)
-        # AST imported by old fixture test is intentionally the old contract;
-        # integration with the new helper is exercised by independent CI.
-        self.assertEqual(r.engine._native_bindings['r'].get(
-            'synthetic_fixture_pair_repaired'),None)
+        self.assertIs(
+            r.engine._native_bindings['r']['synthetic_fixture_pair_repaired'],
+            True)
+        self.assertTrue(ns['synthetic_fixture_exact_evidence'](
+            c.current,c.current,c.current)['resolved']['exact_pair_matches'])
 
     async def test_google_never_changes_test_marker_precedence(self):
         backup=fixture('portable-same','portable-same')
