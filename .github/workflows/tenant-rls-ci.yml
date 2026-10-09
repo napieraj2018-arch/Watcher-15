@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - tenant-rls-isolation-20261009
+      - tenant-task-state-guard-20261009
     paths:
       - "tenant_security/**"
       - ".github/workflows/tenant-rls-ci.yml"
