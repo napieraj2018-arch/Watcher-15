@@ -5,6 +5,7 @@ on:
       - browser-auto-window-demo-20261009
     paths:
       - "ux/connected/**"
+      - "workspace_broker/**"
       - "ux/mobile/workspace.js"
       - ".github/workflows/auto-window-demo-tests.yml"
   workflow_dispatch:
