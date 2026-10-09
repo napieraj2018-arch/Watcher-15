@@ -9,6 +9,7 @@ No account cookies, profiles, master keys or customer data are embedded here.
 from __future__ import annotations
 from dataclasses import dataclass
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -124,7 +125,10 @@ def _b64(data: bytes) -> str:
 def _unb64(value: str) -> bytes:
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
         raise TenantAccessError("INVALID_CAPABILITY")
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    try:
+        return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    except (binascii.Error, ValueError):
+        raise TenantAccessError("INVALID_CAPABILITY") from None
 
 
 def _sign(key: bytes, message: bytes) -> bytes:
