@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - browser-auto-window-demo-20261009
+      - ai-browser-cloud
     paths:
       - "ux/connected/**"
       - "workspace_broker/**"
