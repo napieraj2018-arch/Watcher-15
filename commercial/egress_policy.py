@@ -64,6 +64,8 @@ def canonical_target(url: object) -> str:
         if not parsed.hostname:
             raise EgressBlocked("HOST_INVALID")
         return fqdn(parsed.hostname)
+    except EgressBlocked:
+        raise
     except (TypeError, ValueError):
         raise EgressBlocked("URL_INVALID") from None
 
