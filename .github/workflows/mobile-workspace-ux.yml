@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - mobile-browser-shell-20261009
+      - ai-browser-cloud
     paths:
       - "ux/mobile/**"
       - ".github/workflows/mobile-workspace-ux.yml"
