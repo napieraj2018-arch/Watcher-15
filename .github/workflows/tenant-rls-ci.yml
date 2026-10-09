@@ -22,13 +22,16 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: aib-rls-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   isolated-postgres-rls:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     services:
       postgres:
-        image: postgres:16
+        image: public.ecr.aws/docker/library/postgres:16
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
