@@ -85,6 +85,25 @@ class AccessibilityChecks(unittest.TestCase):
         self.page.locator("#workspace-switch").click()
         self.axe_violations()
 
+    def test_workspace_selection_is_single_accessible_toggle(self):
+        self.page.locator("#workspace-switch").click()
+        buttons=self.page.locator(".workspace-entry")
+        self.assertEqual(buttons.count(),3)
+        self.assertEqual(buttons.locator('[aria-pressed="true"]').count(),0)
+        selected=self.page.locator('.workspace-entry[aria-pressed="true"]')
+        self.assertEqual(selected.count(),1)
+        self.page.locator(".workspace-entry").filter(has_text="Architekt").click()
+        self.page.locator("#workspace-switch").click()
+        selected=self.page.locator('.workspace-entry[aria-pressed="true"]')
+        self.assertEqual(selected.count(),1)
+        self.assertIn("Architekt",selected.inner_text())
+
+    def test_modal_animation_does_not_fade_text_opacity(self):
+        self.page.locator("#open-tabs").click()
+        opacity=self.page.locator("#tabs-sheet").evaluate(
+            "(node) => getComputedStyle(node).opacity")
+        self.assertEqual(opacity,"1")
+
     def test_options_menu_wcag(self):
         self.page.locator("#open-menu").click()
         self.axe_violations()
@@ -122,7 +141,7 @@ class AccessibilityChecks(unittest.TestCase):
         self.assert_text_pair(".tab-domain","rgb(255,255,255)")
         self.page.locator("#close-tabs").click()
         self.page.locator("#open-menu").click()
-        self.assert_text_pair(".sheet-footnote","rgb(255,255,255)")
+        self.assert_text_pair("#menu-sheet .sheet-footnote","rgb(255,255,255)")
 
 if __name__=="__main__":
     unittest.main(verbosity=2)
