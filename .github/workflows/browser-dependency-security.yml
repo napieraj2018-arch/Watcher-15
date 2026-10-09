@@ -1,0 +1,39 @@
+name: AI Browser dependency security report
+on:
+  push:
+    branches:
+      - browser-dependency-security-20261009
+      - ai-browser-cloud
+    paths:
+      - "requirements.txt"
+      - "Dockerfile"
+      - ".github/workflows/browser-dependency-security.yml"
+      - "security/dependency-audit.md"
+  schedule:
+    - cron: "43 4 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  python-osv-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install isolated vulnerability scanner
+        run: python -m pip install --disable-pip-version-check "pip-audit>=2.7,<4"
+      - name: Check resolved runtime dependencies for published advisories
+        run: |
+          mkdir -p security
+          python -m pip_audit --requirement requirements.txt --strict --format json --output security/dependency-report.json
+      - name: Preserve report including scans that fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-browser-dependency-security-report
+          path: security/dependency-report.json
+          if-no-files-found: ignore
+          retention-days: 14
