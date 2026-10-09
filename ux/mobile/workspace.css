@@ -158,7 +158,7 @@ h1,h2,p{overflow-wrap:break-word}
   .address-bar {min-height:45px;padding-left:8px}
   .address-bar input {font-size:11px}
   .address-lock {width:14px;margin-right:4px}
-  .address-go{min-width:40px;width:40px}
+  .address-go{min-width:44px;width:44px}
 }
 @media (max-width:350px) {
   .product-name span {display:none}
