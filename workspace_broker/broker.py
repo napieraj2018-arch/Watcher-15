@@ -187,8 +187,8 @@ class Broker:
             if (not isinstance(observed,list) or len(observed)!=1
                     or not isinstance(observed[0],dict)
                     or observed[0].get("session_id")!=sid
-                    or observed[0].get("profile",w.profile)!=w.profile
-                    or observed[0].get("mode","read_only")!="read_only"):
+                    or observed[0].get("profile")!=w.profile
+                    or observed[0].get("mode")!="read_only"):
                 raise BrokerError("START_SESSION_IDENTITY_NOT_VERIFIED")
             tab=secrets.token_urlsafe(18)
             self.active=Active(job.principal,job.workspace_id,sid,{tab})
@@ -199,6 +199,24 @@ class Broker:
             self.quarantined=True
             job.state="paused"
             job.error="START_UNCONFIRMED_NO_AUTOMATIC_RETRY"
+
+    async def _verify_active_session(self,active:Active,workspace:Workspace):
+        """Reject missing or changed provider identity before mutating a tab/stop.
+
+        A crashed/reused provider session must never be mistaken for the
+        original user's browser. Do not expose provider messages in errors.
+        """
+        try:
+            rows=await self.adapter.sessions()
+            if (not isinstance(rows,list) or len(rows)!=1 or
+                    not isinstance(rows[0],dict) or
+                    rows[0].get("session_id")!=active.remote_session_id or
+                    rows[0].get("profile")!=workspace.profile or
+                    rows[0].get("mode")!="read_only"):
+                raise BrokerError("SESSION_IDENTITY_CHANGED")
+        except Exception:
+            active.quarantine=True
+            raise BrokerError("BROWSER_REQUIRES_RECOVERY") from None
 
     async def open(self,p:Principal,workspace_id:str,url:str,request_id:str):
         w=self._workspace(p,workspace_id)
@@ -228,13 +246,18 @@ class Broker:
                     self.requests.pop(key,None)
                     raise BrokerError("WORKSPACE_TAB_LIMIT")
                 try:
+                    await self._verify_active_session(self.active,w)
                     resp=await self.adapter.new_tab(self.active.remote_session_id,target)
                     if not isinstance(resp,dict) or resp.get("ok") is not True:
                         raise BrokerError("TAB_UNCONFIRMED")
+                    await self._verify_active_session(self.active,w)
                     tab=secrets.token_urlsafe(18)
                     self.active.tab_ids.add(tab)
                     job.tab_id=tab;job.state="ready"
                 except Exception:
+                    # A provider might have opened the tab even if it failed
+                    # to acknowledge the request. Quarantine this controller.
+                    self.active.quarantine=True
                     job.state="paused";job.error="TAB_UNCONFIRMED_NO_RETRY"
                 return self._receipt(job)
             if len(self.queue)>=self.max_queue:
@@ -306,6 +329,8 @@ class Broker:
             if active.quarantine:
                 raise BrokerError("BROWSER_REQUIRES_RECOVERY")
             try:
+                w=self._workspace(p,active.workspace_id)
+                await self._verify_active_session(active,w)
                 result=await self.adapter.stop(active.remote_session_id)
                 if (not isinstance(result,dict) or result.get("profile_saved") is not True
                     or result.get("full_profile_saved") is not True
