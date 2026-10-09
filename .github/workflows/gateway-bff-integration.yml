@@ -1,0 +1,58 @@
+name: Isolated multi-tenant BFF integration
+on:
+  push:
+    branches:
+      - bff-tenant-multiuser-20261009
+    paths:
+      - "tenant_security/**"
+      - "commercial/leases/**"
+      - "gateway_poc/**"
+      - ".github/workflows/gateway-bff-integration.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aib-bff-proof-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  postgres16-two-tenants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 4s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install local PostgreSQL and Python client only
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          python -m pip install "psycopg[binary]==3.2.10"
+      - name: Prepare isolated tenant RLS identities
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_isolation.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c "UPDATE browser_product.login_tenant_bindings SET enabled=true WHERE db_role='fixture_tenant_b'"
+      - name: Prepare isolated durable session fencing
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f commercial/leases/001_durable_slot.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f commercial/leases/tests/test_protocol.sql
+          python commercial/leases/tests/test_concurrent.py
+      - name: Prepare independently authenticated session reader
+        run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f gateway_poc/001_api_sessions.sql
+      - name: Test real HTTP + per-tenant SQL + mock slot handoff
+        run: PYTHONPATH=gateway_poc python -m unittest discover -s gateway_poc/tests -v
+      - name: Confirm no production credentials or live browser service
+        run: echo "BFF_EPHEMERAL_POSTGRES_MOCK_STEEL_ONLY"
