@@ -74,7 +74,7 @@ BEGIN
   END;
 
   BEGIN
-    SELECT provider_profile_ref::text INTO identity
+    PERFORM provider_profile_ref
     FROM browser_product.profiles LIMIT 1;
     RAISE EXCEPTION 'A_READ_STEEL_PROVIDER_SECRET';
   EXCEPTION WHEN insufficient_privilege THEN
