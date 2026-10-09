@@ -4,6 +4,7 @@ on:
     branches:
       - workspace-autostart-broker-20261009
       - ai-browser-cloud
+      - broker-strict-provider-identity-20261009
     paths:
       - "workspace_broker/**"
       - ".github/workflows/workspace-broker-tests.yml"
