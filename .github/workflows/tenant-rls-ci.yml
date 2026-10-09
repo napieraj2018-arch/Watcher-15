@@ -1,0 +1,37 @@
+name: Browser product tenant RLS proof
+on:
+  push:
+    branches:
+      - tenant-rls-isolation-20261009
+    paths:
+      - "tenant_security/**"
+      - ".github/workflows/tenant-rls-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-postgres-rls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 4s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL CLI on the throwaway runner
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Apply candidate schema to fresh ephemeral database only
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
+      - name: Prove tenant A/B/disabled-role isolation and provider-reference secrecy
+        run: psql -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_isolation.sql
+      - name: Confirm no schemas are deployed outside temporary CI PostgreSQL
+        run: echo "SQL_PROOF_ONLY_NO_PRODUCTION_MIGRATION"
