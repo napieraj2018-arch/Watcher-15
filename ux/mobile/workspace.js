@@ -160,8 +160,7 @@ function buildWorkspaceList() {
   for(const workspace of WORKSPACES){
     const row=document.createElement("button");
     row.type="button";row.className="workspace-entry";
-    row.setAttribute("role","menuitemradio");
-    row.setAttribute("aria-checked",String(workspace.id===state.workspace));
+    row.setAttribute("aria-pressed",String(workspace.id===state.workspace));
     const avatar=document.createElement("span");avatar.className="workspace-avatar";
     writeText(avatar,workspace.monogram);
     const details=document.createElement("span");details.className="workspace-details";
