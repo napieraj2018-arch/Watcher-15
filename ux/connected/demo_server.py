@@ -84,7 +84,7 @@ class DemoServer(HTTPServer):
         super().__init__(address,handler or Handler)
 
 class Handler(BaseHTTPRequestHandler):
-    protocol_version="HTTP/1.1"
+    protocol_version="HTTP/1.0"  # Close each connection; local single-thread test server only.
     def log_message(self,*_args):
         pass
     def _send(self,status:int,data:bytes,content_type:str):
