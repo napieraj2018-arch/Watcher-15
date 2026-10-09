@@ -141,6 +141,106 @@ def synthetic_fixture_evidence(native=None, portable=None, resolved=None):
     }
 
 
+def synthetic_fixture_exact_evidence(native=None, portable=None, resolved=None, *,
+                                     now_seconds=None):
+    """Inspect ONLY the test cookie/localStorage key, never their values.
+
+    Used solely for the disposable SteelSelfTest profile. The public React
+    fixture writes a cookie named aibrowser_test_cookie with Path=/browser-check
+    and localStorage key aibrowser_public_test_marker. All comparisons happen
+    in-process and return counts/booleans, never raw values, keys or digests.
+    """
+    from urllib.parse import unquote
+    from math import isfinite
+    import time as _time
+    now = _time.time() if now_seconds is None else now_seconds
+    if not isinstance(now, (int, float)) or not isfinite(now):
+        raise ValueError("INVALID_TEST_CLOCK")
+    expected_host = 'ai-browser-vault.floot.app'
+    expected_origin = 'https://' + expected_host
+    expected_cookie = 'aibrowser_test_cookie'
+    expected_storage = 'aibrowser_public_test_marker'
+
+    def read(state):
+        matching_name = []
+        matching_path = []
+        readable = []
+        local = []
+        if not isinstance(state, dict):
+            return (matching_name, matching_path, readable, local)
+        raw_cookies = state.get('cookies', [])
+        if isinstance(raw_cookies, list):
+            for item in raw_cookies:
+                if not isinstance(item, dict):
+                    continue
+                if (item.get('name') != expected_cookie or
+                        not isinstance(item.get('domain'), str) or
+                        item['domain'].lstrip('.').lower() != expected_host):
+                    continue
+                matching_name.append(item)
+                if item.get('path') != '/browser-check':
+                    continue
+                matching_path.append(item)
+                value = item.get('value')
+                expires = item.get('expires')
+                expired = (isinstance(expires, (int, float)) and expires >= 0
+                           and expires <= now)
+                # document.cookie hides HttpOnly cookies. Secure page allows
+                # secure or non-secure cookies, but a test cookie must be Secure.
+                if (isinstance(value, str) and value and
+                        item.get('secure') is True and
+                        item.get('httpOnly') is not True and not expired):
+                    readable.append(value)
+        origins = state.get('origins', [])
+        if isinstance(origins, list):
+            for entry in origins:
+                if not isinstance(entry, dict) or entry.get('origin') != expected_origin:
+                    continue
+                pairs = entry.get('localStorage', [])
+                if not isinstance(pairs, list):
+                    continue
+                for item in pairs:
+                    if (isinstance(item, dict) and
+                            item.get('name') == expected_storage and
+                            isinstance(item.get('value'), str) and
+                            item['value']):
+                        local.append(item['value'])
+        return (matching_name, matching_path, readable, local)
+
+    def report(values):
+        named, path, readable, storage = values
+        singleton = len(readable) == len(storage) == 1
+        return {
+            'cookie_with_exact_name_count': len(named),
+            'cookie_with_exact_path_count': len(path),
+            'cookie_readable_count': len(readable),
+            'storage_exact_key_count': len(storage),
+            'exact_pair_matches': bool(singleton and readable[0] == storage[0]),
+            'url_decoded_pair_matches': bool(
+                singleton and unquote(readable[0]) == storage[0]),
+            'duplicates_present': len(named) > 1 or len(storage) > 1,
+            'valid_page_cookie_missing': not readable,
+        }
+
+    n = read(native)
+    p = read(portable)
+    r = read(resolved)
+    return {
+        'source': 'exact_synthetic_marker_v2',
+        'native': report(n),
+        'portable': report(p),
+        'resolved': report(r),
+        'native_cookie_matches_portable_storage': bool(
+            len(n[2]) == len(p[3]) == 1 and n[2][0] == p[3][0]),
+        'portable_cookie_matches_native_storage': bool(
+            len(p[2]) == len(n[3]) == 1 and p[2][0] == n[3][0]),
+        'cookie_same_between_native_and_portable': bool(
+            len(n[2]) == len(p[2]) == 1 and n[2][0] == p[2][0]),
+        'storage_same_between_native_and_portable': bool(
+            len(n[3]) == len(p[3]) == 1 and n[3][0] == p[3][0]),
+    }
+
+
 async def native_context(remote, **options):
     from steel_runtime import SteelFailure
     if getattr(remote, '_native_context_claimed', False):
@@ -185,6 +285,8 @@ async def native_context(remote, **options):
             if binding.get('profile') == 'SteelSelfTest':
                 binding['synthetic_fixture_evidence'] = synthetic_fixture_evidence(
                     current, state, merged)
+                binding['synthetic_fixture_evidence']['exact_marker'] = (
+                    synthetic_fixture_exact_evidence(current, state, merged))
             if merged != current:
                 await context.set_storage_state(merged)
                 binding['backup_recovery_applied'] = True
