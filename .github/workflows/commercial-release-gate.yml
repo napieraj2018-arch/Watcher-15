@@ -1,0 +1,37 @@
+name: AI Browser commercial readiness gate
+on:
+  push:
+    branches:
+      - commercial-readiness-audit-20261009
+    paths:
+      - "commercial/**"
+      - ".github/workflows/commercial-release-gate.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fail-closed-manifest-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run validator unit tests
+        run: python -m unittest discover -s commercial/tests -v
+      - name: Confirm current product is NOT approved for commercial release
+        shell: bash
+        run: |
+          set +e
+          python commercial/release_gate.py commercial/release_evidence.json > commercial/readiness-report.json
+          status=$?
+          set -e
+          test "$status" -eq 1
+          python -c "import json; a=json.load(open('commercial/readiness-report.json')); assert a['commercial_launch_approved'] is False and a['ready_for_independent_acceptance'] is False and len(a['blocking_controls'])>0; print('COMMERCIAL_NO_GO_CONFIRMED')"
+      - name: Save redacted audit matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: commercial-no-go-report
+          path: commercial/readiness-report.json
+          retention-days: 7
