@@ -38,6 +38,6 @@ jobs:
       - name: Check database isolation, idempotency and unmapped quarantine
         run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f stripe_billing/tests/test_postgres.sql
       - name: Race 16 separately authenticated synthetic signed deliveries
-        run: python stripe_billing/tests/test_postgres_race.py
+        run: PYTHONPATH=. python stripe_billing/tests/test_postgres_race.py
       - name: Record that no real payment or tenant access was touched
         run: echo "SIGNED_STRIPE_WEBHOOK_PROOF_ONLY_NO_LIVE_PRODUCTS_NO_CHARGES"
