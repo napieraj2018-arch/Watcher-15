@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 from native_origin_readback import (
     FLAG, ERROR, URL, ReliabilityError, observe_native_origin, wrap_native_context,
+    reconcile_fixture_origin,
 )
 
 
@@ -137,6 +138,73 @@ class CanaryReadback(unittest.IsolatedAsyncioTestCase):
             pass
         with self.assertRaisesRegex(ReliabilityError, 'CONTRACT_INVALID'):
             wrap_native_context(bad)
+
+
+
+class CanarySelectiveRestore(unittest.IsolatedAsyncioTestCase):
+    """All values are synthetic; no network, Steel or account credentials."""
+
+    async def asyncSetUp(self):
+        from test_synthetic_fixture_exact import fixture
+        self.backup = fixture("portable-fixture-only", "portable-fixture-only")
+        self.page = SimpleNamespace(
+            url=URL, route=AsyncMock(), goto=AsyncMock(), close=AsyncMock(),
+            evaluate=AsyncMock(return_value={
+                "cookie_present": True, "storage_present": True,
+                "pair_matches": True}))
+        self.context = SimpleNamespace(
+            new_page=AsyncMock(return_value=self.page),
+            add_cookies=AsyncMock(), set_storage_state=AsyncMock())
+
+    async def test_coherent_native_is_authoritative_even_if_backup_differs(self):
+        receipt = await reconcile_fixture_origin(self.context, self.backup)
+        self.assertEqual(receipt, {
+            "verified": True, "applied": False, "backup_available": True})
+        self.context.add_cookies.assert_not_awaited()
+        self.page.close.assert_awaited_once()
+
+    async def test_incoherent_native_repaired_by_origin_scoped_operations(self):
+        self.page.evaluate.side_effect = [
+            {"cookie_present": True, "storage_present": True, "pair_matches": False},
+            {"cookie_present": True, "storage_present": True, "pair_matches": True},
+        ]
+        receipt = await reconcile_fixture_origin(self.context, self.backup)
+        self.assertEqual(receipt, {
+            "verified": True, "applied": True, "backup_available": True})
+        self.context.add_cookies.assert_awaited_once()
+        self.context.set_storage_state.assert_not_awaited()
+        self.assertEqual(self.page.evaluate.await_count, 2)
+        self.assertEqual(self.page.evaluate.call_args.args[-1], "portable-fixture-only")
+        self.page.close.assert_awaited_once()
+        self.assertNotIn("portable-fixture-only", str(receipt))
+
+    async def test_incoherent_backup_never_written(self):
+        from test_synthetic_fixture_exact import fixture
+        self.page.evaluate.return_value = {
+            "cookie_present": True, "storage_present": True,
+            "pair_matches": False}
+        receipt = await reconcile_fixture_origin(
+            self.context, fixture("stale-cookie", "new-storage"))
+        self.assertEqual(receipt, {
+            "verified": False, "applied": False, "backup_available": False})
+        self.context.add_cookies.assert_not_awaited()
+        self.page.close.assert_awaited_once()
+
+    async def test_silent_cookie_write_failure_fails_closed(self):
+        self.page.evaluate.return_value = {
+            "cookie_present": True, "storage_present": True,
+            "pair_matches": False}
+        with self.assertRaisesRegex(ReliabilityError, "SYNTHETIC_REPAIR_NOT_VERIFIED"):
+            await reconcile_fixture_origin(self.context, self.backup)
+        self.page.close.assert_awaited_once()
+        self.context.set_storage_state.assert_not_awaited()
+
+    async def test_cancellation_closes_own_page(self):
+        self.page.goto.side_effect = asyncio.CancelledError()
+        with self.assertRaises(asyncio.CancelledError):
+            await reconcile_fixture_origin(self.context, self.backup)
+        self.page.close.assert_awaited_once()
+        self.context.add_cookies.assert_not_awaited()
 
 
 if __name__ == '__main__':
