@@ -73,6 +73,23 @@ class Recovery(unittest.IsolatedAsyncioTestCase):
         await ns['native_context'](r, storage_state=state())
         self.assertEqual(c.current['cookies'][0]['value'], 'new')
 
+    async def test_hydrated_real_account_never_replays_portable_over_native(self):
+        # Real provider snapshots can omit origins until visited. Replaying an
+        # incomplete state via Playwright would clear native cookies and IDB.
+        for profile in ("Meta - Anita", "Meta - Maciej - Monitoring",
+                        "Google - Architekt", "Google - Weterynarz"):
+            with self.subTest(profile=profile):
+                native = {"cookies": state("native-current")["cookies"],
+                          "origins": []}
+                r, c = remote(current=native)
+                binding = r.engine._native_bindings["r"]
+                binding["profile"] = profile
+                await ns["native_context"](r, storage_state=state("old-backup"))
+                self.assertEqual(c.current, native)
+                self.assertEqual(c.states, [])
+                self.assertTrue(binding["native_authoritative"])
+                self.assertFalse(binding["backup_recovery_applied"])
+
     async def test_current_native_local_storage_is_preserved(self):
         r, c = remote(current=state('new'))
         await ns['native_context'](r, storage_state=state())
