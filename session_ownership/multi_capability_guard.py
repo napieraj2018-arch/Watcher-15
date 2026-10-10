@@ -367,24 +367,23 @@ class MultiCapabilityGuard:
                         return self.safe_sessions()
                 tool.fn = list_sessions
             elif name == "browser_recent_audit":
+                # The legacy audit endpoint may aggregate records from all
+                # sessions. Until it is provably scoped by opaque capability,
+                # never read or return a different chat's browsing history.
                 if tool.is_async:
-                    async def read_audit(*a, _fn=fn, **kw):
+                    async def read_audit(*a, **kw):
                         if a:
                             raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
-                        handle = kw.get("session_id")
-                        if not handle:
-                            return {"result": [], "require_owned_session": True}
-                        return await self.action(
-                            "browser_recent_audit", _fn,
-                            {**kw, "session_id": handle})
+                        if kw.get("session_id"):
+                            self.authorize(kw["session_id"])
+                        return {"result": [], "reason": "MULTI_AUDIT_SCOPING_NOT_READY"}
                 else:
                     def read_audit(*a, **kw):
-                        # Keep the SDK's original synchronous dispatch
-                        # contract and fail closed rather than returning a
-                        # coroutine or a global unscoped history list.
                         if a:
                             raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
-                        return {"result": [], "require_owned_async_audit": True}
+                        if kw.get("session_id"):
+                            self.authorize(kw["session_id"])
+                        return {"result": [], "reason": "MULTI_AUDIT_SCOPING_NOT_READY"}
                 tool.fn = read_audit
             elif name == "profile_list":
                 pass
