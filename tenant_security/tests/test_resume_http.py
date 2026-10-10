@@ -60,10 +60,16 @@ class HTTPBoundary(unittest.TestCase):
             resolver,self.service,allowed_origin=ORIGIN)
 
     def req(self,method="GET",suffix="",body=None,**kw):
+        options={
+            "cookie":f"{COOKIE_NAME}={COOKIE}",
+            "csrf":CSRF_TOKEN,
+            "origin":ORIGIN,
+            "body":{} if body is None else body,
+            **kw,
+        }
         return exercise_wsgi(
             self.http,method=method,path="/api/owner/tasks"+suffix,
-            cookie=f"{COOKIE_NAME}={COOKIE}",csrf=CSRF_TOKEN,
-            origin=ORIGIN,body={} if body is None else body,**kw)
+            **options)
 
     def resume(self,**kw):
         return self.req(method="POST",suffix=f"/{TASK}/resume",
