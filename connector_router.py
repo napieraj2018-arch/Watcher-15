@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-ROUTER_VERSION = "2026-10-10.1"
+ROUTER_VERSION = "2026-10-10.2"
 BRANDS = frozenset(("", "anita", "weterynarz"))
 SERVICES = frozenset((
     "instagram", "facebook", "gmail", "wordpress", "google_business",
@@ -41,9 +41,15 @@ BRAND_TARGET = {
     },
 }
 
-# Operations that really exist on the currently connected ChatGPT plugins.
-# DO NOT imply that a given profile is authenticated until fresh readback.
+# Operations advertised by the connected ChatGPT plugins when inspected.
+# DO NOT imply a profile is authenticated until current account readback.
 API_ROUTE = {
+    ("instagram", "read"): ("Windsor_ai", "instagram", "get_data",
+                              ("verified_account_id", "supported_fields")),
+    ("facebook", "read"): ("Windsor_ai", "facebook_organic", "get_data",
+                             ("verified_page_id", "supported_fields")),
+    ("google_business", "read"): ("Windsor_ai", "google_my_business", "get_data",
+                                    ("verified_location_id", "supported_fields")),
     ("instagram", "reel"): ("Windsor_ai", "instagram", "create_video_post",
                             ("public_https_video_url", "caption_optional")),
     ("instagram", "image_post"): ("Windsor_ai", "instagram", "create_image_post",
@@ -92,6 +98,48 @@ WRITES = frozenset((
     "email_draft","wordpress_draft","wordpress_publish","business_post",
 ))
 
+# Reuse the current catalogue for generic reads; do not invent new write aliases.
+READ_ALIASES = {
+    ("gmail", "read"): "email_read",
+    ("wordpress", "read"): "wordpress_read",
+    ("google_business", "reviews"): "business_reviews",
+}
+
+# Advisory classification only. Observations are not authorization evidence;
+# the executing agent must confirm the actual provider response and account.
+ACCESS_RECOVERY = {
+    "empty_result": "check_query_scope_and_data_freshness",
+    "transport_error": "bounded_read_retry_without_reauthentication",
+    "rate_limited": "respect_provider_retry_after_without_reauthentication",
+    "permission_denied": "verify_exact_account_and_operation_scope",
+    "unknown_error": "inspect_sanitized_error_without_assuming_logout",
+    "provider_reauthorization_required": "confirm_provider_evidence_then_authorize_affected_connection",
+    "human_verification_required": "pause_affected_step_for_human_verification",
+    "browser_quarantined": "independent_provider_reconciliation_no_browser_restart",
+    "write_outcome_unknown": "verify_receipt_or_existing_object_before_any_retry",
+}
+
+
+def plan_access_recovery(observation: str) -> dict:
+    """Return bounded recovery guidance, not authority to log in or resubmit.
+
+    No network, credentials, provider objects or customer data are accepted.
+    A permission error or empty response is never proof of revoked login.
+    """
+    if type(observation) is not str or observation not in ACCESS_RECOVERY:
+        return {"status": "unsupported_observation", "login_attempted": False}
+    return {
+        "status": "advisory_only",
+        "next_step": ACCESS_RECOVERY[observation],
+        "authentication": "unknown",
+        "requires_trusted_provider_evidence": True,
+        "reauthorization_may_be_needed": observation == "provider_reauthorization_required",
+        "independent_connector_tasks_may_continue": True,
+        "retry_write_allowed": False,
+        "clear_quarantine_allowed": False,
+        "login_attempted": False,
+    }
+
 
 def plan_operation(service: str, operation: str, brand: str = "") -> dict:
     """Return safe, public, non-authoritative route information.
@@ -109,11 +157,14 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
                 "browser_started":False,"published":False,
                 "valid_brands":["anita","weterynarz"]}
 
+    requested_operation = operation
+    operation = READ_ALIASES.get((service, operation), operation)
     target=BRAND_TARGET.get(brand, {})
     result={
         "router_version":ROUTER_VERSION,
         "service":service,
         "operation":operation,
+        "requested_operation":requested_operation,
         "brand":brand or "account_check_required",
         "status":"available_route_hint_only",
         "connector_connected":"not_checked",
@@ -127,6 +178,7 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
         "can_silently_retry_login":False,
         "captcha_handling":"human_verification_required_if_present",
         "privacy":"never_request_password_or_otp_in_chat",
+        "access_recovery":{key: plan_access_recovery(key) for key in ACCESS_RECOVERY},
     }
 
     if service=="instagram":
@@ -141,10 +193,9 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
     elif service=="wordpress":
         result["expected_site_url"]=target["wordpress"]
         # A Google profile is not automatically a WordPress login.
-        # Avoid repeated login loops caused by guessing the wrong profile.
         result["browser_profile_if_required"]="explicit_verified_wordpress_profile"
     elif service=="browser":
-        result["status"]="browser_authentication_required"
+        result["status"]="browser_state_verification_required"
         result["browser_profile_if_required"]="explicit_owner_selected_profile"
         result["requires_live_connector_probe"]=False
         return result
@@ -154,8 +205,7 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
         result["reason"]="select_a_known_gmail_operation"
         return result
     if brand=="weterynarz" and service in {"instagram","facebook","google_business"}:
-        # The profile is not necessarily connected to Windsor/Meta;
-        # the user must explicitly choose the legal brand account.
+        # The profile is not necessarily connected to Windsor/Meta.
         result["status"]="connector_scope_needs_verification"
         result["reason"]="exact_vet_social_account_not_verified"
         return result
@@ -176,6 +226,9 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
     result["action"]=action
     result["required_inputs"]=list(requirements)
     result["next_step"]="probe_connector_account_and_action_permissions"
+    if service in {"instagram", "facebook", "google_business"} and operation == "read":
+        # Provider-supported business fields, not private groups or Highlights.
+        result["read_scope"] = "business_account_supported_fields_only"
     if operation in WRITES:
         result["must_verify_target_and_payload_before_write"]=True
         result["do_not_retry_write_without_idempotency_readback"]=True
