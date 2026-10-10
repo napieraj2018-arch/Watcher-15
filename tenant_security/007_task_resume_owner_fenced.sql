@@ -304,6 +304,28 @@ BEGIN
   );
 END $body$;
 
+-- The BFF must not fetch the provider lease UUID to authorize a ticket.
+-- This wrapper derives the lease INSIDE the SQL security boundary from the
+-- same tenant's task/slot, then validates the exact current epoch and fresh
+-- Steel readback. Returns one boolean and no raw provider identity.
+CREATE FUNCTION browser_recovery.can_execute_owned_epoch(
+  p_task uuid,p_slot integer,p_generation bigint,p_epoch bigint
+) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path=pg_catalog,browser_recovery,browser_product,pg_temp
+AS $body$
+DECLARE tid uuid; lease uuid;
+BEGIN
+  tid:=browser_product.authenticated_tenant();
+  IF tid IS NULL OR p_task IS NULL OR p_slot IS NULL
+     OR p_generation IS NULL OR p_epoch IS NULL THEN RETURN false; END IF;
+  SELECT o.lease_id INTO lease FROM browser_recovery.owned_tasks o
+    WHERE o.tenant_id=tid AND o.task_id=p_task
+      AND o.slot_no=p_slot AND o.generation=p_generation;
+  IF NOT FOUND OR lease IS NULL THEN RETURN false; END IF;
+  RETURN browser_recovery.can_execute_epoch(
+    p_task,lease,p_slot,p_generation,p_epoch);
+END $body$;
+
 -- Never delete provider sessions from SQL. Requesting cancellation only
 -- revokes old attachment epochs and marks intent for the trusted worker.
 -- Release requires separate provider close + full_profile_saved attestation.
@@ -366,6 +388,9 @@ TO browser_bff_auth;
 GRANT USAGE ON SCHEMA browser_recovery TO aib_parallel_worker;
 GRANT EXECUTE ON FUNCTION browser_recovery.can_create_provider(
   uuid,uuid,integer,bigint)
+TO aib_parallel_worker;
+GRANT EXECUTE ON FUNCTION browser_recovery.can_execute_owned_epoch(
+  uuid,integer,bigint,bigint)
 TO aib_parallel_worker;
 GRANT EXECUTE ON FUNCTION browser_recovery.can_execute_epoch(
   uuid,uuid,integer,bigint,bigint)
