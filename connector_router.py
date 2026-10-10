@@ -56,17 +56,17 @@ API_ROUTE = {
                             ("message_or_link",)),
     ("facebook", "image_post"): ("Windsor_ai", "facebook_organic", "create_photo_post",
                                   ("image_upload_and_photo_id",)),
-    ("gmail", "email_read"): ("Gmail", "gmail", "search_messages",
+    ("gmail", "email_read"): ("Gmail", "gmail", "search_emails",
                               ("current_mailbox_identity",)),
     ("gmail", "email_draft"): ("Gmail", "gmail", "create_draft",
                                ("recipient_subject_body",)),
-    ("gmail", "email_send"): ("Gmail", "gmail", "send_message",
+    ("gmail", "email_send"): ("Gmail", "gmail", "send_email",
                               ("recipient_subject_body",)),
     ("wordpress", "wordpress_read"): ("WPVibe", "wordpress", "site_info",
                                        ("verified_site_url",)),
-    ("wordpress", "wordpress_draft"): ("WPVibe", "wordpress", "create_draft",
+    ("wordpress", "wordpress_draft"): ("WPVibe", "wordpress", "discover_abilities",
                                         ("site_url", "draft_content")),
-    ("wordpress", "wordpress_publish"): ("WPVibe", "wordpress", "publish_post",
+    ("wordpress", "wordpress_publish"): ("WPVibe", "wordpress", "discover_abilities",
                                           ("site_url", "approved_post_content")),
     ("google_business", "business_reviews"):
         ("Windsor_ai", "google_my_business", "get_data",
@@ -150,9 +150,6 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
     if service=="gmail" and operation not in {"email_read","email_draft","email_send"}:
         result["status"]="unsupported_action"
         result["reason"]="select_a_known_gmail_operation"
-        return result
-    if service=="weterynarz":
-        result["status"]="unsupported_request"
         return result
     if brand=="weterynarz" and service in {"instagram","facebook","google_business"}:
         # The profile is not necessarily connected to Windsor/Meta;
