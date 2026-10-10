@@ -135,20 +135,15 @@ class MultiMcp(IsolatedAsyncioTestCase):
         release=asyncio.Event()
 
         async def slow_snapshot(session_id, **kwargs):
-            session=self.manager._session(session_id)
+            session=manager._session(session_id)
             entered.add(session.profile)
             if len(entered)==2:
                 both.set()
             await release.wait()
             return {"session_id":session_id,"profile":session.profile}
 
-        # Change fake underlying callable BEFORE re-installation, like a
-        # genuine MCP SDK registration, preserving tool schemas.
-        self.mcp._tool_manager._tools["browser_snapshot"].fn = (
-            self.guard.mcp._tool_manager._tools["browser_snapshot"].fn
-        )
-        # Replacing an already wrapped FN would bypass its capability
-        # contract, so create another fresh, staged MCP for this test.
+        # Fresh real MCP server; replace the synthetic underlying snapshot
+        # BEFORE installing the guard, preserving the original tool schema.
         manager=MultiManager()
         mcp=fake_mcp(manager)
         mcp._tool_manager._tools["browser_snapshot"].fn = slow_snapshot
