@@ -307,9 +307,15 @@ class MultiCapabilityGuard:
             # Do not emit raw user URLs, profile state or provider exceptions.
             pass
 
-    def safe_sessions(self):
-        # Directly use the manager metadata, not page.title() or page
-        # screenshots. A closed Chromium tab must not break all chats.
+    def safe_sessions(self) -> list[dict]:
+        # CRITICAL MCP 2.3 contract: browser_sessionsOutput.result is a LIST.
+        # The SDK wraps a tool's returned list inside its result property.
+        # Returning {"result": items, ...} here instead produces a nested
+        # object, fails Pydantic validation and shows "Error executing tool"
+        # to every ChatGPT caller. See real Render error at 12:47 UTC.
+        #
+        # Use manager metadata only; do not evaluate page.title()/page.url
+        # because another task's Chromium page may already be closed.
         self._assess()
         items = []
         for sid, session in self.sessions().items():
@@ -322,9 +328,7 @@ class MultiCapabilityGuard:
                 "mode": getattr(session, "mode", "unknown"),
                 "state": "recovery_required" if lease.recovery_required else "active",
             })
-        return {"result": items, "capacity": self.capacity,
-                "active": len(items), "available": max(0, self.capacity-len(self.leases)),
-                "quarantined": self.quarantined}
+        return items
 
     def install(self):
         if self.installed:
