@@ -2,6 +2,8 @@ name: AI Browser five owner sessions — real MCP 2.3 Docker contract
 on:
   push:
     branches:
+      - ai-browser-cloud
+      - parallel-main-ci-20261010
       - owner-parallel-mcp-runtime-20261010
       - owner-parallel-session-list-schema-20261010
     paths:
