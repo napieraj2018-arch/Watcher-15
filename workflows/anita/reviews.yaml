@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "workflow_id": "anita_reviews_v1",
+  "title": "Anita Napieraj — brakujące grafiki autentycznych opinii",
+  "tenant_scope": "anita_architekt",
+  "expected_sources": {
+    "instagram": {
+      "profile": "Meta - Anita",
+      "username": "architekt.radom",
+      "instagram_business_id": "17841400064953151",
+      "highlight_url": "https://www.instagram.com/stories/highlights/18102998546608585/",
+      "expected_slides": 8,
+      "visual_read_required": true,
+      "allow_login_retry": false
+    },
+    "google_business": {
+      "connector": "google_my_business",
+      "location_id": "locations/17588627068282939119",
+      "expected_reviews": 20,
+      "prefer_api": true
+    }
+  },
+  "trusted_private_memory": {
+    "provider": "user_connected_google_drive",
+    "type": "private_google_sheet",
+    "lookup_hint": "AI Browser — Anita Napieraj — prywatny rejestr opinii",
+    "requires_authenticated_tenant": true,
+    "may_commit_private_content_to_repo": false
+  },
+  "branding": {
+    "approved_logo_source": "real_anita_n_in_house",
+    "reference_design_source": "approved_project_or_canva_brand_kit",
+    "publish_without_separate_approval": false
+  },
+  "constraints": {
+    "read_only_until_approval": true,
+    "no_facebook_posts": true,
+    "no_instagram_posts": true,
+    "no_google_business_posts": true,
+    "no_metricool_changes": true,
+    "no_google_ads_changes": true,
+    "no_vet_brand_access": true,
+    "no_unverified_source_quotes": true,
+    "require_eight_real_screenshots": true,
+    "prohibit_fabricated_review_author": true,
+    "require_deduplicate_across_similar_quotes": true
+  },
+  "steps": [
+    {
+      "id": "fetch_google_reviews",
+      "source": "google_business",
+      "tool_preference": "authorized_connector",
+      "required_evidence": [
+        "review_id",
+        "review_reviewer",
+        "review_comment",
+        "review_star_rating",
+        "review_create_time",
+        "data_fetched_at"
+      ],
+      "success_criterion": "20_unique_ids",
+      "checkpoint": "google_reviews_retrieved"
+    },
+    {
+      "id": "verify_highlight",
+      "source": "instagram",
+      "tool_preference": "authorized_profile_visual_sequence",
+      "required_evidence": [
+        "index",
+        "source_url",
+        "capture_reference",
+        "author_visible",
+        "text_visible",
+        "completeness"
+      ],
+      "success_criterion": "8_verified_unique_slides",
+      "checkpoint": "highlight_fully_read"
+    },
+    {
+      "id": "compare_reviews",
+      "source": "private_google_reviews_plus_highlight",
+      "operation": "exact_normalized_fuzzy_dedupe",
+      "required_evidence": [
+        "provider_review_id",
+        "source_quote",
+        "source_author",
+        "match_status",
+        "matching_slide_number"
+      ],
+      "success_criterion": "all_reviews_classified",
+      "checkpoint": "dedup_complete"
+    },
+    {
+      "id": "prepare_missing_cards",
+      "source": "dedup_verified_unused_reviews",
+      "operation": "use_authentic_logo_and_approved_story_style",
+      "required_evidence": [
+        "review_ids",
+        "authors",
+        "design_ref",
+        "output_private_ref"
+      ],
+      "success_criterion": "no_used_quote_repeated",
+      "checkpoint": "cards_ready"
+    },
+    {
+      "id": "package_zip",
+      "source": "approved_designs",
+      "operation": "prepare_private_zip_no_publish",
+      "required_evidence": [
+        "asset_manifest",
+        "zip_private_ref",
+        "approval_status"
+      ],
+      "success_criterion": "user_approval_pending",
+      "checkpoint": "ready_for_approval"
+    }
+  ],
+  "permitted_statuses": [
+    "queued",
+    "running",
+    "partial",
+    "needs_user_auth",
+    "blocked",
+    "ready_for_approval",
+    "completed"
+  ],
+  "complete_only_if": [
+    "google_20_verified",
+    "instagram_8_verified",
+    "dedupe_confirmed",
+    "graphics_verified",
+    "private_zip_created",
+    "no_publishing"
+  ],
+  "review_records_source": "private_sheet_only",
+  "no_reviews_embedded": true
+}
