@@ -241,6 +241,93 @@ def synthetic_fixture_exact_evidence(native=None, portable=None, resolved=None, 
     }
 
 
+def select_coherent_fixture_pair(native, portable, merged):
+    """Pure, SYNTHETIC-FIXTURE-ONLY recovery candidate.
+
+    This must only ever be called when binding.profile == 'SteelSelfTest'.
+    It replaces only the known test cookie/path and test localStorage key,
+    preserving all unrelated native cookies, origins and IndexedDB.
+    No login/account secrets are returned or logged.
+    """
+    if not all(isinstance(s, dict) for s in (native, portable, merged)):
+        return merged, False
+
+    portable_proof = synthetic_fixture_exact_evidence(
+        portable, portable, portable)['resolved']
+    merged_proof = synthetic_fixture_exact_evidence(
+        merged, merged, merged)['resolved']
+    if (not portable_proof['exact_pair_matches'] or
+            portable_proof['duplicates_present'] or
+            merged_proof['exact_pair_matches']):
+        return merged, False
+
+    host = 'ai-browser-vault.floot.app'
+    origin = 'https://' + host
+    cname = 'aibrowser_test_cookie'
+    key = 'aibrowser_public_test_marker'
+
+    def is_fixture_cookie(c):
+        return (isinstance(c, dict) and c.get('name') == cname
+                and isinstance(c.get('domain'), str)
+                and c['domain'].lstrip('.').lower() == host
+                and c.get('path') == '/browser-check')
+
+    candidate_cookies = [
+        c for c in portable.get('cookies', [])
+        if is_fixture_cookie(c)
+    ]
+    candidate_origins = [
+        o for o in portable.get('origins', [])
+        if isinstance(o, dict) and o.get('origin') == origin
+    ]
+    if len(candidate_cookies) != 1 or len(candidate_origins) != 1:
+        return merged, False
+    candidate_storage = [
+        p for p in candidate_origins[0].get('localStorage', [])
+        if isinstance(p, dict) and p.get('name') == key
+    ]
+    if len(candidate_storage) != 1:
+        return merged, False
+
+    result = copy.deepcopy(merged)
+    existing_cookies = result.get('cookies')
+    if not isinstance(existing_cookies, list):
+        return merged, False
+    result['cookies'] = [
+        c for c in existing_cookies if not is_fixture_cookie(c)
+    ] + [copy.deepcopy(candidate_cookies[0])]
+
+    origins = result.get('origins')
+    if not isinstance(origins, list):
+        return merged, False
+    matched = [
+        o for o in origins
+        if isinstance(o, dict) and o.get('origin') == origin
+    ]
+    if len(matched) > 1:
+        return merged, False
+    if not matched:
+        origins.append({'origin': origin, 'localStorage': [
+            copy.deepcopy(candidate_storage[0])]})
+    else:
+        local = matched[0].get('localStorage')
+        if not isinstance(local, list):
+            return merged, False
+        matched[0]['localStorage'] = [
+            p for p in local
+            if not (isinstance(p, dict) and p.get('name') == key)
+        ] + [copy.deepcopy(candidate_storage[0])]
+
+    # Fail closed if structural changes accidentally introduced duplicate
+    # markers or left the dummy cookie/storage pair inconsistent.
+    final_proof = synthetic_fixture_exact_evidence(
+        result, result, result)['resolved']
+    if (not final_proof['exact_pair_matches'] or
+            final_proof['duplicates_present']):
+        return merged, False
+    return result, True
+
+
 async def synthetic_fixture_page_readback(page):
     """Read ONLY booleans from the exact synthetic test page.
 
@@ -318,6 +405,10 @@ async def native_context(remote, **options):
             merged = (merge_profile_state(state, current) if prefer_portable
                       else merge_profile_state(current, state))
             binding['portable_priority_used'] = prefer_portable
+            if binding.get('profile') == 'SteelSelfTest':
+                merged, coherence_fixed = select_coherent_fixture_pair(
+                    current, state, merged)
+                binding['synthetic_fixture_pair_repaired'] = coherence_fixed
             if merged != current:
                 await context.set_storage_state(merged)
                 binding['backup_recovery_applied'] = True

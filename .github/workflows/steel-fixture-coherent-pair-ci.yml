@@ -1,0 +1,23 @@
+name: Synthetic exact-pair repair candidate
+on:
+  push:
+    branches:
+      - steel-fixture-coherent-pair-20261010
+    paths:
+      - "steel_context_fix.py"
+      - "test_coherent_fixture_pair.py"
+      - "Dockerfile"
+      - ".github/workflows/steel-fixture-coherent-pair-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  docker-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the exact production Docker image and embedded regressions
+        run: docker build --progress=plain -t aib-coherent-synthetic .
+      - name: Synthetic pair recovery regression
+        run: docker run --rm --entrypoint python aib-coherent-synthetic /app/test_coherent_fixture_pair.py
