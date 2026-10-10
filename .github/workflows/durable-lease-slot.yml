@@ -1,0 +1,45 @@
+name: Durable Steel slot PostgreSQL proof
+on:
+  push:
+    branches:
+      - durable-lease-slot-20261009
+    paths:
+      - "commercial/leases/**"
+      - ".github/workflows/durable-lease-slot.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ephemeral-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 4s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install isolated PostgreSQL test client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          python -m pip install "psycopg[binary]==3.2.10"
+      - name: Apply prototype only to ephemeral GitHub Actions database
+        run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f commercial/leases/001_durable_slot.sql
+      - name: Verify fencing, actor separation, quarantine and receipts
+        run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f commercial/leases/tests/test_protocol.sql
+      - name: Race 16 independent DB connections
+        run: python commercial/leases/tests/test_concurrent.py
+      - name: Prevent ambiguous deployment claims
+        run: echo "SYNTHETIC_POSTGRES_ONLY_NOT_CONNECTED_TO_RENDER_OR_FLOOT"
