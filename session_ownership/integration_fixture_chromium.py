@@ -127,6 +127,39 @@ class RealChromiumReadback(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.matches(page, "test-only-coherent-backup"))
         await guard_synthetic_fixture_save(SimpleNamespace(profile="SteelSelfTest", page=page), self.binding)
 
+    async def test_origin_scoped_repair_does_not_erase_unrelated_native_cookie(self):
+        await self.launch()
+        await self.seed("test-only-verified-backup")
+        portable = await self.context.storage_state(indexed_db=True)
+        # Extra cookie is stored in the SAME native Chrome profile, but was
+        # absent from the portable snapshot. Global set_storage_state() would
+        # erase it; origin-scoped recovery must leave it intact.
+        await self.context.add_cookies([{
+            "name": "unrelated_canary",
+            "value": "unrelated-native-only",
+            "domain": "unrelated.example.test",
+            "path": "/",
+            "secure": True,
+            "httpOnly": True,
+            "sameSite": "Lax",
+        }])
+        page = await self.page()
+        await page.evaluate(
+            "key => localStorage.setItem(key, 'test-only-broken-native')", KEY)
+        await self.launch()
+        await self.restore(portable)
+        page = await self.page()
+        self.assertTrue(synthetic_fixture_browser_verified(
+            await synthetic_fixture_page_readback(page)))
+        self.assertTrue(self.binding.get("synthetic_fixture_pair_repaired"))
+        unrelated = await self.context.cookies("https://unrelated.example.test")
+        self.assertEqual(
+            [c["value"] for c in unrelated if c["name"] == "unrelated_canary"],
+            ["unrelated-native-only"])
+        self.assertTrue(self.binding.get("synthetic_fixture_origin_verified"))
+        await guard_synthetic_fixture_save(
+            SimpleNamespace(profile="SteelSelfTest", page=page), self.binding)
+
     async def test_late_page_mutation_cannot_pass_save_guard(self):
         await self.launch()
         await self.seed("test-only-known-good")
