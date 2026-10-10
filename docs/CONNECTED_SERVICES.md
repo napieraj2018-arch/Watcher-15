@@ -39,3 +39,40 @@ Zapisywanie haseł: preferowane są OAuth + szyfrowany vault z wąskim
 uprawnieniem i pochodzeniem z bezpiecznego formularza, NIE hasła
 wpisywane w czat ani w publiczny GitHub. Hasło master odzyskiwania
 w razie wyzwania użytkownik przechowuje we własnym menedżerze haseł.
+
+
+## Operacyjny wybór połączenia z poziomu AI Browser MCP
+
+Narzędzie `aib_route_operation(service, operation, brand)` jest bezpiecznym
+katalogiem opcji, np.:
+
+- Instagram Reel Anity: `instagram`, `reel`, `anita` →
+  ChatGPT Windsor.ai `instagram/create_video_post`; wymaga konkretnego
+  dostępnego URL wideo i odczytu bieżących uprawnień / ID konta.
+- Facebook post Anity: `facebook`, `post`, `anita` →
+  Windsor `facebook_organic/create_post`; wpis na Facebooku nie oznacza,
+  że opublikowano również Reel w Instagramie.
+- Gmail: `gmail`, `email_read`, bez marki →
+  podłączona aplikacja `Gmail/search_emails`, bez hasła browsera.
+- WordPress: `wordpress`, `wordpress_publish`, `anita` →
+  WPVibe `discover_abilities` i dopiero po weryfikacji właściwej
+  witryny dostępna funkcja zapisu lub publikacji.
+- GBP recenzje Anity: `google_business`, `business_reviews`, `anita` →
+  Windsor `google_my_business/get_data` dla właściwego location.
+- Archiwalne Highlights lub funkcja bez oficjalnego API →
+  właściwy zapisany profil Steel dopiero po bieżącym potwierdzeniu
+  tożsamości zalogowanego konta.
+
+**Ważna różnica:** to katalog tras, NIE most do sekretów ani samodzielna
+integracja OAuth. Funkcja zawsze zwraca `connector_connected=not_checked`
+i `account_authenticated=not_checked`. Agent musi sprawdzić konkretne
+połączenie bezpośrednim narzędziem aplikacji ChatGPT, potwierdzić identyfikator
+konta i dostępność wymaganej operacji. Publikacja wymaga wskazanego
+materiału i odpowiedniego upoważnienia. Nie wolno na podstawie katalogu
+ogłaszać, że Reel się opublikował, ani zastępować Reels zdjęciem.
+
+Sama poprawa routingu nie naprawia #111 — Steel może odtworzyć
+niespójne cookies/localStorage. Wykonywanie CAPTCHA lub MFA bez udziału
+użytkownika nie jest mechanizmem trwałej autoryzacji; pojawienie się
+wyzwania zatrzymuje krok, ale nie całe pozostałe zadania z innych
+kont/profili. Nie wpisywać rodzinnego hasła ani kodów w ChatGPT.
