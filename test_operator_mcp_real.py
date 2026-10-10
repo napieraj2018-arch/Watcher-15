@@ -49,6 +49,51 @@ class RealMCPCatalog(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(OwnershipError,"SESSION_TOOL_CATALOG_MISMATCH"):
             preflight(ns)
 
+    async def test_five_session_owner_guard_then_read_only_workflow_tools(self):
+        import re
+        from multi_capability_guard import MultiCapabilityGuard
+        from test_owner_parallel_mcp import MultiManager
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        manager=MultiManager(capacity=5)
+        mcp=fake_mcp(manager)
+        guard=MultiCapabilityGuard(
+            mcp,manager,capacity=5,watchdog_enabled=False)
+        self.assertEqual(guard.install(),51)
+        old_handlers={k:v.fn for k,v in mcp._tool_manager._tools.items()}
+        self.assertEqual(install({"mcp":mcp}),2)
+        self.assertEqual(len(mcp._tool_manager._tools),53)
+        self.assertTrue(all(mcp._tool_manager._tools[k].fn is fn
+                            for k,fn in old_handlers.items()))
+
+        a=await mcp.call_tool("browser_start",{
+            "profile":"Synthetic-A","start_url":"https://example.com/"})
+        b=await mcp.call_tool("browser_start",{
+            "profile":"Synthetic-B","start_url":"https://example.org/"})
+        handles=[re.search(r"aib_[A-Za-z0-9_-]{43}",str(x)).group(0)
+                 for x in (a,b)]
+        self.assertNotEqual(handles[0],handles[1])
+        names=str(await mcp.call_tool("browser_sessions",{}))
+        self.assertIn("Synthetic-A",names)
+        self.assertIn("Synthetic-B",names)
+        self.assertNotIn(handles[0],names)
+        self.assertNotIn(handles[1],names)
+
+        for handle in handles:
+            valid=await mcp.call_tool("browser_status",{"session_id":handle})
+            self.assertNotIn("INTERNAL_SYNTHETIC",str(valid))
+        with self.assertRaises(ToolError):
+            await mcp.call_tool("browser_status",{
+                "session_id":"aib_"+"Z"*43})
+        workflow=await mcp.call_tool("aib_workflow_list",{})
+        self.assertIn("anita_reviews_v1",str(workflow))
+        desc=await mcp.call_tool("aib_workflow_describe",{
+            "workflow_id":"anita_reviews_v1"})
+        self.assertIn("autonomous_execution_ready",str(desc))
+        self.assertNotIn("INTERNAL_SYNTHETIC",str(workflow)+str(desc))
+        self.assertNotIn(handles[0],str(workflow)+str(desc))
+        # No call to Steel, real Facebook/Google credentials or live account.
+
     async def test_unknown_workflow_does_not_leak_path(self):
         manager=DummyManager()
         mcp=fake_mcp(manager)
