@@ -71,7 +71,7 @@ class MultiManager:
 class MultiMcp(IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.manager=MultiManager()
-        self.mcp=fake_mcp(self.manager)
+        self.mcp=fake_mcp(self.manager, sessions_as_list=True)
         async def mobile(_request):
             return JSONResponse({"unsafe":"legacy endpoint"})
         self.mcp._custom_starlette_routes.append(
@@ -105,9 +105,25 @@ class MultiMcp(IsolatedAsyncioTestCase):
         public=await self.mcp.call_tool("browser_sessions",{})
         report=str(public)
         self.assertIn("Owner-Profile-5",report)
-        self.assertIn("capacity",report)
+        # Real output is a list; the SDK adds result by itself. Returning
+        # a nested capacity object fails Pydantic browser_sessionsOutput.
+        self.assertNotIn("capacity",report)
         self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_",report)
         self.assertNotIn(caps[0],report)
+
+    async def test_browser_sessions_real_typed_sdk_contract_even_when_empty(self):
+        # The actual provider tool declares list[dict], NOT dict. This
+        # failed on the live service even though mock-only tests passed.
+        empty=await self.mcp.call_tool("browser_sessions",{})
+        self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_",str(empty))
+        self.assertNotIn("Error executing tool",str(empty))
+        await self.begin("Meta - Anita")
+        await self.begin("Google - Architekt")
+        listed=await self.mcp.call_tool("browser_sessions",{})
+        self.assertIn("Meta - Anita",str(listed))
+        self.assertIn("Google - Architekt",str(listed))
+        self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_",str(listed))
+        self.assertNotIn("aib_",str(listed))
 
     async def test_one_writer_per_profile_even_if_slots_available(self):
         cap=await self.begin("Meta - Anita")
@@ -150,7 +166,7 @@ class MultiMcp(IsolatedAsyncioTestCase):
         # Fresh real MCP server; replace the synthetic underlying snapshot
         # BEFORE installing the guard, preserving the original tool schema.
         manager=MultiManager()
-        mcp=fake_mcp(manager)
+        mcp=fake_mcp(manager, sessions_as_list=True)
         mcp._tool_manager._tools["browser_snapshot"].fn = slow_snapshot
         guard=MultiCapabilityGuard(mcp,manager,capacity=5,
                                    watchdog_enabled=False)
