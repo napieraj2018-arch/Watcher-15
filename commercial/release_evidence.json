@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "note": "Audyt pracy nad produktem; nie zawiera sekretów, danych osobowych ani potwierdzenia gotowości do sprzedaży.",
+  "note": "11.10.2026: rzeczywisty test Steel ujawnił niespójność po restarcie; poprawka natywnego restore jest w weryfikacji. Status komercyjny NO-GO, brak dowodów izolacji tenantów.",
   "controls": [
     {
       "id": "tenant_auth",
@@ -17,7 +17,7 @@
     {
       "id": "session_owner_leases",
       "status": "partial",
-      "notes": "Strażnik przetestowany, ale na produkcji w trybie diagnostycznym, bez pełnej egzekucji.",
+      "notes": "Na produkcji 5 sesji owner-only beta z uchwytami na proces; bez trwałego wznowienia i niezależnej weryfikacji providera, brak izolacji tenantów.",
       "attestations": []
     },
     {
@@ -47,7 +47,7 @@
     {
       "id": "profile_coherent_restore",
       "status": "blocked",
-      "notes": "SteelSelfTest odtwarza zgodną parę testową po dwóch restartach (09.10); niezawodność 99,5% na prawdziwych kontach i wielu tenantach pozostaje nieudowodniona.",
+      "notes": "10.10 realny Steel: zapis PASS, po nowej sesji cookie+localStorage obecne lecz niezgodne, pełna kopia niezweryfikowana. Naprawa testowana na osobnej gałęzi; wymaga live E2E.",
       "attestations": []
     },
     {
@@ -101,7 +101,7 @@
     {
       "id": "production_slo",
       "status": "blocked",
-      "notes": "Hosting na darmowym planie Render/Floot; brak gwarancji ciągłości i alarmów.",
+      "notes": "Render Free: brak udowodnionego uptime, monitoringu kosztów i odtwarzania po awarii; nie jest to gotowa produkcja wielokliencka.",
       "attestations": []
     },
     {
