@@ -1,0 +1,35 @@
+name: AI Browser P0 synthetic save failure / provider quarantine
+on:
+  push:
+    branches:
+      - p0-synthetic-stop-release-quarantine-20261010
+    paths:
+      - "steel_context_fix.py"
+      - "test_synthetic_restore_readback.py"
+      - "steel_runtime.py"
+      - "test_steel_singleflight.py"
+      - "Dockerfile"
+      - ".github/workflows/synthetic-failed-save-release-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aib-synthetic-release-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  full-docker-negative-positive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build exact production image with all embedded regressions
+        run: docker build --progress=plain -t aib-synthetic-release .
+      - name: In-image test: failed save, bound provider close, quarantine
+        run: docker run --rm --entrypoint python aib-synthetic-release /app/test_synthetic_restore_readback.py
+      - name: In-image test: provider release and five-owner security
+        run: |
+          docker run --rm --entrypoint python aib-synthetic-release /app/test_steel_singleflight.py
+          docker run --rm --entrypoint python aib-synthetic-release /app/test_steel_parallel_runtime.py
+          docker run --rm --entrypoint sh aib-synthetic-release -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_parallel_mcp.py"
+      - name: Assert test scope
+        run: echo "OFFLINE_STUB_ONLY_NO_PROVIDER_CALLS_NO_DEPLOY_NO_PROFILE_MUTATION"
