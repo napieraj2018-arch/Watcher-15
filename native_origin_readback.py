@@ -63,6 +63,93 @@ async def observe_native_origin(context):
                 raise ReliabilityError(ERROR) from None
 
 
+
+async def reconcile_fixture_origin(context, portable):
+    """Repair one disposable canary origin without a destructive global reset.
+
+    The provider-native userDataDir is authoritative when its *actual* DOM
+    already agrees. A coherent encrypted backup may repair only the exact
+    test cookie/path and localStorage key. Never apply this to user accounts,
+    never visit the real network and never return cookie/storage values.
+    """
+    from steel_context_fix import (
+        synthetic_fixture_exact_evidence, synthetic_fixture_browser_verified,
+    )
+
+    proof = synthetic_fixture_exact_evidence(
+        portable, portable, portable)["resolved"]
+    coherent_backup = bool(
+        proof["exact_pair_matches"] and not proof["duplicates_present"]
+    )
+    page = None
+    try:
+        async with asyncio.timeout(12):
+            page = await context.new_page()
+
+            async def fixture_only(route):
+                req = route.request
+                if (req.url == URL and req.resource_type == "document"
+                        and req.method == "GET"):
+                    await route.fulfill(
+                        status=200, content_type="text/html",
+                        headers={
+                            "cache-control": "no-store",
+                            "content-security-policy": "default-src 'none'",
+                        },
+                        body="<!doctype html><title>Native restore canary</title>")
+                else:
+                    await route.abort()
+
+            await page.route("**/*", fixture_only)
+            await page.goto(URL, wait_until="domcontentloaded", timeout=5000)
+            before = await synthetic_fixture_page_readback(page)
+            if before.get("status") != "observed":
+                raise ReliabilityError("SYNTHETIC_ORIGIN_READBACK_FAILED")
+            if synthetic_fixture_browser_verified(before):
+                return {"verified": True, "applied": False, "backup_available": coherent_backup}
+            if not coherent_backup:
+                return {"verified": False, "applied": False, "backup_available": False}
+
+            # proof allows exactly one usable cookie and marker. Keep all
+            # unrelated native cookies, IndexedDB, sessionStorage and origins.
+            origin = "https://ai-browser-vault.floot.app"
+            cookies = [c for c in portable["cookies"]
+                       if c.get("name") == "aibrowser_test_cookie"
+                       and c.get("domain", "").lstrip(".").lower() == "ai-browser-vault.floot.app"
+                       and c.get("path") == "/browser-check"]
+            entries = [e for e in portable["origins"] if e.get("origin") == origin]
+            if len(cookies) != 1 or len(entries) != 1:
+                raise ReliabilityError("SYNTHETIC_BACKUP_NOT_EXACT")
+            marker = [e["value"] for e in entries[0]["localStorage"]
+                      if e.get("name") == "aibrowser_public_test_marker"]
+            if len(marker) != 1 or not isinstance(marker[0], str):
+                raise ReliabilityError("SYNTHETIC_BACKUP_NOT_EXACT")
+            await context.add_cookies([cookies[0]])
+            await page.evaluate(
+                "value => localStorage.setItem('aibrowser_public_test_marker', value)",
+                marker[0])
+            after = await synthetic_fixture_page_readback(page)
+            if not synthetic_fixture_browser_verified(after):
+                raise ReliabilityError("SYNTHETIC_REPAIR_NOT_VERIFIED")
+            # Both source and receiver are in this disposable synthetic
+            # fixture. Do not log or return the marker itself.
+            return {"verified": True, "applied": True, "backup_available": True}
+    except asyncio.CancelledError:
+        raise
+    except ReliabilityError:
+        raise
+    except Exception:
+        raise ReliabilityError("SYNTHETIC_ORIGIN_RECONCILE_FAILED") from None
+    finally:
+        if page is not None:
+            try:
+                await asyncio.wait_for(page.close(), timeout=3)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                raise ReliabilityError("SYNTHETIC_ORIGIN_CLEANUP_FAILED") from None
+
+
 def wrap_native_context(original):
     """Keep all existing context/ownership/restore checks; add a canary probe."""
     if getattr(original, '_aib_canary_native_readback', False):
