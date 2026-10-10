@@ -334,7 +334,12 @@ async def synthetic_fixture_page_readback(page):
     Never evaluate arbitrary customer pages or return cookie/storage values,
     names, keys, hashes, session IDs or provider references.
     """
-    url = getattr(page, 'url', None)
+    try:
+        url = getattr(page, 'url', None)
+    except Exception:
+        # A closed remote page can raise merely on reading .url.
+        # This is never proof of restored state or permission to save it.
+        return {'status': 'readback_unavailable'}
     if url != 'https://ai-browser-vault.floot.app/browser-check':
         return {'status': 'not_fixture_page'}
     js = """() => {
@@ -362,6 +367,50 @@ async def synthetic_fixture_page_readback(page):
             any(type(value[k]) is not bool for k in keys)):
         return {'status': 'readback_invalid'}
     return {'status': 'observed', **value}
+
+
+def synthetic_fixture_browser_verified(observation):
+    """Only an exact fixture-page DOM readback can establish this result."""
+    return (
+        isinstance(observation, dict)
+        and observation.get('status') == 'observed'
+        and observation.get('cookie_present') is True
+        and observation.get('storage_present') is True
+        and observation.get('pair_matches') is True
+    )
+
+
+async def guard_synthetic_fixture_save(session, binding):
+    """Fail closed for known incoherent SteelSelfTest state, not live accounts.
+
+    A context.set_storage_state() return value or storage_state() snapshot is
+    not enough to authorize overwriting the last portable fixture snapshot.
+    When the test-only page is open, require visible cookie/storage agreement.
+    After a recovery attempt or inconsistent Chromium readback, demand that
+    exact page verification before any portable flush or normal saved stop.
+
+    This helper deliberately never reads credentials, private sites or values.
+    It does not change, restart, close or release a browser on failure.
+    """
+    if getattr(session, 'profile', None) != 'SteelSelfTest':
+        return
+    binding = binding if isinstance(binding, dict) else {}
+    observed = await synthetic_fixture_page_readback(
+        getattr(session, 'page', None))
+    if synthetic_fixture_browser_verified(observed):
+        return
+    if observed.get('status') == 'observed':
+        raise ReliabilityError('SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED')
+
+    evidence = binding.get('synthetic_fixture_evidence')
+    exact = evidence.get('exact_marker') if isinstance(evidence, dict) else None
+    resolved = exact.get('resolved') if isinstance(exact, dict) else None
+    unresolved = (
+        isinstance(resolved, dict)
+        and resolved.get('exact_pair_matches') is not True
+    )
+    if binding.get('backup_recovery_applied') is True or unresolved:
+        raise ReliabilityError('SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED')
 
 
 async def native_context(remote, **options):
@@ -612,6 +661,15 @@ def install(ns):
     old_flush = manager.flush_profile
     autosaves, save_locks, save_status, attempts = {}, {}, {}, {}
 
+    async def verify_synthetic_save(sid):
+        session = manager._sessions.get(sid)
+        if getattr(session, 'profile', None) != 'SteelSelfTest':
+            return
+        remote = getattr(session, 'browser', None)
+        binding = engine._native_bindings.get(
+            getattr(remote, 'remote_id', ''), {})
+        await guard_synthetic_fixture_save(session, binding)
+
     async def request(method, path, body=None, timeout=25):
         if method != 'POST' or path != '/sessions':
             return await original_request(method, path, body, timeout)
@@ -646,6 +704,7 @@ def install(ns):
         lock = save_locks.setdefault(sid, asyncio.Lock())
         async with lock:
             try:
+                await verify_synthetic_save(sid)
                 result = await old_flush(sid, *args, **kwargs)
                 if isinstance(result, dict) and (result.get('error') or result.get('ok') is False or result.get('saved') is False):
                     raise ReliabilityError('PROFILE_SAVE_FAILED')
@@ -690,8 +749,10 @@ def install(ns):
             # A snapshot immediately after set_storage_state is not
             # necessarily what document.cookie/localStorage expose once
             # navigation completes. Check this only on the fixed fixture.
-            result['synthetic_fixture_evidence']['page_readback'] = (
-                await synthetic_fixture_page_readback(session.page))
+            page_readback = await synthetic_fixture_page_readback(session.page)
+            result['synthetic_fixture_evidence']['page_readback'] = page_readback
+            result['synthetic_fixture_evidence']['browser_verified'] = (
+                synthetic_fixture_browser_verified(page_readback))
         return result
 
     async def start(*args, **kwargs):
@@ -722,6 +783,14 @@ def install(ns):
         remote = getattr(session, 'browser', None)
         rid = getattr(remote, 'remote_id', '')
         binding = engine._native_bindings.get(rid)
+        try:
+            await verify_synthetic_save(sid)
+        except ReliabilityError:
+            # Never replace the last known portable test fixture with a
+            # mismatched post-restore state, or pretend stop succeeded.
+            save_status[sid] = {
+                'ok': False, 'error': 'SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED'}
+            raise
         result = await old_stop(sid, *args, **kwargs)
         if binding and getattr(remote, '_aib_native_hydrated', False):
             try:
