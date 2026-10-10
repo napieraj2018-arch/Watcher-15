@@ -105,7 +105,11 @@ class MultiMcp(IsolatedAsyncioTestCase):
         public=await self.mcp.call_tool("browser_sessions",{})
         report=str(public)
         self.assertIn("Owner-Profile-5",report)
-        self.assertIn("capacity",report)
+        # Production connector requires a bare list return value. The
+        # previous {"result": [...], "capacity": 2} structure failed
+        # browser_sessionsOutput.result list validation on Render.
+        self.assertIsInstance(self.guard.safe_sessions(), list)
+        self.assertEqual(len(self.guard.safe_sessions()), 5)
         self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_",report)
         self.assertNotIn(caps[0],report)
 
@@ -178,6 +182,17 @@ class MultiMcp(IsolatedAsyncioTestCase):
         public=await self.mcp.call_tool("browser_sessions",{})
         self.assertIn("Meta - Anita",str(public))
         self.assertNotIn("Target closed",str(public))
+        self.assertIsInstance(self.guard.safe_sessions(), list)
+
+    async def test_audit_returns_list_without_other_chat_history(self):
+        first=await self.begin("Meta - Anita")
+        await self.begin("Google - Architekt")
+        audit_tool=self.mcp._tool_manager._tools["browser_recent_audit"]
+        self.assertIsInstance(await audit_tool.fn(session_id=first),list)
+        self.assertEqual(await audit_tool.fn(session_id=first),[])
+        result=await self.mcp.call_tool(
+            "browser_recent_audit",{"session_id":first})
+        self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_",str(result))
 
     async def test_stop_one_keeps_another_and_frees_capacity(self):
         first=await self.begin("Meta - Anita")
