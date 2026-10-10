@@ -1,0 +1,51 @@
+name: Profile live readback regression
+on:
+  push:
+    branches: [p0-profile-live-readback-20261010]
+  pull_request:
+    branches: [ai-browser-cloud]
+    paths:
+      - 'steel_context_fix.py'
+      - 'native_origin_readback.py'
+      - 'bootstrap.py'
+      - 'Dockerfile'
+      - 'session_ownership/**'
+      - '.github/workflows/profile-live-readback-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: profile-readback-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive only public tracked source from this exact commit
+        run: git archive --format=tar.gz HEAD > /tmp/aib-public-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aib-public-source-${{ github.sha }}
+          path: /tmp/aib-public-source.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Full production Docker regression without provider credentials
+        run: docker build --progress=plain -t aib-profile-readback .
+      - name: Actual Chromium persistence canaries, three independent runs, no network or Steel
+        run: |
+          set -euo pipefail
+          for round in 1 2 3; do
+            echo "Chromium canary round ${round} / 3"
+            docker run --rm --network none --ipc=host -e AI_BROWSER_SELFTEST_ORIGIN_READBACK=1 --entrypoint python aib-profile-readback /app/session_ownership/integration_fixture_chromium.py
+          done

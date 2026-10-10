@@ -343,6 +343,33 @@ class MultiCapabilityGuard:
                 "mode": getattr(session, "mode", "unknown"),
                 "state": state,
             })
+        # A failed saved-stop may remove the manager record before returning
+        # an unverified receipt. The lease deliberately remains quarantined;
+        # hiding it would make [] look like permission to deploy/restart.
+        # Never infer provider closure or release a slot from a missing record.
+        for sid, lease in self.leases.items():
+            if sid not in self.sessions():
+                lease.recovery_required = True
+                self.quarantined = True
+                items.append({
+                    "session_id": "[redacted]",
+                    "profile": "[redacted]",
+                    "mode": "unknown",
+                    "state": "missing_session_quarantined",
+                })
+        # Quarantine can outlive all local records. Keep a redacted control
+        # row even then (or beside healthy tasks), not a false empty/healthy
+        # inventory. This row is NOT a claim that a remote browser is active.
+        blocked_states = {"unmanaged_quarantined", "recovery_required",
+                          "missing_session_quarantined"}
+        if self.quarantined and not any(
+                item["state"] in blocked_states for item in items):
+            items.append({
+                "session_id": "[redacted]",
+                "profile": "[redacted]",
+                "mode": "unknown",
+                "state": "provider_reconciliation_required",
+            })
         # The production ChatGPT connector's browser_sessionsOutput.result
         # schema is a LIST, not a dictionary with {result, capacity, ...}.
         # Return a list directly. A wrapped dict passed the MCP SDK unit
