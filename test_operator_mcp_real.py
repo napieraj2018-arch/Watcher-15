@@ -1,4 +1,4 @@
-"""Real MCPServer 2.3 integration contract: 51 existing + 2 new safe tools.
+"""Real MCPServer 2.3 integration contract: 51 existing + 3 new safe tools.
 
 No network access, no website login and no customer data. It imports the
 actual SDK used by the production Docker image, not a fake tool decorator.
@@ -22,13 +22,18 @@ class RealMCPCatalog(unittest.IsolatedAsyncioTestCase):
 
         original_tools={name:tool.fn for name,tool in mcp._tool_manager._tools.items()}
         installed=install(ns)
-        self.assertEqual(installed,2)
-        self.assertEqual(len(mcp._tool_manager._tools),53)
+        self.assertEqual(installed,3)
+        self.assertEqual(len(mcp._tool_manager._tools),54)
         for name,fn in original_tools.items():
             self.assertIs(mcp._tool_manager._tools[name].fn,fn)
 
         listing=await mcp.call_tool("aib_workflow_list",{})
         self.assertIn("anita_reviews_v1",str(listing))
+        route=await mcp.call_tool("aib_route_operation",{
+            "service":"instagram","operation":"reel","brand":"anita"})
+        self.assertIn("create_video_post",str(route))
+        self.assertIn("not_checked",str(route))
+        self.assertIn("False",str(route))
         self.assertNotIn("Google Sheet",str(listing))
 
         description=await mcp.call_tool(
@@ -61,8 +66,8 @@ class RealMCPCatalog(unittest.IsolatedAsyncioTestCase):
             mcp,manager,capacity=5,watchdog_enabled=False)
         self.assertEqual(guard.install(),51)
         old_handlers={k:v.fn for k,v in mcp._tool_manager._tools.items()}
-        self.assertEqual(install({"mcp":mcp}),2)
-        self.assertEqual(len(mcp._tool_manager._tools),53)
+        self.assertEqual(install({"mcp":mcp}),3)
+        self.assertEqual(len(mcp._tool_manager._tools),54)
         self.assertTrue(all(mcp._tool_manager._tools[k].fn is fn
                             for k,fn in old_handlers.items()))
 
@@ -85,6 +90,10 @@ class RealMCPCatalog(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ToolError):
             await mcp.call_tool("browser_status",{
                 "session_id":"aib_"+"Z"*43})
+        router=await mcp.call_tool("aib_route_operation",{
+            "service":"gmail","operation":"email_read"})
+        self.assertIn("search_emails",str(router))
+        self.assertNotIn(handles[0],str(router))
         workflow=await mcp.call_tool("aib_workflow_list",{})
         self.assertIn("anita_reviews_v1",str(workflow))
         desc=await mcp.call_tool("aib_workflow_describe",{
