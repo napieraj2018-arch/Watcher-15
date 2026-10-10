@@ -217,7 +217,8 @@ class WiredSaveGuard(unittest.IsolatedAsyncioTestCase):
         async def original_status(sid):
             return {"session_id": sid}
 
-        engine = SimpleNamespace(_native_bindings={}, request=original_status)
+        engine = SimpleNamespace(
+            _native_bindings={}, request=original_status, _quarantined=False)
         manager = SimpleNamespace(
             _steel_engine=engine, _sessions={},
             start=original_start, stop=original_stop,
@@ -225,6 +226,18 @@ class WiredSaveGuard(unittest.IsolatedAsyncioTestCase):
         manager._session = lambda sid: manager._sessions[sid]
         class RuntimeRemoteBrowser:
             new_context = None
+
+            def __init__(self):
+                self.remote_id = "remote"
+                self._aib_native_hydrated = native_hydrated
+                self.close_count = 0
+                self.fail_close = False
+
+            async def close(self):
+                # Synthetic provider only; never reaches Steel.
+                self.close_count += 1
+                if self.fail_close:
+                    raise RuntimeError("private synthetic provider failure")
         runtime = types.SimpleNamespace(
             RemoteBrowser=RuntimeRemoteBrowser, VERSION="test")
         with patch.dict(sys.modules, {"steel_runtime": runtime}), patch.dict(
@@ -239,8 +252,7 @@ class WiredSaveGuard(unittest.IsolatedAsyncioTestCase):
         page = SyntheticSaveGuard.Page(good)
         manager._sessions["sid"] = SimpleNamespace(
             profile="SteelSelfTest", page=page,
-            browser=SimpleNamespace(
-                remote_id="remote", _aib_native_hydrated=native_hydrated))
+            browser=RuntimeRemoteBrowser())
         engine._native_bindings["remote"] = {
             "profile": "SteelSelfTest", "backup_recovery_applied": True,
             "profile_id": "11111111-1111-4111-8111-111111111111"}
@@ -256,6 +268,38 @@ class WiredSaveGuard(unittest.IsolatedAsyncioTestCase):
             await manager.stop("sid")
         self.assertEqual(calls, {"flush": 0, "stop": 0})
         self.assertIn("sid", manager._sessions)
+
+    async def test_failed_fixture_closes_only_owned_remote_and_quarantines(self):
+        manager, calls = await self._make_manager(False)
+        owned = manager._sessions["sid"].browser
+        other = type(owned)()
+        manager._sessions["other"] = SimpleNamespace(
+            profile="OtherSyntheticTest", page=SimpleNamespace(url="about:blank"),
+            browser=other)
+        with self.assertRaisesRegex(
+                ReliabilityError, "SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED"):
+            await manager.stop("sid")
+        self.assertEqual(calls, {"flush": 0, "stop": 0})
+        self.assertEqual(owned.close_count, 1,
+                         "Only the failed session's exact remote is closed")
+        self.assertEqual(other.close_count, 0, "Never touch another task")
+        self.assertIn("sid", manager._sessions,
+                      "Do not silently free a lease without a save receipt")
+        self.assertTrue(manager._steel_engine._quarantined,
+                        "Operator reconciliation remains mandatory")
+
+    async def test_failed_release_preserves_quarantine_and_safe_error(self):
+        manager, calls = await self._make_manager(False)
+        owned = manager._sessions["sid"].browser
+        owned.fail_close = True
+        with self.assertRaises(ReliabilityError) as caught:
+            await manager.stop("sid")
+        self.assertEqual(str(caught.exception),
+                         "SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED")
+        self.assertNotIn("private synthetic", str(caught.exception))
+        self.assertEqual(owned.close_count, 1)
+        self.assertTrue(manager._steel_engine._quarantined)
+        self.assertEqual(calls["stop"], 0)
 
     async def test_verified_fixture_allows_both_wrapped_operations(self):
         manager, calls = await self._make_manager(True)
