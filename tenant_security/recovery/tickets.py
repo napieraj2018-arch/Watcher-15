@@ -61,11 +61,14 @@ class TaskResumeTickets:
     def issue(self, *, tenant_id: UUID, principal_id: UUID,
               task_id: UUID, slot_no: int, generation: int,
               attachment_epoch: int, ttl: int = 30) -> str:
+        # Validate before arithmetic; untrusted ttl="30" must never leak
+        # a TypeError or become silently coerced into a valid lifetime.
+        if type(ttl) is not int or not 1 <= ttl <= MAX_TTL_SECONDS:
+            raise ResumeTicketError("TASK_RECOVERY_CLAIMS_INVALID")
         now = int(self.clock())
         claims = TicketClaims(tenant_id,principal_id,task_id,slot_no,
                               generation,attachment_epoch,now,now+ttl)
-        if (not self._claim_shape(claims) or type(ttl) is not int
-                or not 1 <= ttl <= MAX_TTL_SECONDS or now<=0):
+        if not self._claim_shape(claims) or now<=0:
             raise ResumeTicketError("TASK_RECOVERY_CLAIMS_INVALID")
         body = {
             "v": 1,
@@ -97,6 +100,10 @@ class TaskResumeTickets:
         try:
             content=ticket[len(TOKEN_PREFIX):]
             raw=urlsafe_b64decode(content+"="*((4-len(content)%4)%4))
+            # Reject noncanonical Base64URL. A different final sextet can
+            # change only unused padding bits and decode to identical bytes.
+            if urlsafe_b64encode(raw).decode("ascii").rstrip("=")!=content:
+                raise ValueError("noncanonical Base64URL")
             if len(raw)<29:
                 raise ValueError("invalid AEAD")
             data=loads(AESGCM(self._key).decrypt(raw[:12],raw[12:],AAD))
