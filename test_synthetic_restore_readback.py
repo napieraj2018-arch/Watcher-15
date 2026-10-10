@@ -9,7 +9,7 @@ import sys
 import types
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from test_profile_recovery_051 import ns, Context, remote
 from test_synthetic_fixture_exact import fixture
@@ -202,7 +202,7 @@ class WiredSaveGuard(unittest.IsolatedAsyncioTestCase):
         def custom_route(self, *args, **kwargs):
             return lambda fn: fn
 
-    async def _make_manager(self, good):
+    async def _make_manager(self, good, *, portable_saved=True, native_hydrated=False):
         calls = {"flush": 0, "stop": 0}
         async def original_flush(sid, *args, **kwargs):
             calls["flush"] += 1
@@ -210,13 +210,15 @@ class WiredSaveGuard(unittest.IsolatedAsyncioTestCase):
         async def original_stop(sid, *args, **kwargs):
             calls["stop"] += 1
             manager._sessions.pop(sid, None)
-            return {"profile_saved": True, "full_profile_saved": True}
+            # Deliberately supply an untrusted optimistic upstream receipt.
+            return {"profile_saved": portable_saved, "full_profile_saved": True}
         async def original_start(*args, **kwargs):
             raise AssertionError("do not create a provider session")
         async def original_status(sid):
             return {"session_id": sid}
 
-        engine = SimpleNamespace(_native_bindings={}, request=original_status)
+        engine = SimpleNamespace(
+            _native_bindings={}, request=original_status, _quarantined=False)
         manager = SimpleNamespace(
             _steel_engine=engine, _sessions={},
             start=original_start, stop=original_stop,
@@ -224,6 +226,18 @@ class WiredSaveGuard(unittest.IsolatedAsyncioTestCase):
         manager._session = lambda sid: manager._sessions[sid]
         class RuntimeRemoteBrowser:
             new_context = None
+
+            def __init__(self):
+                self.remote_id = "remote"
+                self._aib_native_hydrated = native_hydrated
+                self.close_count = 0
+                self.fail_close = False
+
+            async def close(self):
+                # Synthetic provider only; never reaches Steel.
+                self.close_count += 1
+                if self.fail_close:
+                    raise RuntimeError("private synthetic provider failure")
         runtime = types.SimpleNamespace(
             RemoteBrowser=RuntimeRemoteBrowser, VERSION="test")
         with patch.dict(sys.modules, {"steel_runtime": runtime}), patch.dict(
@@ -238,9 +252,10 @@ class WiredSaveGuard(unittest.IsolatedAsyncioTestCase):
         page = SyntheticSaveGuard.Page(good)
         manager._sessions["sid"] = SimpleNamespace(
             profile="SteelSelfTest", page=page,
-            browser=SimpleNamespace(remote_id="remote"))
+            browser=RuntimeRemoteBrowser())
         engine._native_bindings["remote"] = {
-            "profile": "SteelSelfTest", "backup_recovery_applied": True}
+            "profile": "SteelSelfTest", "backup_recovery_applied": True,
+            "profile_id": "11111111-1111-4111-8111-111111111111"}
         return manager, calls
 
     async def test_bad_fixture_blocks_both_flush_and_saved_stop(self):
@@ -254,6 +269,38 @@ class WiredSaveGuard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, {"flush": 0, "stop": 0})
         self.assertIn("sid", manager._sessions)
 
+    async def test_failed_fixture_closes_only_owned_remote_and_quarantines(self):
+        manager, calls = await self._make_manager(False)
+        owned = manager._sessions["sid"].browser
+        other = type(owned)()
+        manager._sessions["other"] = SimpleNamespace(
+            profile="OtherSyntheticTest", page=SimpleNamespace(url="about:blank"),
+            browser=other)
+        with self.assertRaisesRegex(
+                ReliabilityError, "SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED"):
+            await manager.stop("sid")
+        self.assertEqual(calls, {"flush": 0, "stop": 0})
+        self.assertEqual(owned.close_count, 1,
+                         "Only the failed session's exact remote is closed")
+        self.assertEqual(other.close_count, 0, "Never touch another task")
+        self.assertIn("sid", manager._sessions,
+                      "Do not silently free a lease without a save receipt")
+        self.assertTrue(manager._steel_engine._quarantined,
+                        "Operator reconciliation remains mandatory")
+
+    async def test_failed_release_preserves_quarantine_and_safe_error(self):
+        manager, calls = await self._make_manager(False)
+        owned = manager._sessions["sid"].browser
+        owned.fail_close = True
+        with self.assertRaises(ReliabilityError) as caught:
+            await manager.stop("sid")
+        self.assertEqual(str(caught.exception),
+                         "SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED")
+        self.assertNotIn("private synthetic", str(caught.exception))
+        self.assertEqual(owned.close_count, 1)
+        self.assertTrue(manager._steel_engine._quarantined)
+        self.assertEqual(calls["stop"], 0)
+
     async def test_verified_fixture_allows_both_wrapped_operations(self):
         manager, calls = await self._make_manager(True)
         saved = await manager.flush_profile("sid")
@@ -261,6 +308,62 @@ class WiredSaveGuard(unittest.IsolatedAsyncioTestCase):
         stopped = await manager.stop("sid")
         self.assertTrue(stopped["profile_saved"])
         self.assertEqual(calls, {"flush": 1, "stop": 1})
+
+
+    async def test_unconfirmed_portable_save_cannot_produce_full_receipt(self):
+        manager, calls = await self._make_manager(
+            True, portable_saved=False, native_hydrated=True)
+        with patch("steel_context_fix.await_profile_ready",
+                   new_callable=AsyncMock) as ready, patch(
+                "steel_context_fix.ProfileRegistry.request",
+                new_callable=AsyncMock) as registry:
+            result = await manager.stop("sid")
+            ready.assert_not_awaited()
+            registry.assert_not_awaited()
+        self.assertIs(result["profile_saved"], False)
+        self.assertIs(result["full_profile_saved"], False)
+        self.assertEqual(result["full_profile_error"],
+                         "PORTABLE_SAVE_NOT_CONFIRMED")
+        self.assertEqual(calls["stop"], 1)
+
+    async def test_native_receipt_missing_cannot_claim_full_save(self):
+        manager, _ = await self._make_manager(True)
+        result = await manager.stop("sid")
+        self.assertTrue(result["profile_saved"])
+        self.assertIs(result["full_profile_saved"], False)
+        self.assertEqual(result["full_profile_error"],
+                         "NATIVE_SAVE_NOT_CONFIRMED")
+
+    async def test_provider_readback_failure_cannot_claim_full_save(self):
+        manager, _ = await self._make_manager(
+            True, native_hydrated=True)
+        with patch("steel_context_fix.await_profile_ready",
+                   new_callable=AsyncMock,
+                   side_effect=RuntimeError("private provider diagnostic")
+                   ) as ready, patch(
+                "steel_context_fix.ProfileRegistry.request",
+                new_callable=AsyncMock) as registry:
+            result = await manager.stop("sid")
+            ready.assert_awaited_once()
+            registry.assert_not_awaited()
+        self.assertIs(result["full_profile_saved"], False)
+        self.assertEqual(result["full_profile_error"],
+                         "PERSISTENCE_NOT_CONFIRMED")
+        self.assertNotIn("private provider", str(result))
+
+    async def test_full_save_requires_both_portable_and_registry_ack(self):
+        manager, _ = await self._make_manager(
+            True, native_hydrated=True)
+        with patch("steel_context_fix.await_profile_ready",
+                   new_callable=AsyncMock) as ready, patch(
+                "steel_context_fix.ProfileRegistry.request",
+                new_callable=AsyncMock) as registry:
+            result = await manager.stop("sid")
+            ready.assert_awaited_once()
+            registry.assert_awaited_once()
+        self.assertTrue(result["profile_saved"])
+        self.assertTrue(result["full_profile_saved"])
+        self.assertNotIn("full_profile_error", result)
 
 
 if __name__ == "__main__":

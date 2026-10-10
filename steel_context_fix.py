@@ -786,23 +786,39 @@ def install(ns):
         try:
             await verify_synthetic_save(sid)
         except ReliabilityError:
-            # Never replace the last known portable test fixture with a
-            # mismatched post-restore state, or pretend stop succeeded.
+            # Keep the last known-good portable fixture: old_stop would flush
+            # this unverified state. Nevertheless an owned, billable provider
+            # session must not be left running indefinitely after a failed
+            # synthetic readback. Close only this session's bound RemoteBrowser
+            # (never by profile name), and retain quarantine regardless of
+            # the provider outcome until an independent reconciliation.
             save_status[sid] = {
                 'ok': False, 'error': 'SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED'}
+            engine._quarantined = True
+            if isinstance(remote, runtime.RemoteBrowser):
+                with contextlib.suppress(Exception):
+                    await remote.close()
             raise
         result = await old_stop(sid, *args, **kwargs)
-        if binding and getattr(remote, '_aib_native_hydrated', False):
-            try:
-                await await_profile_ready(original_request, binding['profile_id'])
-                if isinstance(result, dict) and result.get('profile_saved') is True:
-                    await registry.request('POST', binding['profile'], binding['profile_id'], True)
-                if isinstance(result, dict):
-                    result['full_profile_saved'] = True
-            except Exception:
-                if isinstance(result, dict):
-                    result['full_profile_saved'] = False
+        if isinstance(result, dict):
+            # An upstream "full_profile_saved" flag is not a durable receipt.
+            # In particular, READY must never turn a failed portable save into
+            # success or authorize the owner guard to release another slot.
+            result['full_profile_saved'] = False
+            if result.get('profile_saved') is not True:
+                result['full_profile_error'] = 'PORTABLE_SAVE_NOT_CONFIRMED'
+            elif not binding or not getattr(remote, '_aib_native_hydrated', False):
+                result['full_profile_error'] = 'NATIVE_SAVE_NOT_CONFIRMED'
+            else:
+                try:
+                    await await_profile_ready(original_request, binding['profile_id'])
+                    await registry.request(
+                        'POST', binding['profile'], binding['profile_id'], True)
+                except Exception:
                     result['full_profile_error'] = 'PERSISTENCE_NOT_CONFIRMED'
+                else:
+                    result['full_profile_saved'] = True
+                    result.pop('full_profile_error', None)
         engine._native_bindings.pop(rid, None)
         save_locks.pop(sid, None)
         save_status.pop(sid, None)
