@@ -154,11 +154,22 @@ async def chromium_persistent(browser, origin: str, root: str,
         directory, headless=True, args=["--no-sandbox"])
     try:
         page = context.pages[0] if context.pages else await context.new_page()
+        # Persistent Chromium restores a site's localStorage lazily when the
+        # origin is visited. Asking storage_state before the first navigation
+        # may omit the origin despite valid data on disk.
+        before_navigation = verify_snapshot(
+            await context.storage_state(indexed_db=True), origin, FRESH)
+        page_result = await verify_page(page, origin, FRESH)
         on_disk = verify_snapshot(
             await context.storage_state(indexed_db=True), origin, FRESH)
+        print("LOCAL_PERSISTENT_PRENAV_COOKIE=" + str(before_navigation["cookie_expected"])
+              + " PRENAV_STORAGE=" + str(before_navigation["storage_expected"])
+              + " POSTNAV_COOKIE=" + str(on_disk["cookie_expected"])
+              + " POSTNAV_STORAGE=" + str(on_disk["storage_expected"])
+              + " DOM_COOKIE=" + str(page_result["cookie_expected"])
+              + " DOM_STORAGE=" + str(page_result["storage_expected"]))
         if not all(on_disk.values()):
-            raise AssertionError("LOCAL_CHROMIUM_DISK_REOPEN_FAILED")
-        page_result = await verify_page(page, origin, FRESH)
+            raise AssertionError("LOCAL_CHROMIUM_POST_NAVIGATION_DISK_REOPEN_FAILED")
         if not all(page_result.values()):
             raise AssertionError("LOCAL_CHROMIUM_AFTER_RESTART_FAILED")
     finally:
