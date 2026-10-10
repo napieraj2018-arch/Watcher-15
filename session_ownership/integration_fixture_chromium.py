@@ -137,7 +137,7 @@ class RealChromiumReadback(unittest.IsolatedAsyncioTestCase):
         await self.context.add_cookies([{
             "name": "unrelated_canary",
             "value": "unrelated-native-only",
-            "domain": "unrelated.example.test",
+            "domain": "ai-browser-vault.floot.app",
             "path": "/",
             "secure": True,
             "httpOnly": True,
@@ -147,12 +147,16 @@ class RealChromiumReadback(unittest.IsolatedAsyncioTestCase):
         await page.evaluate(
             "key => localStorage.setItem(key, 'test-only-broken-native')", KEY)
         await self.launch()
+        native_before = await self.context.cookies(ORIGIN)
+        self.assertEqual(
+            [c["value"] for c in native_before if c["name"] == "unrelated_canary"],
+            ["unrelated-native-only"], "Native Chromium failed before repair")
         await self.restore(portable)
         page = await self.page()
         self.assertTrue(synthetic_fixture_browser_verified(
             await synthetic_fixture_page_readback(page)))
         self.assertTrue(self.binding.get("synthetic_fixture_pair_repaired"))
-        unrelated = await self.context.cookies("https://unrelated.example.test")
+        unrelated = await self.context.cookies(ORIGIN)
         self.assertEqual(
             [c["value"] for c in unrelated if c["name"] == "unrelated_canary"],
             ["unrelated-native-only"])
