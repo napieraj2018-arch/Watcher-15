@@ -89,13 +89,7 @@ class PgRecoveryRepository:
             row=cx.execute("SELECT browser_product.authenticated_tenant()").fetchone()
             if not row or row[0]!=tenant_id:
                 raise RecoveryRejected("REATTACH_WRONG_TENANT_WORKER")
-            own=cx.execute(
-                "SELECT lease_id FROM browser_recovery.find_owned_lease(%s,%s,%s,%s)",
-                (task_id,slot_no,generation,attachment_epoch)
-            ).fetchone()
-            if own is None or own[0] is None:
-                return False
             return cx.execute(
-                "SELECT browser_recovery.can_execute_epoch(%s,%s,%s,%s,%s)",
-                (task_id,own[0],slot_no,generation,attachment_epoch)
+                "SELECT browser_recovery.can_execute_owned_epoch(%s,%s,%s,%s)",
+                (task_id,slot_no,generation,attachment_epoch)
             ).fetchone()[0] is True
