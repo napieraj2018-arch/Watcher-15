@@ -8,7 +8,7 @@ Użytkownik wydaje jedno polecenie w ChatGPT; agent sam rozpoznaje właściwe ko
 2. Preferuj autoryzowane API/OAuth (Meta, Google Business, Search Console) zamiast ponownego otwierania logowania w przeglądarce, gdy API rzeczywiście zwraca potrzebne dane.
 3. Nazwa zapisanego profilu, obecność cookie i `profile_saved=true` NIE dowodzą, że konto jest dziś zalogowane. Sprawdź bieżącą tożsamość i treść właściwej witryny. Issue #111: po restarcie Steel cookie i localStorage mogły być niespójne.
 4. Nie próbuj ponownie logować się przy CAPTCHA/MFA, awarii strony lub niepewnym zamknięciu Steel. Zatrzymaj tylko dany krok i zwróć dokładny, zanonimizowany kod.
-5. Jedno zadanie ma jeden tenant/profile/lease. Nie zatrzymuj cudzej sesji, nie otwieraj dwóch sesji na ten sam profil. Produkt ma mieć 3–10+ slotów, ale w LIVE nadal jest **1**; PR #116/#117 to offline PostgreSQL proof.
+5. Jedno zadanie ma jeden tenant/profile/lease. Nie zatrzymuj cudzej sesji, nie otwieraj dwóch sesji na ten sam profil. Produkt ma mieć 3–10+ slotów, ale w LIVE działa **5** sesji owner-beta, a PR #116/#117 to odrębny dowód tenant-safe PostgreSQL.
 6. Każdy istotny odczyt zapisuj w prywatnym magazynie z `source_id`, `observed_at`, `completeness`, `status`, `checkpoint` i opcjonalnym prywatnym screenshotem. Nigdy nie uznawaj niewidocznego materiału za obejrzany.
 7. Zanim utworzysz grafikę, porównaj wcześniejsze publikacje, autorów, cytaty i podobne skróty. Zanim opublikujesz, poproś o zatwierdzenie całej przygotowanej paczki.
 
@@ -21,5 +21,6 @@ Nie zmieniaj realnych reklam, Metricool, treści, lokalizacji, proxy, VPN, rozli
 - `docs/AUTONOMOUS_BROWSER.md` — workflow, checkpointy i bezpieczeństwo.
 - `docs/BROWSER_CAPABILITIES.md` — co działa w LIVE, a co jest wyłącznie POC.
 - `workflows/anita/reviews.yaml` — pierwsza procedura odczytu wizualnych opinii.
+- `docs/CONNECTED_SERVICES.md` — wybór połączonego OAuth/API (Gmail, Windsor, WPVibe) przed logowaniem do Steel.
 
 Samo AGENTS.md nie tworzy narzędzia ani trwałej pamięci w MCP; wymagana jest instalacja katalogu operacji w serwerze oraz osobny backend przechowywania danych. Nie ogłaszaj produktu gotowym do sprzedaży bez testów tenant isolation, cookies restore, deletion i SSRF.
