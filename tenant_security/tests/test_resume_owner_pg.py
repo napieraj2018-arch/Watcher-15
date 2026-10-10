@@ -281,8 +281,8 @@ assert worker(A,
     (TASK_A,LA,SA,GA)) is False
 with cx("fixture_parallel_verify") as db:
     assert db.execute(
-        "SELECT browser_parallel.record_verified_release(%s,%s,true,true)",
-        (LA,GA)
+        "SELECT browser_parallel.record_verified_release(%s,%s,%s,true,true)",
+        (SA,GA,LA)
     ).fetchone()[0] is True
 assert worker(A,
     "SELECT browser_parallel.finish(%s,%s,%s,%s)",
