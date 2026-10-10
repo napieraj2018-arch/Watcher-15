@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - owner-parallel-mcp-runtime-20261010
+      - owner-parallel-session-list-schema-20261010
     paths:
       - "steel_runtime.py"
       - "session_ownership/multi_capability_guard.py"
