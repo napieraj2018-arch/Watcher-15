@@ -175,7 +175,7 @@ class CanarySelectiveRestore(unittest.IsolatedAsyncioTestCase):
         self.context.add_cookies.assert_awaited_once()
         self.context.set_storage_state.assert_not_awaited()
         self.assertEqual(self.page.evaluate.await_count, 3)
-        self.assertEqual(self.page.evaluate.call_args.args[-1], "portable-fixture-only")
+        self.assertEqual(self.page.evaluate.await_args_list[1].args[-1], "portable-fixture-only")
         self.page.close.assert_awaited_once()
         self.assertNotIn("portable-fixture-only", str(receipt))
 
