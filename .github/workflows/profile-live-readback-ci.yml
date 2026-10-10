@@ -6,6 +6,9 @@ on:
     branches: [ai-browser-cloud]
     paths:
       - 'steel_context_fix.py'
+      - 'native_origin_readback.py'
+      - 'bootstrap.py'
+      - 'Dockerfile'
       - 'session_ownership/**'
       - '.github/workflows/profile-live-readback-ci.yml'
   workflow_dispatch:
@@ -39,5 +42,10 @@ jobs:
           persist-credentials: false
       - name: Full production Docker regression without provider credentials
         run: docker build --progress=plain -t aib-profile-readback .
-      - name: Actual Chromium restart and storage-corruption canaries, no network or Steel
-        run: docker run --rm --network none --ipc=host -e AI_BROWSER_SELFTEST_ORIGIN_READBACK=1 --entrypoint python aib-profile-readback /app/session_ownership/integration_fixture_chromium.py
+      - name: Actual Chromium persistence canaries, three independent runs, no network or Steel
+        run: |
+          set -euo pipefail
+          for round in 1 2 3; do
+            echo "Chromium canary round ${round} / 3"
+            docker run --rm --network none --ipc=host -e AI_BROWSER_SELFTEST_ORIGIN_READBACK=1 --entrypoint python aib-profile-readback /app/session_ownership/integration_fixture_chromium.py
+          done
