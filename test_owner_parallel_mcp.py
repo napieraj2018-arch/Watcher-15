@@ -15,6 +15,7 @@ from starlette.routing import Route
 from starlette.requests import Request
 
 from multi_capability_guard import MultiCapabilityGuard
+from mcp.server.mcpserver.exceptions import ToolError
 from capability_guard import OwnershipError
 from pathlib import Path
 import sys
@@ -98,7 +99,7 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.assertEqual(len(caps),5)
         self.assertEqual(len(set(caps)),5)
         self.assertEqual(len(self.manager._sessions),5)
-        with self.assertRaisesRegex(OwnershipError,"PARALLEL_CAPACITY_FULL"):
+        with self.assertRaisesRegex(ToolError,"PARALLEL_CAPACITY_FULL"):
             await self.begin("Owner-Profile-6")
         self.assertEqual(len(self.manager._sessions),5)
         public=await self.mcp.call_tool("browser_sessions",{})
@@ -110,7 +111,7 @@ class MultiMcp(IsolatedAsyncioTestCase):
 
     async def test_one_writer_per_profile_even_if_slots_available(self):
         cap=await self.begin("Meta - Anita")
-        with self.assertRaisesRegex(OwnershipError,"PARALLEL_PROFILE_BUSY"):
+        with self.assertRaisesRegex(ToolError,"PARALLEL_PROFILE_BUSY"):
             await self.begin("Meta - Anita")
         other=await self.begin("Google - Architekt")
         self.assertNotEqual(cap,other)
@@ -124,10 +125,10 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.assertIn("Meta - Anita",str(a))
         self.assertIn("Google - Architekt",str(b))
         self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_",str(a)+str(b))
-        with self.assertRaises(OwnershipError):
+        with self.assertRaises(ToolError):
             await self.mcp.call_tool("browser_status",{
                 "session_id":"INTERNAL_SYNTHETIC_SESSION_1"})
-        with self.assertRaises(OwnershipError):
+        with self.assertRaises(ToolError):
             await self.mcp.call_tool("browser_set_mode",{
                 "session_id":"aib_"+"x"*43,"mode":"write"})
         self.assertEqual(self.manager._sessions[
@@ -189,7 +190,7 @@ class MultiMcp(IsolatedAsyncioTestCase):
         next_cap=await self.begin("WordPress - Anita")
         self.assertNotEqual(first,next_cap)
         self.assertEqual(len(self.manager._sessions),2)
-        with self.assertRaises(OwnershipError):
+        with self.assertRaises(ToolError):
             await self.mcp.call_tool("browser_status",{"session_id":first})
 
     async def test_failed_full_profile_save_quarantines_all_new_starts(self):
@@ -198,7 +199,7 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.manager.broken_save=True
         await self.mcp.call_tool("browser_stop",{"session_id":first})
         with self.assertRaisesRegex(
-            OwnershipError,"PARALLEL_PROVIDER_RECONCILIATION_REQUIRED"):
+            ToolError,"PARALLEL_PROVIDER_RECONCILIATION_REQUIRED"):
             await self.begin("WordPress - Anita")
         # Other session may still be used and cleanly stopped.
         result=await self.mcp.call_tool("browser_status",{"session_id":other})
@@ -208,7 +209,7 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.manager._sessions["FOREIGN_SESSION"]=SimpleNamespace(
             profile="OTHER",mode="write",page=SimpleNamespace(url="about:blank"))
         with self.assertRaisesRegex(
-            OwnershipError,"UNMANAGED_SESSION_QUARANTINED"):
+            ToolError,"UNMANAGED_SESSION_QUARANTINED"):
             await self.begin("Meta - Anita")
         self.assertEqual(self.manager.counter,0)
 
@@ -221,11 +222,11 @@ class MultiMcp(IsolatedAsyncioTestCase):
             OwnershipError,"DIRECT_SESSION_ACCESS_BLOCKED"):
             self.manager._session("INTERNAL_SYNTHETIC_SESSION_1")
         with self.assertRaisesRegex(
-            OwnershipError,"PARALLEL_UNSCOPED_TOOL_DISABLED"):
+            ToolError,"PARALLEL_UNSCOPED_TOOL_DISABLED"):
             await self.mcp.call_tool("profile_start_setup",{
                 "profile":"OTHER","login_url":"https://example.com/"})
         with self.assertRaisesRegex(
-            OwnershipError,"PARALLEL_UNSCOPED_TOOL_DISABLED"):
+            ToolError,"PARALLEL_UNSCOPED_TOOL_DISABLED"):
             await self.mcp.call_tool("profile_delete",{
                 "profile":"OTHER","confirmation":"DELETE"})
 
