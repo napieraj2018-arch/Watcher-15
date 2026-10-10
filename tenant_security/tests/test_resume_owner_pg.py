@@ -239,6 +239,49 @@ assert worker(A,authorize_action,(TASK_A,LA,SA,GA,1)) is False
 assert worker(A,authorize_action,(TASK_A,LA,SA,GA,2)) is True
 assert bff(resume,(AUTH_B,CSRF_B,TASK_A,uuid4()))[0]=="not_available"
 
+# Real BFF + real tenant-worker database adapters issue an encrypted,
+# task/actor/epoch-scoped handoff ticket only after a SECOND provider check.
+from tenant_security.bff.gate import Principal
+from tenant_security.recovery.postgres import PgRecoveryRepository
+from tenant_security.recovery.service import (
+    ReattachmentService, RecoveryRejected,
+)
+from tenant_security.recovery.tickets import TaskResumeTickets
+
+auth_dsn="postgresql://fixture_recovery_bff@127.0.0.1:5432/postgres"
+workers={
+    A:"postgresql://fixture_parallel_a@127.0.0.1:5432/postgres",
+    B:"postgresql://fixture_parallel_b@127.0.0.1:5432/postgres",
+}
+adapter=PgRecoveryRepository(auth_dsn,workers)
+assert {record[0] for record in adapter.list_own(AUTH_A_NEW,CSRF_A)}=={
+    TASK_A,TASK_CANCEL}
+assert adapter.can_execute(A,TASK_A,SA,GA,2) is True
+assert adapter.can_execute(B,TASK_A,SA,GA,2) is False
+
+class FakeProviderVerification:
+    def verify_active(self,tenant,principal,task,slot,gen):
+        return (tenant,principal,task,slot,gen)==(A,UA,TASK_A,SA,GA)
+
+owner=Principal(A,UA,"operator",CSRF_A)
+ticket_key=b"synthetic-local-test-key-notreal"
+service=ReattachmentService(adapter,FakeProviderVerification(),
+                            TaskResumeTickets(ticket_key))
+ready=service.resume(principal=owner,session_digest=AUTH_A_NEW,
+    csrf_digest=CSRF_A,task_id=TASK_A,attempt_id=uuid4())
+assert ready.attachment_epoch==3
+assert ready.ticket.startswith("aibr_")
+assert service.authorize_ticket(ready.ticket,principal=owner,
+    task_id=TASK_A).attachment_epoch==3
+assert adapter.can_execute(A,TASK_A,SA,GA,2) is False
+assert adapter.can_execute(A,TASK_A,SA,GA,3) is True
+try:
+    service.authorize_ticket(ready.ticket,
+        principal=Principal(A,OTHER_A,"operator",CSRF_OTHER),task_id=TASK_A)
+    raise AssertionError("OTHER_PRINCIPAL_EXCHANGED_TASK")
+except RecoveryRejected as error:
+    assert str(error)=="REATTACH_TICKET_REJECTED"
+
 # Verifier can revoke the attestation without a provider release.
 assert verifier(SA,LA,GA,False,True) is True
 assert worker(A,authorize_action,(TASK_A,LA,SA,GA,2)) is False
