@@ -322,9 +322,11 @@ class MultiCapabilityGuard:
                 "mode": getattr(session, "mode", "unknown"),
                 "state": "recovery_required" if lease.recovery_required else "active",
             })
-        return {"result": items, "capacity": self.capacity,
-                "active": len(items), "available": max(0, self.capacity-len(self.leases)),
-                "quarantined": self.quarantined}
+        # The production ChatGPT connector's browser_sessionsOutput.result
+        # schema is a LIST, not a dictionary with {result, capacity, ...}.
+        # Return a list directly. A wrapped dict passed the MCP SDK unit
+        # tests but failed the real mobile connector's response validation.
+        return items
 
     def install(self):
         if self.installed:
