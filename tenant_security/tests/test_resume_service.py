@@ -23,7 +23,7 @@ USER_B=UUID("bbbbbbbb-eeee-4eee-8eee-000000000002")
 SAME_TENANT_OTHER=UUID("aaaaaaaa-eeee-4eee-8eee-000000000003")
 TASK=UUID("aaaaaaaa-ffff-4fff-8fff-000000000001")
 OTHER_TASK=UUID("aaaaaaaa-ffff-4fff-8fff-000000000002")
-KEY=b"synthetic-local-test-key-notreal!" # 32 bytes
+KEY=b"synthetic-local-test-key-notreal" # 32 bytes
 assert len(KEY)==32
 SESSION="a"*64
 CSRF="c"*64
@@ -109,7 +109,7 @@ class Tickets(unittest.TestCase):
         flipped=value[:-1]+("A" if value[-1]!="A" else "B")
         with self.assertRaisesRegex(ResumeTicketError,"TICKET_INVALID"):
             self.issuer.verify(flipped,tenant_id=A,principal_id=USER_A,task_id=TASK)
-        wrong=TaskResumeTickets(b"different-synthetic-key-not-real!",clock=self.clock)
+        wrong=TaskResumeTickets(b"different-synthetic-key-not-real",clock=self.clock)
         with self.assertRaisesRegex(ResumeTicketError,"TICKET_INVALID"):
             wrong.verify(value,tenant_id=A,principal_id=USER_A,task_id=TASK)
 
