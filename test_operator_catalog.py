@@ -94,17 +94,22 @@ class OperatorCatalogTests(unittest.TestCase):
         mcp=FakeMCP()
         browser_tool=mcp._tool_manager._tools["browser_start"]
         namespace={"mcp":mcp,"manager":object()}
-        self.assertEqual(oc.install(namespace),2)
+        self.assertEqual(oc.install(namespace),3)
         self.assertEqual(oc.install(namespace),0)
         self.assertIs(mcp._tool_manager._tools["browser_start"],browser_tool)
         tools=mcp._tool_manager._tools
         self.assertEqual(set(tools),{
-            "browser_start","aib_workflow_list","aib_workflow_describe"
+            "browser_start","aib_workflow_list","aib_workflow_describe",
+            "aib_route_operation"
         })
         desc=tools["aib_workflow_describe"].fn("anita_reviews_v1")
         self.assertFalse(desc["publish_allowed"])
         self.assertIn("highlight_url",desc["sources"]["instagram"])
         self.assertEqual(len(tools["aib_workflow_list"].fn()["workflows"]),1)
+        route=tools["aib_route_operation"].fn("instagram","reel","anita")
+        self.assertEqual(route["action"],"create_video_post")
+        self.assertFalse(route["published"])
+        self.assertEqual(route["account_authenticated"],"not_checked")
         self.assertEqual(tools["aib_workflow_describe"].fn("../../env")["error"],
                          "CATALOG_WORKFLOW_NOT_FOUND")
 
