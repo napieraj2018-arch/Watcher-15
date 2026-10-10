@@ -786,10 +786,18 @@ def install(ns):
         try:
             await verify_synthetic_save(sid)
         except ReliabilityError:
-            # Never replace the last known portable test fixture with a
-            # mismatched post-restore state, or pretend stop succeeded.
+            # Keep the last known-good portable fixture: old_stop would flush
+            # this unverified state. Nevertheless an owned, billable provider
+            # session must not be left running indefinitely after a failed
+            # synthetic readback. Close only this session's bound RemoteBrowser
+            # (never by profile name), and retain quarantine regardless of
+            # the provider outcome until an independent reconciliation.
             save_status[sid] = {
                 'ok': False, 'error': 'SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED'}
+            engine._quarantined = True
+            if isinstance(remote, runtime.RemoteBrowser):
+                with contextlib.suppress(Exception):
+                    await remote.close()
             raise
         result = await old_stop(sid, *args, **kwargs)
         if isinstance(result, dict):
