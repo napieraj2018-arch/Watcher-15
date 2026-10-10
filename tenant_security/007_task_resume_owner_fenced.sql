@@ -239,6 +239,37 @@ BEGIN
     own.generation,new_epoch;
 END $body$;
 
+-- Called by the scoped worker on EVERY action, not only at session start.
+-- Reattachment rotates attachment_epoch, immediately invalidating all
+-- previously issued app capabilities. A different tenant's DB role fails.
+-- This is DB policy only; the live MCP must be wired to this verification.
+CREATE FUNCTION browser_recovery.can_execute_epoch(
+  p_task uuid,p_lease uuid,p_slot integer,p_generation bigint,p_epoch bigint
+) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,browser_recovery,browser_parallel,browser_product,pg_temp
+AS $body$
+DECLARE tid uuid;
+BEGIN
+  tid:=browser_product.authenticated_tenant();
+  IF tid IS NULL OR p_task IS NULL OR p_lease IS NULL
+     OR p_slot IS NULL OR p_generation IS NULL OR p_epoch IS NULL
+     OR p_epoch<1 THEN RETURN false; END IF;
+  RETURN EXISTS(
+    SELECT 1 FROM browser_recovery.owned_tasks o
+    JOIN browser_parallel.slots s
+      ON s.tenant_id=o.tenant_id AND s.task_id=o.task_id
+    JOIN browser_product.browser_tasks t
+      ON t.tenant_id=s.tenant_id AND t.task_id=s.task_id
+    WHERE o.tenant_id=tid AND o.task_id=p_task
+      AND o.lease_id=p_lease AND o.slot_no=p_slot
+      AND o.generation=p_generation AND o.attachment_epoch=p_epoch
+      AND o.cancel_requested IS FALSE
+      AND s.slot_no=p_slot AND s.generation=p_generation
+      AND s.lease_id=p_lease AND s.state='active'
+      AND s.expires_at>clock_timestamp() AND t.state='running'
+  );
+END $body$;
+
 -- Never delete provider sessions from SQL. Requesting cancellation only
 -- revokes old attachment epochs and marks intent for the trusted worker.
 -- Release requires separate provider close + full_profile_saved attestation.
@@ -298,6 +329,10 @@ GRANT EXECUTE ON FUNCTION browser_recovery.register_own_task(text,text,uuid),
   browser_recovery.request_cancel_own(text,text,uuid),
   browser_recovery.list_own_tasks(text,text)
 TO browser_bff_auth;
+GRANT USAGE ON SCHEMA browser_recovery TO aib_parallel_worker;
+GRANT EXECUTE ON FUNCTION browser_recovery.can_execute_epoch(
+  uuid,uuid,integer,bigint,bigint)
+TO aib_parallel_worker;
 GRANT EXECUTE ON FUNCTION browser_recovery.record_provider_readback(
   integer,uuid,bigint,boolean,boolean)
 TO aib_parallel_verifier;
