@@ -328,6 +328,43 @@ def select_coherent_fixture_pair(native, portable, merged):
     return result, True
 
 
+def synthetic_fixture_apply_comparison(actual, proposed):
+    """Test marker equality across intended and read-back Chromium snapshots.
+
+    Return booleans only; never emit test cookie/storage values, hashes, or IDs.
+    The caller MUST restrict this to the SteelSelfTest profile.
+    """
+    if not isinstance(actual, dict) or not isinstance(proposed, dict):
+        return {
+            'available': False,
+            'cookie_matches_proposed': False,
+            'storage_matches_proposed': False,
+        }
+    report = synthetic_fixture_exact_evidence(actual, proposed, actual)
+    return {
+        'available': True,
+        'cookie_matches_proposed': report['cookie_same_between_native_and_portable'],
+        'storage_matches_proposed': report['storage_same_between_native_and_portable'],
+    }
+
+
+async def synthetic_fixture_page_context_evidence(page):
+    """Test origin only: count exact browser-check markers after navigation.
+
+    Reads inside Chromium but serializes counts and booleans only.
+    """
+    if getattr(page, 'url', None) != 'https://ai-browser-vault.floot.app/browser-check':
+        return {'status': 'not_fixture_page'}
+    try:
+        state = await page.context.storage_state(indexed_db=True)
+    except Exception:
+        return {'status': 'readback_unavailable'}
+    if not isinstance(state, dict):
+        return {'status': 'readback_invalid'}
+    result = synthetic_fixture_exact_evidence(state, state, state)['resolved']
+    return {'status': 'observed', **result}
+
+
 async def synthetic_fixture_page_readback(page):
     """Read ONLY booleans from the exact synthetic test page.
 
@@ -429,6 +466,8 @@ async def native_context(remote, **options):
                     synthetic_fixture_exact_evidence(
                         merged, merged, merged)['resolved'])
                 evidence['post_apply_readback_available'] = applied is not None
+                evidence['apply_comparison'] = synthetic_fixture_apply_comparison(
+                    applied, merged)
                 binding['synthetic_fixture_evidence'] = evidence
         else:
             await context.set_storage_state(state)
@@ -692,6 +731,10 @@ def install(ns):
             # navigation completes. Check this only on the fixed fixture.
             result['synthetic_fixture_evidence']['page_readback'] = (
                 await synthetic_fixture_page_readback(session.page))
+            result['synthetic_fixture_evidence']['post_navigation_context'] = (
+                await synthetic_fixture_page_context_evidence(session.page))
+            result['synthetic_fixture_evidence']['coherent_pair_selected'] = (
+                binding.get('synthetic_fixture_pair_repaired') is True)
         return result
 
     async def start(*args, **kwargs):

@@ -1,0 +1,24 @@
+name: Synthetic fixture restore component diagnostics
+on:
+  push:
+    branches:
+      - steel-fixture-restore-components-20261010
+    paths:
+      - "steel_context_fix.py"
+      - "test_profile_recovery_051.py"
+      - "test_fixture_storage_comparison.py"
+      - "Dockerfile"
+      - ".github/workflows/fixture-component-readback.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  docker-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build complete application with all embedded regressions
+        run: docker build --progress=plain -t aib-fixture-components .
+      - name: Verify diagnostics return booleans and fail closed
+        run: docker run --rm --entrypoint python aib-fixture-components /app/test_fixture_storage_comparison.py
