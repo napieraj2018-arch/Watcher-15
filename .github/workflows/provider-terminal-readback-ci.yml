@@ -9,7 +9,15 @@ on:
       - "test_steel_parallel_runtime.py"
       - "steel_context_fix.py"
       - "test_synthetic_restore_readback.py"
+      - "session_ownership/tests/test_close_cancellation_stages.py"
       - "Dockerfile"
+      - ".github/workflows/provider-terminal-readback-ci.yml"
+  pull_request:
+    branches: [ai-browser-cloud]
+    paths:
+      - "steel_runtime.py"
+      - "test_steel_singleflight.py"
+      - "session_ownership/tests/test_close_cancellation_stages.py"
       - ".github/workflows/provider-terminal-readback-ci.yml"
   workflow_dispatch:
 permissions:
@@ -23,15 +31,19 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: "Build production Docker image with embedded regressions"
         run: docker build --progress=plain -t aib-terminal-readback .
       - name: "Negative and positive exact-session provider API stubs"
-        run: docker run --rm --entrypoint python aib-terminal-readback /app/test_steel_singleflight.py
+        run: docker run --rm --network none --entrypoint python aib-terminal-readback /app/test_steel_singleflight.py
       - name: "Five-session owner and capability tests"
         run: |
-          docker run --rm --entrypoint python aib-terminal-readback /app/test_steel_parallel_runtime.py
-          docker run --rm --entrypoint sh aib-terminal-readback -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_parallel_mcp.py"
+          docker run --rm --network none --entrypoint python aib-terminal-readback /app/test_steel_parallel_runtime.py
+          docker run --rm --network none --entrypoint sh aib-terminal-readback -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_parallel_mcp.py"
+      - name: "Cancellation before and after provider release - local stubs only"
+        run: docker run --rm --network none -e PYTHONPATH=/app --entrypoint python aib-terminal-readback /app/session_ownership/tests/test_close_cancellation_stages.py
       - name: "Synthetic failed-save/stop guard tests"
-        run: docker run --rm --entrypoint python aib-terminal-readback /app/test_synthetic_restore_readback.py
+        run: docker run --rm --network none --entrypoint python aib-terminal-readback /app/test_synthetic_restore_readback.py
       - name: "No billable provider API calls or production deployment"
         run: echo "OFFLINE_SYNTHETIC_ONLY_NO_PROVIDER_CALLS_NO_PRODUCTION_CHANGE"
