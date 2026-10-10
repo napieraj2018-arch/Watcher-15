@@ -6,6 +6,8 @@ on:
     paths:
       - "tenant_security/007_task_resume_owner_fenced.sql"
       - "tenant_security/tests/test_resume_owner_pg.py"
+      - "tenant_security/tests/test_resume_service.py"
+      - "tenant_security/recovery/**"
       - ".github/workflows/durable-task-resume-ci.yml"
   workflow_dispatch:
 permissions:
@@ -29,7 +31,7 @@ jobs:
           sudo sed -i '1i host all all 127.0.0.1/32 trust' /etc/postgresql/16/main/pg_hba.conf
           sudo pg_ctlcluster 16 main restart
           pg_isready -h 127.0.0.1 -U postgres
-          python -m pip install --disable-pip-version-check "psycopg[binary]==3.2.10"
+          python -m pip install --disable-pip-version-check "psycopg[binary]==3.2.10" "cryptography==46.0.4"
       - name: Apply existing RLS+auth+fenced provider slot ancestors
         run: |
           psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
@@ -48,7 +50,9 @@ jobs:
           python tenant_security/tests/test_elastic_capacity.py
       - name: Apply isolated BFF-authenticated owner recovery and worker fencing
         run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/007_task_resume_owner_fenced.sql
-      - name: Race sixteen authenticated BFF reattachments; enforce identity/epoch
+      - name: Validate AES-256-GCM one-time reattach tickets and fail-closed BFF flow
+        run: python -m unittest tenant_security.tests.test_resume_service -v
+      - name: Race sixteen authenticated BFF reattachments; enforce identity/epoch and run real BFF adapter
         run: python tenant_security/tests/test_resume_owner_pg.py
       - name: Confirm no customer records or paid provider were accessed
         run: echo "THROWAWAY_POSTGRES_ONLY_NO_REAL_STEEL_RENDER_FLOOT_META_GOOGLE"
