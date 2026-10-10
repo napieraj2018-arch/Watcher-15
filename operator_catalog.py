@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from connector_router import plan_operation
 
 SCHEMA_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -163,7 +164,8 @@ def install(namespace: dict) -> int:
     if (mcp is None or not callable(getattr(mcp, "tool", None))
         or not isinstance(registry, dict)):
         raise CatalogError("CATALOG_MCP_INCOMPATIBLE")
-    names = ("aib_workflow_list", "aib_workflow_describe")
+    names = ("aib_workflow_list", "aib_workflow_describe",
+             "aib_route_operation")
     if any(name in registry for name in names):
         raise CatalogError("CATALOG_TOOL_CONFLICT")
     # Fail startup before registering any tools if the manifest is broken.
@@ -180,10 +182,20 @@ def install(namespace: dict) -> int:
         except CatalogError as exc:
             return {"error":str(exc), "private_run_data_included":False}
 
+    def aib_route_operation(service: str, operation: str,
+                            brand: str = "") -> dict:
+        """Choose a safe connector-first plan. DOES NOT publish or log in.
+
+        Verifying installed app permissions, exact target account and payload
+        is the caller's next step; missing capability is not authenticated.
+        """
+        return plan_operation(service, operation, brand)
+
     mcp.tool()(aib_workflow_list)
     mcp.tool()(aib_workflow_describe)
+    mcp.tool()(aib_route_operation)
     if not all(name in registry for name in names):
         raise CatalogError("CATALOG_REGISTRATION_FAILED")
     namespace["_AIB_OPERATOR_CATALOG_READY"] = True
-    print("AI_BROWSER_OPERATOR_CATALOG_READY 2", flush=True)
-    return 2
+    print("AI_BROWSER_OPERATOR_CATALOG_READY 3", flush=True)
+    return 3
