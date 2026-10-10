@@ -1,0 +1,49 @@
+name: AI Browser configurable parallel capacity 5 and 10
+on:
+  push:
+    branches:
+      - configurable-parallel-capacity-20261010
+    paths:
+      - "tenant_security/006_configurable_capacity.sql"
+      - "tenant_security/tests/test_elastic_capacity.py"
+      - ".github/workflows/configurable-parallel-capacity.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ai-browser-elastic-capacity-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  postgres16-elastic-five-and-ten:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Start isolated local PostgreSQL 16 (never production)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-16 postgresql-client-16
+          sudo sed -i '1i host all all 127.0.0.1/32 trust' /etc/postgresql/16/main/pg_hba.conf
+          sudo pg_ctlcluster 16 main restart
+          pg_isready -h 127.0.0.1 -U postgres
+          python -m pip install --disable-pip-version-check "psycopg[binary]==3.2.10"
+      - name: Prepare synthetic tenant identity, queue and one-slot ancestor
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_isolation.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f commercial/leases/001_durable_slot.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/004_tenant_fenced_slot.sql
+      - name: Prove the existing three-slot baseline and prevent regression
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/005_three_parallel_slots.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_three_parallel_slots.sql
+          python tenant_security/tests/test_three_parallel_race.py
+      - name: Extend three-slot ledger to configurable capacity with default five
+        run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/006_configurable_capacity.sql
+      - name: Stress 32 separate clients at 5 and 20 more at 10, verify safe downscale
+        run: python tenant_security/tests/test_elastic_capacity.py
+      - name: No actual paid providers, accounts, profiles or subscriptions
+        run: echo "EPHEMERAL_POSTGRES_ONLY_NO_REAL_STEEL_FLOOT_STRIPE_OR_RENDER"
