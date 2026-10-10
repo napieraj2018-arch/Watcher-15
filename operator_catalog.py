@@ -198,4 +198,4 @@ def install(namespace: dict) -> int:
         raise CatalogError("CATALOG_REGISTRATION_FAILED")
     namespace["_AIB_OPERATOR_CATALOG_READY"] = True
     print("AI_BROWSER_OPERATOR_CATALOG_READY 3", flush=True)
-    return 2
+    return 3
