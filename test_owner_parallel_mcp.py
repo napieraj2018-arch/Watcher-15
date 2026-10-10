@@ -71,7 +71,7 @@ class MultiManager:
 class MultiMcp(IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.manager=MultiManager()
-        self.mcp=fake_mcp(self.manager, sessions_as_list=True)
+        self.mcp=fake_mcp(self.manager, sessions_as_list=True, audit_as_list=True)
         async def mobile(_request):
             return JSONResponse({"unsafe":"legacy endpoint"})
         self.mcp._custom_starlette_routes.append(
@@ -125,6 +125,21 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_",str(listed))
         self.assertNotIn("aib_",str(listed))
 
+    async def test_recent_audit_also_obeys_live_list_output_type(self):
+        # Audit data from other chats cannot be exposed without a scoped,
+        # authenticated task ledger. The safe beta returns an empty list.
+        no_owner=await self.mcp.call_tool("browser_recent_audit",{})
+        self.assertNotIn("Error executing tool",str(no_owner))
+        self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_",str(no_owner))
+        cap=await self.begin("Meta - Anita")
+        owned=await self.mcp.call_tool("browser_recent_audit",{
+            "session_id":cap})
+        self.assertNotIn("Error executing tool",str(owned))
+        self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_",str(owned))
+        with self.assertRaises(ToolError):
+            await self.mcp.call_tool("browser_recent_audit",{
+                "session_id":"INTERNAL_SYNTHETIC_SESSION_1"})
+
     async def test_one_writer_per_profile_even_if_slots_available(self):
         cap=await self.begin("Meta - Anita")
         with self.assertRaisesRegex(ToolError,"PARALLEL_PROFILE_BUSY"):
@@ -166,7 +181,7 @@ class MultiMcp(IsolatedAsyncioTestCase):
         # Fresh real MCP server; replace the synthetic underlying snapshot
         # BEFORE installing the guard, preserving the original tool schema.
         manager=MultiManager()
-        mcp=fake_mcp(manager, sessions_as_list=True)
+        mcp=fake_mcp(manager, sessions_as_list=True, audit_as_list=True)
         mcp._tool_manager._tools["browser_snapshot"].fn = slow_snapshot
         guard=MultiCapabilityGuard(mcp,manager,capacity=5,
                                    watchdog_enabled=False)
