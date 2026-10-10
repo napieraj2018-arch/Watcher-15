@@ -289,6 +289,9 @@ BEGIN
       ON s.tenant_id=o.tenant_id AND s.task_id=o.task_id
     JOIN browser_product.browser_tasks t
       ON t.tenant_id=s.tenant_id AND t.task_id=s.task_id
+    JOIN browser_recovery.provider_readback p
+      ON p.slot_no=s.slot_no AND p.generation=s.generation
+         AND p.lease_id=s.lease_id
     WHERE o.tenant_id=tid AND o.task_id=p_task
       AND o.lease_id=p_lease AND o.slot_no=p_slot
       AND o.generation=p_generation AND o.attachment_epoch=p_epoch
@@ -296,6 +299,8 @@ BEGIN
       AND s.slot_no=p_slot AND s.generation=p_generation
       AND s.lease_id=p_lease AND s.state='active'
       AND s.expires_at>clock_timestamp() AND t.state='running'
+      AND p.provider_alive IS TRUE AND p.same_profile_binding IS TRUE
+      AND p.verified_at>=clock_timestamp()-interval '15 seconds'
   );
 END $body$;
 
