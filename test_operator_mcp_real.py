@@ -7,9 +7,9 @@ import unittest
 
 from mcp.server.mcpserver import MCPServer
 from operator_catalog import install, CatalogError
-from session_ownership.capability_guard import preflight, OwnershipError
-from session_ownership.tests.test_sdk_contract import fake_mcp
-from session_ownership.tests.test_capability_guard import DummyManager
+from capability_guard import preflight, OwnershipError
+from test_sdk_contract import fake_mcp
+from test_capability_guard import DummyManager
 
 
 class RealMCPCatalog(unittest.IsolatedAsyncioTestCase):
