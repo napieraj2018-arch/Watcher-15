@@ -5,12 +5,15 @@ on:
   pull_request:
     branches: [ai-browser-cloud]
     paths:
-      - 'profile_live_readback.py'
-      - 'test_profile_live_readback.py'
+      - 'steel_context_fix.py'
+      - 'session_ownership/**'
       - '.github/workflows/profile-live-readback-ci.yml'
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: profile-readback-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   source:
     runs-on: ubuntu-latest
@@ -36,3 +39,5 @@ jobs:
           persist-credentials: false
       - name: Full production Docker regression without provider credentials
         run: docker build --progress=plain -t aib-profile-readback .
+      - name: Actual Chromium restart and storage-corruption canaries, no network or Steel
+        run: docker run --rm --network none --ipc=host -e AI_BROWSER_SELFTEST_ORIGIN_READBACK=1 --entrypoint python aib-profile-readback /app/session_ownership/integration_fixture_chromium.py
