@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f7fb">
+<title>AI Browser — przeglądarka | prototyp interfejsu</title>
+<style>
+:root{color-scheme:light;--bg:#f5f7fb;--paper:#fff;--text:#192539;--muted:#68788f;--border:#e3e9f0;--primary:#2563eb;--blue-soft:#eaf1ff;--shadow:0 12px 36px rgba(36,57,92,.08);--radius:18px;font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+*{box-sizing:border-box}html,body{height:100%;margin:0}body{background:var(--bg);color:var(--text);-webkit-tap-highlight-color:transparent}
+button,input{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.35}svg{width:20px;height:20px;stroke:currentColor;stroke-width:1.85;fill:none;stroke-linecap:round;stroke-linejoin:round}
+a{color:var(--primary)}.app{min-height:100dvh;display:grid;grid-template-columns:250px minmax(0,1fr);max-width:1900px;margin:auto}
+.sidebar{padding:23px 16px;border-right:1px solid var(--border);background:#fff;display:flex;flex-direction:column;gap:22px;min-height:100dvh}
+.brand{display:flex;align-items:center;gap:11px;padding:6px 10px;font-weight:750;font-size:18px;letter-spacing:-.025em}
+.brand-mark{width:39px;height:39px;border-radius:13px;background:#245bdd;color:#fff;display:grid;place-items:center;box-shadow:0 8px 17px #2563eb38}.brand-mark svg{width:23px;height:23px}
+.nav-label{font-size:11px;font-weight:700;color:#8793a4;letter-spacing:.13em;text-transform:uppercase;padding:0 14px;margin-bottom:10px}
+.profile-item,.side-link{border:1px solid transparent;background:transparent;color:var(--text);min-height:54px;border-radius:13px;width:100%;display:flex;align-items:center;gap:11px;padding:9px 12px;text-align:left}
+.profile-item:hover,.side-link:hover{background:#f5f8ff}.profile-item.selected{background:var(--blue-soft);border-color:#d3e1ff}
+.profile-logo{width:33px;height:33px;flex-shrink:0;border-radius:11px;display:grid;place-items:center;color:#fff;font-size:15px;font-weight:700;background:#3868b2}
+.profile-item[data-profile="studio"] .profile-logo{background:#8e6dc4}
+.profile-item[data-profile="demo"] .profile-logo{background:#14a085}
+.profile-item strong{display:block;font-size:13px;font-weight:720}.profile-item small{display:block;color:var(--muted);font-size:11px;margin-top:1px}
+.side-link{min-height:44px;font-weight:580;color:#435167}.side-link svg{color:#77869b}.side-link.current{background:#f3f6ff;color:#1b57bc}
+.sidebar-bottom{margin-top:auto;border-top:1px solid var(--border);padding:18px 8px 5px;color:var(--muted);font-size:12px}
+.sidebar-bottom strong{color:#37546a;display:block;margin-bottom:4px}
+.shell{min-width:0;padding:22px clamp(16px,3vw,48px) 40px;display:flex;flex-direction:column}
+.utility{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:10px}
+.utility h1{font-size:23px;letter-spacing:-.045em;margin:0;font-weight:760}.utility p{font-size:13px;color:var(--muted);margin:3px 0 0}
+.badge{display:inline-flex;align-items:center;gap:7px;background:#fff5db;border:1px solid #f6e4af;border-radius:100px;padding:7px 11px;font-weight:650;font-size:11px;color:#8a6411}
+.badge::before{content:"";width:7px;height:7px;background:#dfac2a;border-radius:50%}
+.browser{background:#fff;border:1px solid var(--border);border-radius:21px;box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;min-height:570px}
+.browser-top{background:#f9fbfd;border-bottom:1px solid var(--border);padding:11px 13px 10px}
+.tabs{display:flex;align-items:center;gap:6px;min-height:42px;overflow-x:auto;scrollbar-width:none}
+.tab{border:1px solid transparent;color:#65758d;background:#eef2f7;display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:11px 11px 5px 5px;min-width:140px;max-width:205px;min-height:38px;flex:0 0 auto;text-align:left}
+.tab.active{color:#23405f;background:#fff;border-color:#e4eaf2;font-weight:650}
+.tab-label{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}.tab-close{font-size:20px;min-width:23px;text-align:center;color:#8c9ab0}
+.icon-button{appearance:none;background:transparent;border:1px solid transparent;color:#536681;border-radius:11px;width:44px;height:44px;min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+.icon-button:hover{background:#e8eef8}.icon-button:active,.side-link:active,.profile-item:active{background:#dce8fa;transform:scale(.98)}
+.icon-button:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid #8cb6fd;outline-offset:2px}
+.tab-add{height:40px;min-width:43px;max-width:43px;font-size:25px;margin:0 2px}
+.address-row{display:flex;align-items:center;gap:8px;margin-top:9px}
+.address-field{display:flex;align-items:center;min-width:0;flex:1;gap:9px;border:1px solid #dce5f0;background:#fff;border-radius:13px;padding:0 13px;min-height:46px}
+.address-field svg{width:17px;height:17px;color:#7190a9;flex:0 0 auto}
+.address-field input{outline:none;border:0;color:#2d405b;background:transparent;width:100%;min-width:0;height:43px;font-size:14px;letter-spacing:-.012em}
+.address-field input:focus-visible{outline:none}.address-field:focus-within{border-color:#97bafa;box-shadow:0 0 0 3px #dbe9ff}
+.site{flex:1;min-height:375px;padding:30px 26px;background:linear-gradient(#fff,#fdfefe);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.window-icon{width:76px;height:76px;border:1px solid #dce7f5;border-radius:23px;background:linear-gradient(145deg,#edf4ff,#f6fafc);color:#4375d9;display:grid;place-items:center;margin-bottom:17px}
+.window-icon svg{width:39px;height:39px;stroke-width:1.3}
+.site h2{font-size:23px;letter-spacing:-.045em;line-height:1.22;margin:0 0 7px}
+.site p{color:var(--muted);max-width:450px;margin:0 auto;font-size:14px}
+.primary{background:#285dd5;border:1px solid #285dd5;color:#fff;padding:12px 19px;min-height:46px;border-radius:12px;font-weight:720;box-shadow:0 7px 16px #2563eb26}
+.primary:hover{background:#194fc7}.secondary{border:1px solid #dce5f1;background:#fff;border-radius:12px;color:#405572;padding:11px 15px;min-height:44px;font-weight:660}
+.cta-group{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:22px}
+.session-note{font-size:11px;color:#8b96a8;margin-top:14px}
+.window-bottom{min-height:55px;background:#fbfcfe;border-top:1px solid var(--border);padding:9px 17px;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#68788e;font-size:12px}
+.status{display:flex;align-items:center;gap:7px}.status-dot{width:7px;height:7px;border-radius:50%;background:#e8b13c}
+.tip{margin-top:16px;border:1px solid #e2eaf4;background:#fff;border-radius:15px;padding:15px 18px;display:flex;align-items:flex-start;gap:13px}
+.tip svg{color:#2b67d8;flex:0 0 auto}.tip b{font-size:13px;display:block;margin-bottom:3px}.tip p{color:#76859b;margin:0;font-size:12px}
+.mobile-header,.bottom-bar{display:none}
+.toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,10px);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;padding:12px 19px;border-radius:14px;background:#26364e;color:#fff;font-size:13px;box-shadow:0 12px 32px #14263a3b;max-width:min(90vw,520px);z-index:20;text-align:center}
+.toast.visible{opacity:1;transform:translate(-50%,0)}
+.sheet-cover{display:none;position:fixed;inset:0;background:#1b2c455c;z-index:15;align-items:end;justify-content:center}
+.sheet-cover.open{display:flex}.sheet{background:white;border-radius:23px 23px 0 0;width:min(100%,560px);padding:18px 20px calc(24px + env(safe-area-inset-bottom));box-shadow:0 -20px 70px #14203822}
+.sheet h3{font-size:19px;margin:0 0 16px}.sheet button{width:100%;padding:12px;min-height:48px;background:#f6f9ff;border:1px solid #e3eaf4;border-radius:12px;text-align:left;margin-top:7px;color:#2b415f;font-weight:620}
+.sheet button:last-child{text-align:center;background:#fff;color:#6e7d8e}
+@media(max-width:760px){
+.app{display:block}.sidebar{display:none}.shell{padding:0 0 calc(92px + env(safe-area-inset-bottom));min-height:100dvh}
+.utility{padding:12px 17px 11px;margin:0;background:#fff}.utility h1{font-size:18px}.utility p{font-size:11px}.utility .badge{font-size:10px;padding:6px 10px}
+.mobile-header{display:flex;background:#fff;border-bottom:1px solid #eaf0f5;padding:12px 17px;align-items:center;justify-content:space-between;gap:10px}
+.mobile-profile{display:flex;align-items:center;gap:9px;font-weight:690;font-size:13px;min-height:44px;border:0;background:transparent;color:#234064}
+.mobile-profile .profile-logo{width:29px;height:29px;border-radius:9px;font-size:13px}
+.browser{border-radius:0;box-shadow:none;border-left:0;border-right:0;min-height:calc(100dvh - 235px)}
+.browser-top{padding:8px 12px 12px}.tabs{display:none}.address-row{margin:0;gap:5px}.address-row .desktop-nav{display:none}
+.address-field{min-height:46px;border-radius:12px}.address-field input{font-size:16px}.site{padding:24px 24px;min-height:calc(100dvh - 325px)}.window-icon{width:69px;height:69px;border-radius:21px}.site h2{font-size:22px}.site p{font-size:13px}
+.window-bottom{min-height:48px;padding:10px 18px}.tip{margin:13px 14px;border-radius:12px;padding:13px}
+.bottom-bar{position:fixed;z-index:11;bottom:0;left:0;right:0;display:flex;align-items:center;justify-content:space-around;gap:2px;background:#fff;border-top:1px solid #dbe3ef;padding:8px 11px calc(8px + env(safe-area-inset-bottom));box-shadow:0 -5px 20px #223c6410}
+.bottom-bar .icon-button{width:51px;height:49px;min-width:47px;min-height:49px}
+.tab-count{display:grid;place-items:center;border:2px solid currentColor;border-radius:6px;font-weight:700;font-size:12px;width:23px;height:23px}
+.toast{bottom:calc(83px + env(safe-area-inset-bottom))}.sheet{padding-bottom:calc(112px + env(safe-area-inset-bottom))}
+}
+@media(prefers-reduced-motion:reduce){.toast,.icon-button,.profile-item,.side-link{transition:none;transform:none}}
+</style>
+</head>
+<body>
+<svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+<symbol id="i-window" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></symbol>
+<symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="i-reload" viewBox="0 0 24 24"><path d="M21 11a9 9 0 1 0-2.7 6.4M21 4v7h-7"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><rect x="7" y="7" width="14" height="14" rx="2"/><path d="M4 17H3a1 1 0 0 1-1-1V4a2 2 0 0 1 2-2h12a1 1 0 0 1 1 1v1"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3 8 8 11 5-3 8-6 8-11V5z"/><path d="m8 12 3 3 5-5"/></symbol>
+<symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="15" rx="2"/><path d="M7 22h10M12 18v4"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+</svg>
+<div class="app">
+<aside class="sidebar" aria-label="Panel profili i nawigacji">
+<div class="brand"><span class="brand-mark"><svg><use href="#i-window"/></svg></span> AI Browser</div>
+<div><div class="nav-label">Moje profile</div><div id="profiles-desktop"></div></div>
+<div><div class="nav-label">Nawigacja</div>
+<button class="side-link current" type="button" data-action="window"><svg><use href="#i-monitor"/></svg> Okno przeglądarki</button>
+<button class="side-link" type="button" data-action="all-tabs"><svg><use href="#i-layers"/></svg> Moje karty</button>
+<button class="side-link" type="button" data-action="history"><svg><use href="#i-clock"/></svg> Historia</button>
+</div>
+<div class="sidebar-bottom"><strong>Bez pośpiechu i bez logowania od nowa</strong>Projekt interfejsu. Połączenie z Twoim serwerem będzie osobnym, autoryzowanym etapem.</div>
+</aside>
+<main class="shell">
+<header class="utility">
+<div><h1>Twoja przeglądarka</h1><p>Znane przyciski, zapisane profile, szybkie przełączanie</p></div>
+<span class="badge" id="demo-badge">Podgląd interfejsu</span>
+</header>
+<div class="mobile-header">
+<button type="button" class="mobile-profile" data-action="profiles" aria-label="Zmień profil">
+<span class="profile-logo" id="mobile-profile-logo">F</span><span id="mobile-profile-label">Firma – Facebook</span><svg style="width:16px;height:16px"><use href="#i-right"/></svg>
+</button>
+<button type="button" class="icon-button" data-action="new-tab" aria-label="Nowa karta" title="Nowa karta"><svg><use href="#i-plus"/></svg></button>
+</div>
+<section class="browser" aria-label="Interaktywne okno demonstracyjne">
+<div class="browser-top">
+<div class="tabs" id="tabs" aria-label="Karty przeglądarki"></div>
+<div class="address-row">
+<button type="button" class="icon-button desktop-nav" data-action="back" aria-label="Wstecz" title="Wstecz"><svg><use href="#i-left"/></svg></button>
+<button type="button" class="icon-button desktop-nav" data-action="forward" aria-label="Dalej" title="Dalej"><svg><use href="#i-right"/></svg></button>
+<button type="button" class="icon-button desktop-nav" data-action="reload" aria-label="Odśwież" title="Odśwież"><svg><use href="#i-reload"/></svg></button>
+<form id="address-form" class="address-field" autocomplete="off" novalidate>
+<svg><use href="#i-lock"/></svg><input id="address" aria-label="Adres strony" type="url" inputmode="url" autocapitalize="none" spellcheck="false" value="https://example.com/" required placeholder="Wpisz adres strony">
+</form>
+<button type="button" class="icon-button" data-action="more" aria-label="Więcej opcji" title="Więcej"><svg><use href="#i-more"/></svg></button>
+</div></div>
+<div class="site" id="page" role="main" aria-live="polite">
+<div class="window-icon"><svg><use href="#i-monitor"/></svg></div>
+<h2 id="page-title">Okno gotowe do pracy</h2>
+<p id="page-description">Wybierz profil i przechodź między kartami tak jak w zwykłej przeglądarce. To bezpieczny demonstrator interfejsu, nie połączenie z prawdziwymi kontami.</p>
+<div class="cta-group"><button type="button" class="primary" data-action="open-window">Otwórz okno</button><button type="button" class="secondary" data-action="new-tab">Nowa karta</button></div>
+<div class="session-note">Dostęp do profili, plików i haseł nie jest aktywny w tym podglądzie.</div>
+</div>
+<div class="window-bottom"><span class="status"><span class="status-dot"></span><span id="status-label">Demonstracja • bez połączenia</span></span><span id="tab-status">Karta 1 z 1</span></div>
+</section>
+<aside class="tip">
+<svg><use href="#i-shield"/></svg>
+<div><b>Jedno zwykłe okno zamiast uruchamiania sesji</b>
+<p>Po podłączeniu do serwera przycisk „Otwórz” powinien sam odnawiać bezpieczną sesję w tle. Człowiek widzi okno, karty i nazwę profilu — nie identyfikatory techniczne ani linki Live.</p></div>
+</aside>
+</main>
+<nav class="bottom-bar" aria-label="Pasek przeglądarki">
+<button type="button" class="icon-button" data-action="back" aria-label="Wstecz" title="Wstecz"><svg><use href="#i-left"/></svg></button>
+<button type="button" class="icon-button" data-action="forward" aria-label="Dalej" title="Dalej"><svg><use href="#i-right"/></svg></button>
+<button type="button" class="icon-button" data-action="reload" aria-label="Odśwież" title="Odśwież"><svg><use href="#i-reload"/></svg></button>
+<button type="button" class="icon-button" data-action="all-tabs" aria-label="Pokaż karty" title="Karty"><span class="tab-count" id="mobile-tab-count">1</span></button>
+<button type="button" class="icon-button" data-action="more" aria-label="Więcej opcji" title="Więcej opcji"><svg><use href="#i-more"/></svg></button>
+</nav>
+</div>
+<div class="sheet-cover" id="cover" role="presentation"><section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><h3 id="sheet-title">Więcej</h3><div id="sheet-content"></div><button type="button" id="sheet-close">Zamknij</button></section></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+const DEMO_ONLY=true;
+const $=id=>document.getElementById(id);
+const profiles=[
+{id:"clinic",icon:"F",title:"Firma – Facebook",subtitle:"Profil firmowy • demonstracja",color:"#3767b6",start:"https://example.com/"},
+{id:"studio",icon:"G",title:"Studio – Google",subtitle:"Praca i dokumenty • demonstracja",color:"#9275c2",start:"https://example.org/"},
+{id:"demo",icon:"T",title:"Profil testowy",subtitle:"Bez zapisanych kont",color:"#14a085",start:"https://example.net/"}
+];
+let activeProfile="clinic",tabs=[{id:1,title:"Nowa karta",profile:"clinic",history:["https://example.com/"],index:0}],activeTab=1,nextId=2,toastTimer;
+const current=()=>tabs.find(t=>t.id===activeTab);
+const profile=id=>profiles.find(p=>p.id===id);
+const safeHost=url=>{try{return new URL(url).hostname}catch{return "Nowa karta"}};
+function say(message){const t=$("toast");t.textContent=message;t.classList.add("visible");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("visible"),3300)}
+function render(){
+ const tab=current(),selected=profile(activeProfile);
+ const pane=$("profiles-desktop");
+ pane.textContent="";
+ for(const p of profiles){
+  const b=document.createElement("button");b.type="button";b.className="profile-item"+(p.id===activeProfile?" selected":"");b.dataset.profile=p.id;
+  b.setAttribute("aria-label","Profil "+p.title);
+  const logo=document.createElement("span");logo.className="profile-logo";logo.textContent=p.icon;
+  const label=document.createElement("span");const strong=document.createElement("strong");strong.textContent=p.title;const small=document.createElement("small");small.textContent=p.subtitle;label.append(strong,small);b.append(logo,label);pane.append(b);
+ }
+ $("mobile-profile-logo").textContent=selected.icon;$("mobile-profile-logo").style.background=selected.color;
+ $("mobile-profile-label").textContent=selected.title;
+ const nav=$("tabs");nav.textContent="";
+ tabs.forEach(t=>{
+ const b=document.createElement("button");b.type="button";b.className="tab"+(t.id===activeTab?" active":"");
+ b.dataset.tab=String(t.id);b.setAttribute("aria-label","Karta "+t.title);
+ const label=document.createElement("span");label.className="tab-label";label.textContent=t.title;
+ const x=document.createElement("span");x.className="tab-close";x.textContent="×";x.dataset.close=String(t.id);x.setAttribute("aria-label","Zamknij kartę");
+ b.append(label,x);nav.append(b);
+ });
+ const add=document.createElement("button");add.type="button";add.className="icon-button tab-add";add.dataset.action="new-tab";add.setAttribute("aria-label","Nowa karta");add.textContent="+";nav.append(add);
+ $("address").value=tab.history[tab.index];
+ $("page-title").textContent=tab.title==="Nowa karta"?"Okno gotowe do pracy":"Podgląd: "+tab.title;
+ $("page-description").textContent=tab.title==="Nowa karta"
+ ?"Wybierz profil i przechodź między kartami tak jak w zwykłej przeglądarce. To bezpieczny demonstrator interfejsu, nie połączenie z prawdziwymi kontami."
+ :"Ta karta pokazuje zachowanie interfejsu, bez połączenia ze stroną internetową. W rzeczywistym AI Browserze jej zawartość będzie pochodziła z chronionej sesji.";
+ $("tab-status").textContent="Karta "+(tabs.findIndex(t=>t.id===activeTab)+1)+" z "+tabs.length;
+ $("mobile-tab-count").textContent=String(tabs.length);
+ const canBack=tab.index>0,canForward=tab.index<tab.history.length-1;
+ document.querySelectorAll('[data-action="back"]').forEach(b=>b.disabled=!canBack);
+ document.querySelectorAll('[data-action="forward"]').forEach(b=>b.disabled=!canForward);
+}
+function newTab(){const p=profile(activeProfile);const t={id:nextId++,title:"Nowa karta",profile:p.id,history:[p.start],index:0};tabs.push(t);activeTab=t.id;render();say("Dodano kartę — demonstracja")}
+function closeTab(id){if(tabs.length===1){tabs=[{id:nextId++,title:"Nowa karta",profile:activeProfile,history:[profile(activeProfile).start],index:0}]}else{tabs=tabs.filter(t=>t.id!==id)};if(!tabs.some(t=>t.id===activeTab))activeTab=tabs[tabs.length-1].id;render()}
+function switchProfile(id){if(!profile(id))return;activeProfile=id;const tab=current();tab.profile=id;tab.title="Nowa karta";tab.history=[profile(id).start];tab.index=0;render();closeSheet();say("Wybrano "+profile(id).title+". Konto nie jest połączone w tym podglądzie.")}
+function navigateTo(value){
+ let raw=value.trim();if(!raw)return;
+ if(!/^https?:\/\//i.test(raw))raw="https://"+raw;
+ let parsed;try{parsed=new URL(raw)}catch{$("address").value=current().history[current().index];say("Nieprawidłowy adres");return}
+ if(parsed.protocol!=="https:"||parsed.username||parsed.password){$("address").value=current().history[current().index];say("Podaj bezpieczny adres HTTPS bez hasła w adresie");return}
+ const tab=current();tab.history=tab.history.slice(0,tab.index+1);tab.history.push(parsed.href);tab.index++;
+ tab.title=parsed.hostname.slice(0,34);render();say("Podgląd interfejsu — nie wysłano żądania sieciowego");
+}
+function go(offset){const t=current(),n=t.index+offset;if(n<0||n>=t.history.length)return;t.index=n;t.title=t.index===0?"Nowa karta":safeHost(t.history[t.index]);render()}
+function openSheet(title,items){$("sheet-title").textContent=title;const el=$("sheet-content");el.textContent="";
+ items.forEach(item=>{const b=document.createElement("button");b.type="button";b.textContent=item.label;b.addEventListener("click",()=>item.action());el.append(b)});
+ $("cover").classList.add("open");$("sheet-close").focus();
+}
+function closeSheet(){$("cover").classList.remove("open")}
+function tabsSheet(){openSheet("Moje karty",tabs.map(t=>({label:(t.id===activeTab?"✓ ":"")+t.title,action:()=>{activeTab=t.id;activeProfile=t.profile;closeSheet();render()}})).concat([{label:"＋ Nowa karta",action:()=>{closeSheet();newTab()}}]))}
+function profilesSheet(){openSheet("Zmień profil",profiles.map(p=>({label:p.title+" — "+p.subtitle,action:()=>switchProfile(p.id)})))}
+function moreSheet(){openSheet("Więcej",[
+{label:"＋ Nowa karta",action:()=>{closeSheet();newTab()}},
+{label:"Zmiana profilu",action:profilesSheet},
+{label:"Karty",action:tabsSheet},
+{label:"Kopiuj adres bieżącej karty (demo)",action:()=>{const url=current().history[current().index];if(navigator.clipboard?.writeText){navigator.clipboard.writeText(url).then(()=>say("Skopiowano adres demonstracyjny")).catch(()=>say(url))}else{say(url)}closeSheet()}},
+{label:"Zapis profilu — wymaga połączenia z serwerem",action:()=>{closeSheet();say("Ta funkcja nie działa w demonstratorze")}}
+])}
+const actions={
+"back":()=>go(-1),"forward":()=>go(1),"reload":()=>say("Odświeżono podgląd (bez sieci)"),
+"new-tab":newTab,"all-tabs":tabsSheet,"profiles":profilesSheet,"more":moreSheet,
+"window":()=>say("Okno jest już otwarte"),"history":()=>openSheet("Historia demonstracyjna",current().history.map(url=>({label:url,action:()=>{closeSheet();say("Otwórz adres przez pasek")}}))),
+"open-window":()=>say("To już zwykłe okno w przeglądarce. Dostęp do prawdziwych kont wymaga połączenia z serwerem.")
+};
+document.addEventListener("click",e=>{
+ const close=e.target.closest("[data-close]");if(close){closeTab(Number(close.dataset.close));return}
+ const prof=e.target.closest("[data-profile]");if(prof){switchProfile(prof.dataset.profile);return}
+ const tab=e.target.closest("[data-tab]");if(tab){activeTab=Number(tab.dataset.tab);activeProfile=current().profile;render();return}
+ const action=e.target.closest("[data-action]");if(action){actions[action.dataset.action]?.();}
+});
+$("address-form").addEventListener("submit",e=>{e.preventDefault();navigateTo($("address").value)});
+$("sheet-close").addEventListener("click",closeSheet);
+$("cover").addEventListener("click",e=>{if(e.target===$("cover"))closeSheet()});
+window.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet();if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="t"){e.preventDefault();newTab()}});
+render();
+</script>
+</body>
+</html>
