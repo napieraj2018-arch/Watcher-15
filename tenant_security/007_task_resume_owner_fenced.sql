@@ -239,6 +239,35 @@ BEGIN
     own.generation,new_epoch;
 END $body$;
 
+-- An actual Steel POST /sessions is billable. A tenant-scoped worker
+-- must verify this EXACT bound/uncancelled reservation immediately before
+-- provider create; a missing owner binding or user cancellation fails closed.
+CREATE FUNCTION browser_recovery.can_create_provider(
+  p_task uuid,p_lease uuid,p_slot integer,p_generation bigint
+) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,browser_recovery,browser_parallel,browser_product,pg_temp
+AS $body$
+DECLARE tid uuid;
+BEGIN
+  tid:=browser_product.authenticated_tenant();
+  IF tid IS NULL OR p_task IS NULL OR p_lease IS NULL
+     OR p_slot IS NULL OR p_generation IS NULL THEN RETURN false; END IF;
+  RETURN EXISTS(
+    SELECT 1 FROM browser_recovery.owned_tasks o
+    JOIN browser_parallel.slots s
+      ON s.tenant_id=o.tenant_id AND s.task_id=o.task_id
+    JOIN browser_product.browser_tasks t
+      ON t.tenant_id=s.tenant_id AND t.task_id=s.task_id
+         AND t.profile_id=s.profile_id
+    WHERE o.tenant_id=tid AND o.task_id=p_task
+      AND o.slot_no=p_slot AND o.lease_id=p_lease
+      AND o.generation=p_generation AND o.cancel_requested IS FALSE
+      AND s.slot_no=p_slot AND s.lease_id=p_lease
+      AND s.generation=p_generation AND s.state='reserved'
+      AND s.expires_at>clock_timestamp() AND t.state='queued'
+  );
+END $body$;
+
 -- Called by the scoped worker on EVERY action, not only at session start.
 -- Reattachment rotates attachment_epoch, immediately invalidating all
 -- previously issued app capabilities. A different tenant's DB role fails.
@@ -330,6 +359,9 @@ GRANT EXECUTE ON FUNCTION browser_recovery.register_own_task(text,text,uuid),
   browser_recovery.list_own_tasks(text,text)
 TO browser_bff_auth;
 GRANT USAGE ON SCHEMA browser_recovery TO aib_parallel_worker;
+GRANT EXECUTE ON FUNCTION browser_recovery.can_create_provider(
+  uuid,uuid,integer,bigint)
+TO aib_parallel_worker;
 GRANT EXECUTE ON FUNCTION browser_recovery.can_execute_epoch(
   uuid,uuid,integer,bigint,bigint)
 TO aib_parallel_worker;
