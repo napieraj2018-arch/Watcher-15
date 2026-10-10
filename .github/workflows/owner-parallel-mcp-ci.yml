@@ -3,11 +3,13 @@ on:
   push:
     branches:
       - owner-parallel-mcp-runtime-20261010
+      - multi-browser-sessions-schema-20261010
     paths:
       - "steel_runtime.py"
       - "session_ownership/multi_capability_guard.py"
       - "test_steel_parallel_runtime.py"
       - "test_owner_parallel_mcp.py"
+      - "session_ownership/tests/test_sdk_contract.py"
       - "bootstrap.py"
       - "Dockerfile"
       - ".github/workflows/owner-parallel-mcp-ci.yml"
