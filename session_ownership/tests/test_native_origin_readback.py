@@ -166,6 +166,7 @@ class CanarySelectiveRestore(unittest.IsolatedAsyncioTestCase):
     async def test_incoherent_native_repaired_by_origin_scoped_operations(self):
         self.page.evaluate.side_effect = [
             {"cookie_present": True, "storage_present": True, "pair_matches": False},
+            None,  # localStorage.setItem call has no return value
             {"cookie_present": True, "storage_present": True, "pair_matches": True},
         ]
         receipt = await reconcile_fixture_origin(self.context, self.backup)
@@ -173,7 +174,7 @@ class CanarySelectiveRestore(unittest.IsolatedAsyncioTestCase):
             "verified": True, "applied": True, "backup_available": True})
         self.context.add_cookies.assert_awaited_once()
         self.context.set_storage_state.assert_not_awaited()
-        self.assertEqual(self.page.evaluate.await_count, 2)
+        self.assertEqual(self.page.evaluate.await_count, 3)
         self.assertEqual(self.page.evaluate.call_args.args[-1], "portable-fixture-only")
         self.page.close.assert_awaited_once()
         self.assertNotIn("portable-fixture-only", str(receipt))
