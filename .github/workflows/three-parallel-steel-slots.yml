@@ -1,0 +1,49 @@
+name: AI Browser three parallel Steel sessions PostgreSQL proof
+on:
+  push:
+    branches:
+      - three-parallel-steel-slots-20261010
+    paths:
+      - "tenant_security/005_three_parallel_slots.sql"
+      - "tenant_security/tests/test_three_parallel_slots.sql"
+      - "tenant_security/tests/test_three_parallel_race.py"
+      - ".github/workflows/three-parallel-steel-slots.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ai-browser-parallel-3-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-postgresql16-three-worker-claims:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Start PostgreSQL 16 locally in a throwaway GitHub runner
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-16 postgresql-client-16
+          sudo sed -i '1i host all all 127.0.0.1/32 trust' /etc/postgresql/16/main/pg_hba.conf
+          sudo pg_ctlcluster 16 main restart
+          pg_isready -h 127.0.0.1 -U postgres
+          python -m pip install --disable-pip-version-check "psycopg[binary]==3.2.10"
+      - name: Prepare ephemeral RLS tenant profiles and queued jobs
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_isolation.sql
+      - name: Prepare existing one-slot baseline and cross-tenant fenced contract
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f commercial/leases/001_durable_slot.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/004_tenant_fenced_slot.sql
+      - name: Apply the independent three-slot pool schema
+        run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/005_three_parallel_slots.sql
+      - name: Two tenants, three profiles, one writer per profile, verified release, fencing and quarantine
+        run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_three_parallel_slots.sql
+      - name: Sixteen simultaneous DB connections may start exactly three separate sessions
+        run: python tenant_security/tests/test_three_parallel_race.py
+      - name: Explicitly prove no Steel calls or live vault migration was attempted
+        run: echo "EPHEMERAL_POSTGRES_ONLY_THREE_SLOT_PROOF_NO_REAL_STEEL_NO_FLOOT"
