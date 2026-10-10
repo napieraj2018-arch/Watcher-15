@@ -7,6 +7,7 @@ on:
       - "tenant_security/007_task_resume_owner_fenced.sql"
       - "tenant_security/tests/test_resume_owner_pg.py"
       - "tenant_security/tests/test_resume_service.py"
+      - "tenant_security/tests/test_resume_http.py"
       - "tenant_security/recovery/**"
       - ".github/workflows/durable-task-resume-ci.yml"
   workflow_dispatch:
@@ -50,8 +51,8 @@ jobs:
           python tenant_security/tests/test_elastic_capacity.py
       - name: Apply isolated BFF-authenticated owner recovery and worker fencing
         run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/007_task_resume_owner_fenced.sql
-      - name: Validate AES-256-GCM one-time reattach tickets and fail-closed BFF flow
-        run: python -m unittest tenant_security.tests.test_resume_service -v
+      - name: Validate encrypted tickets, BFF flow, and HTTPS+CSRF own-task endpoints
+        run: python -m unittest tenant_security.tests.test_resume_service tenant_security.tests.test_resume_http -v
       - name: Race sixteen authenticated BFF reattachments; enforce identity/epoch and run real BFF adapter
         run: python -m tenant_security.tests.test_resume_owner_pg
       - name: Confirm no customer records or paid provider were accessed
