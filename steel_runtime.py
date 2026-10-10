@@ -227,6 +227,7 @@ class RemoteBrowser:
         self.created_at = time.time()
         self.closed = False
         self._release_confirmed = False
+        self._release_started = False
         self.close_lock = asyncio.Lock()
 
     def __getattr__(self, name):
@@ -250,11 +251,16 @@ class RemoteBrowser:
                     self.closed = True
                     with contextlib.suppress(Exception):
                         await asyncio.wait_for(self.browser.close(), 5)
+                # CDP shutdown and provider release are separate stages.
+                # A cancellation during browser.close() must not make a later
+                # authorized close skip the release that was never attempted.
+                if not self._release_started:
+                    self._release_started = True
                     confirmed_released = await self.engine.release(
                         self.remote_id)
                 else:
-                    # After an uncertain first attempt, a repeated authorized
-                    # close only reads provider state; never repeats POST.
+                    # Once release was attempted, never submit it again here;
+                    # a repeated authorized close only reads provider state.
                     confirmed_released = await self.engine.confirm_terminal(
                         self.remote_id)
                 if not confirmed_released:
