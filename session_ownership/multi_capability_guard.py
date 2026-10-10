@@ -378,14 +378,14 @@ class MultiCapabilityGuard:
                             raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
                         if kw.get("session_id"):
                             self.authorize(kw["session_id"])
-                        return {"result": [], "reason": "MULTI_AUDIT_SCOPING_NOT_READY"}
+                        return []  # browser_recent_auditOutput.result is a list
                 else:
                     def read_audit(*a, **kw):
                         if a:
                             raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
                         if kw.get("session_id"):
                             self.authorize(kw["session_id"])
-                        return {"result": [], "reason": "MULTI_AUDIT_SCOPING_NOT_READY"}
+                        return []  # browser_recent_auditOutput.result is a list
                 tool.fn = read_audit
             elif name == "profile_list":
                 pass
