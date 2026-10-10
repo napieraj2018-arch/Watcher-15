@@ -244,7 +244,7 @@ END $body$;
 -- provider create; a missing owner binding or user cancellation fails closed.
 CREATE FUNCTION browser_recovery.can_create_provider(
   p_task uuid,p_lease uuid,p_slot integer,p_generation bigint
-) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER
+) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,browser_recovery,browser_parallel,browser_product,pg_temp
 AS $body$
 DECLARE tid uuid;
@@ -274,7 +274,7 @@ END $body$;
 -- This is DB policy only; the live MCP must be wired to this verification.
 CREATE FUNCTION browser_recovery.can_execute_epoch(
   p_task uuid,p_lease uuid,p_slot integer,p_generation bigint,p_epoch bigint
-) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER
+) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,browser_recovery,browser_parallel,browser_product,pg_temp
 AS $body$
 DECLARE tid uuid;
