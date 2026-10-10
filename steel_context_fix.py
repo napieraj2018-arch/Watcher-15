@@ -433,7 +433,50 @@ async def native_context(remote, **options):
             state = json.loads(Path(state).read_text(encoding='utf-8'))
         if not isinstance(state, dict):
             raise SteelFailure('STEEL_INVALID_PROFILE_STATE')
-        if binding.get('hydrated'):
+        if (binding.get('hydrated') and
+                binding.get('profile') == 'SteelSelfTest' and
+                callable(getattr(context, 'new_page', None)) and
+                callable(getattr(context, 'add_cookies', None))):
+            # Live Steel/Chromium can omit an unvisited origin from the native
+            # snapshot. A full set_storage_state() destroys native data that
+            # the snapshot did not include. On this single disposable fixture
+            # use origin-scoped browser operations and verify actual DOM state.
+            from native_origin_readback import reconcile_fixture_origin
+            before = await context.storage_state(indexed_db=True)
+            repair = await reconcile_fixture_origin(context, state)
+            observed = await context.storage_state(indexed_db=True)
+            binding['synthetic_fixture_pair_repaired'] = repair['applied']
+            binding['synthetic_fixture_origin_verified'] = repair['verified']
+            binding['backup_recovery_applied'] = repair['applied']
+            evidence = synthetic_fixture_evidence(before, state, observed)
+            evidence['proposed'] = synthetic_fixture_evidence(
+                before, state, state)['resolved']
+            evidence['exact_marker'] = synthetic_fixture_exact_evidence(
+                before, state, observed)
+            evidence['exact_marker']['proposed'] = (
+                synthetic_fixture_exact_evidence(
+                    state, state, state)['resolved'])
+            evidence['post_apply_readback_available'] = True
+            evidence['origin_scoped_recovery'] = {
+                'verified': repair['verified'],
+                'applied': repair['applied'],
+                'backup_available': repair['backup_available'],
+            }
+            binding['synthetic_fixture_evidence'] = evidence
+        elif (binding.get('hydrated') and
+              isinstance(binding.get('profile'), str) and
+              binding['profile'] != 'SteelSelfTest'):
+            # Steel's persisted native userDataDir is the source of truth.
+            # Playwright.set_storage_state clears the *entire* cookie, local
+            # storage and IndexedDB state. A pre-navigation snapshot cannot
+            # enumerate every native origin, so replaying an older portable
+            # copy would delete unrelated live authentication material.
+            # Keep the encrypted portable state as a backup, never import it
+            # automatically into a hydrated real user account.
+            binding['native_authoritative'] = True
+            binding['backup_recovery_applied'] = False
+            binding['portable_priority_used'] = False
+        elif binding.get('hydrated'):
             # The default trusts newer-looking native data over the encrypted
             # portable snapshot. For opted-in technical profiles only, trial
             # portable precedence to diagnose inconsistent cookie/storage

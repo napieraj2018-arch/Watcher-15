@@ -1,4 +1,4 @@
-# AI Browser — bramka przed sprzedażą (stan 09.10.2026)
+# AI Browser — bramka przed sprzedażą (stan 11.10.2026)
 
 **Wynik bieżący: NO-GO.** Projekt może służyć do dalszych, prywatnych testów właściciela, ale nie powinien jeszcze obsługiwać niezależnych płacących klientów.
 
@@ -18,9 +18,9 @@ Kod wyjścia 1 oznacza poprawny manifest z blokadami, 2 błędny manifest, 0 kom
 - Render: działająca pojedyncza instancja, weryfikowane deploye z osobną gałęzią i testami.
 - Floot: opublikowana aplikacja w planie bezpłatnym, aktualnie z widocznością publiczną. Sama dostępność frontendu nie jest równoznaczna z nieautoryzowanym dostępem do API: autoryzacja endpointów wymaga oddzielnego testu. **Nie wdrażać przy sprzedaży publicznego interfejsu administratora.**
 - Zapisane profile: dane w chmurze, lecz nadal globalny katalog nazw; brak izolacji płacących klientów.
-- Profil techniczny SteelSelfTest po zapisaniu świeżej zgodnej pary cookie/localStorage przeszedł dwa ponowne otwarcia na zdalnym Steel (09.10, zgodność PASS). Stara, już niespójna kopia nie została automatycznie naprawiona. Nie dowodzi to niezawodności 99,5% na prawdziwych kontach ani w wieloklienckiej infrastrukturze; warunek komercyjny nadal jest zablokowany.
-- Nowa kontrola właściciela sesji jest w trybie diagnostycznym, nie w egzekwowaniu.
-- Serwer ma limit jednej sesji; brak trwałej kolejki i izolacji limitów dla wielu klientów.
+- Aktualniejszy test z 10.10 na rzeczywistym Steel **nie przeszedł**: zapis świeżej pary był PASS, lecz po ponownej sesji cookie i localStorage były obecne, ale niezgodne. Dodatkowo strażnik poprawnie odmówił nadpisania zapisanego backupu. Warunek komercyjny pozostaje zablokowany do powtarzalnego E2E na nowym, bezpiecznym kodzie.
+- Prywatny tryb 5 sesji ma egzekwowane krótkotrwałe uchwyty jednego właściciela; nie ma trwałego wznowienia po restarcie, wymaganego dla klientów.
+- Serwer obsługuje maksymalnie 5 sesji jednego właściciela; brak trwałej kolejki i izolacji limitów dla wielu klientów.
 - Poprawki UX powstają w osobnej gałęzi, nie są obecnym panelem produkcyjnym.
 - Nie ma jeszcze zakończonego mechanizmu usunięcia wszystkich kopii i natywnych profili u dostawcy.
 - Steel opisuje limit 300 MB profilu oraz usunięcie nieużywanych profili po 30 dniach. W komercyjnej usłudze nie można zakładać bezterminowej trwałości dostawcy.
@@ -74,3 +74,12 @@ Zgodnie z Apple HIG podstawowym minimalnym obszarem dotykowym jest około 44 × 
 - RODO: https://eur-lex.europa.eu/eli/reg/2016/679/oj
 
 Użytkownik udzielił zgody na rozwój narzędzia; nie stanowi to dowodu spełnienia wymagań danych osób trzecich, dokumentacji handlowej lub audytu bezpieczeństwa.
+
+## Wdrożenie sprzedaży — kolejność odbioru
+
+1. **Nie oferować jeszcze płatnych logowań ani dostępu do profili.** Najpierw zakończyć E2E Steel na syntetycznym profilu: zapis → zwolnienie Steel → profil READY → nowa sesja → realny DOM PASS → drugi restart Render → PASS. Weryfikować niezależnie portable i native, bez kasowania działających profili.
+2. **Zamknięta beta bez dostępu do danych innych firm:** pięć równoległych zadań jednego właściciela, z pomiarem kosztu/sesję, współczynnika przywróceń i manualnych awarii; brak marketingowego stwierdzenia „zero ponownych logowań” bez dowodów.
+3. **Bramka dwóch obcych tenantów:** prawdziwe odseparowane tożsamości z RLS, trwałe sloty, reattach po restarcie, niezależne usuwanie wszystkich kopii i zabezpieczenie SSRF. Testy negatywne muszą sprawdzić odmowy między tenantami oraz przerwane zapisy.
+4. **Kontrolowany pilotaż komercyjny** dopiero po niezależnej akceptacji 20 punktów `release_gate.py`, planie kosztowym Steel/Render/Floot, fakturowaniu i dokumentacji RODO/DPA. Nie włączać Stripe LIVE ani publikować cennika ze zobowiązaniem SLA wcześniej.
+
+**Sugerowany produkt na start:** asystent automatyzujący powtarzalne zadania w istniejących, zatwierdzonych usługach użytkownika. Cena i liczba profili/sesji powinny wynikać z realnych danych o koszcie jednej godziny Steel, zużyciu przeglądarki i odsetku ręcznych logowań, a nie z ceny konkurencji.
