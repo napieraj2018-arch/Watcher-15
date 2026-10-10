@@ -48,6 +48,36 @@ storage_state, źródłowych screenshotów ani provider sessionId. Wszelkie
 provider IDs muszą być zaszyfrowane i przechowywane prywatnie
 z powiązanym task+tenant AAD, nigdy w publicznym repo.
 
+## Staged HTTPS BFF + krótkotrwały bilet (niewdrożone)
+
+Dodano w tej samej gałęzi prawdziwy kod WSGI `recovery/http.py`,
+PostgreSQL adapter `recovery/postgres.py`, serwis `recovery/service.py`
+i `recovery/tickets.py`, który stosuje AES-256-GCM.
+
+- `GET /api/owner/tasks` zwraca tylko własne task_id, stan,
+  cancel_pending i epokę — bez provider/session IDs.
+- `POST /api/owner/tasks/{task_id}/resume` wymaga HTTPS, prawdziwej
+  sesji BFF, osobno potwierdzonego CSRF i poprawnego Origin.
+  Po SQL `reattach_own_task` serwis **ponownie sprawdza Steel przez
+  niezależny provider adapter** i sprawdza aktualną epokę z rolą workera.
+  Domyślny `NoProviderProbe` odmawia, więc brak integracji nie
+  prowadzi do fałszywego sukcesu.
+- Sukces wydaje na 30 sekund zaszyfrowany token `aibr_...` oparty
+  na tenant/principal/task/slot/generation/epoch. Token jest związany
+  z właścicielem i zadaniem, nie ujawnia tych ID w Base64URL.
+  Sprawdzenie wymaga ponownej kontroli epoki oraz providera.
+  Stary token jest bezskuteczny po przekazaniu pracy lub anulowaniu.
+- `POST /api/owner/tasks/{task_id}/cancel` zapisuje żądanie
+  zakończenia, ale **nie twierdzi**, że provider został zwolniony.
+- Żadna z tych tras nie została zamontowana na Renderze ani
+  w produkcyjnym MCP. `aibr_` to wyłącznie bilet do przyszłej
+  operacji MCP exchange, **nie działający dziś uchwyt `aib_`**.
+
+CI na odizolowanym PostgreSQL 16 potwierdza trzy i pięć/dziesięć
+slotów, 16 jednoczesnych BFF reattach, rzeczywisty adapter DB,
+23 jednostkowe testy ticket/HTTPS/CSRF/WGSI z negatywnymi
+przypadkami i brak dostępu do płatnego Steel.
+
 ## Co jeszcze potrzebne, zanim prawdziwe czaty odzyskają pracę
 
 - Zautoryzowany BFF z rzeczywistym loginem i CSRF, połączony z
