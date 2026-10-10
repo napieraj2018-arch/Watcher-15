@@ -10,6 +10,7 @@ import asyncio
 import re
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.requests import Request
@@ -244,6 +245,67 @@ class MultiMcp(IsolatedAsyncioTestCase):
             ToolError,"PARALLEL_UNSCOPED_TOOL_DISABLED"):
             await self.mcp.call_tool("profile_delete",{
                 "profile":"OTHER","confirmation":"DELETE"})
+
+    async def test_watchdog_closes_orphaned_own_session_without_other_chat(self):
+        # An agent can lose its opaque capability when a tool invocation
+        # aborts. The watchdog must save/close its own browser independently.
+        one=await self.begin("CloudSelfTest")
+        two=await self.begin("RepairSelfTest")
+        lease=self.guard.leases["INTERNAL_SYNTHETIC_SESSION_1"]
+        async def short_sleep(_seconds):
+            return None
+        with patch("multi_capability_guard.asyncio.sleep",new=short_sleep):
+            await self.guard.watchdog(lease)
+        self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_1",
+                         self.manager._sessions)
+        self.assertIn("INTERNAL_SYNTHETIC_SESSION_1",self.manager.saved)
+        self.assertIn("INTERNAL_SYNTHETIC_SESSION_2",
+                      self.manager._sessions)
+        self.assertFalse(self.guard.quarantined)
+        result=await self.mcp.call_tool(
+            "browser_status",{"session_id":two})
+        self.assertIn("RepairSelfTest",str(result))
+        with self.assertRaises(ToolError):
+            await self.mcp.call_tool(
+                "browser_status",{"session_id":one})
+        new=await self.begin("ParallelSelfTest03")
+        self.assertNotEqual(one,new)
+
+    async def test_watchdog_does_not_free_slot_after_failed_save(self):
+        first=await self.begin("CloudSelfTest")
+        second=await self.begin("RepairSelfTest")
+        self.manager.broken_save=True
+        lease=self.guard.leases["INTERNAL_SYNTHETIC_SESSION_1"]
+        async def short_sleep(_seconds):
+            return None
+        with patch("multi_capability_guard.asyncio.sleep",new=short_sleep):
+            await self.guard.watchdog(lease)
+        self.assertTrue(self.guard.quarantined)
+        self.assertTrue(lease.recovery_required)
+        self.assertIn("INTERNAL_SYNTHETIC_SESSION_1",
+                      self.guard.leases)
+        with self.assertRaisesRegex(
+                ToolError,"PARALLEL_PROVIDER_RECONCILIATION_REQUIRED"):
+            await self.begin("ParallelSelfTest03")
+        second_status=await self.mcp.call_tool(
+            "browser_status",{"session_id":second})
+        self.assertIn("RepairSelfTest",str(second_status))
+
+    async def test_watchdog_missing_remote_session_requires_reconciliation(self):
+        await self.begin("CloudSelfTest")
+        lease=self.guard.leases["INTERNAL_SYNTHETIC_SESSION_1"]
+        # A provider closed without confirmation; do not mark it saved.
+        self.manager._sessions.pop("INTERNAL_SYNTHETIC_SESSION_1")
+        async def short_sleep(_seconds):
+            return None
+        with patch("multi_capability_guard.asyncio.sleep",new=short_sleep):
+            await self.guard.watchdog(lease)
+        self.assertTrue(self.guard.quarantined)
+        self.assertTrue(lease.recovery_required)
+        self.assertEqual(self.manager.saved,[])
+        with self.assertRaisesRegex(
+                ToolError,"PARALLEL_PROVIDER_RECONCILIATION_REQUIRED"):
+            await self.begin("ParallelSelfTest03")
 
     async def test_legacy_mobile_http_denied_even_without_sessions(self):
         # The route does not inherit an MCP per-task capability. Never let it
