@@ -87,6 +87,7 @@ def classify_reviews(reviews: list[dict], slides: list[dict],
                             "matched_slides":[],"reason":"visual_evidence_missing"})
             continue
         strong_matches=[]
+        exact_ambiguous=[]
         ambiguous=[]
         for index,ig_author,ig_quote in parsed:
             if not ig_quote:
@@ -101,15 +102,24 @@ def classify_reviews(reviews: list[dict], slides: list[dict],
                         if shorter>=25 else 0.0)
             if same_author and (exact_quote or substantially_contained):
                 strong_matches.append(index)
-            elif (exact_quote or substantially_contained or similarity>=0.78
+            elif exact_quote:
+                # An exact text collision must take precedence over other
+                # near-identical generic templates. Different author still
+                # needs confirmation, never mark as used.
+                exact_ambiguous.append(index)
+            elif (substantially_contained or similarity>=0.78
                   or (same_author and similarity>=0.66)):
-                # Shortened quote, alias, same text with different author:
-                # never silently mark as used OR unused.
+                # Shortened quote, alias, similar boilerplate: never silently
+                # mark as used OR unused.
                 ambiguous.append(index)
         if strong_matches:
             results.append({"review_id":rid,"status":"used",
                             "matched_slides":sorted(strong_matches),
                             "reason":"same_author_and_quote"})
+        elif exact_ambiguous:
+            results.append({"review_id":rid,"status":"needs_verification",
+                            "matched_slides":sorted(exact_ambiguous),
+                            "reason":"exact_quote_but_author_uncertain"})
         elif ambiguous:
             results.append({"review_id":rid,"status":"needs_verification",
                             "matched_slides":sorted(ambiguous),
