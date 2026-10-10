@@ -23,6 +23,38 @@ class ErrorReportingTests(unittest.TestCase):
         self.legacy = legacy_fail
         self.handler = fix.build_failure_handler(self.legacy, AnticipatedToolError)
 
+    def test_target_closed_page_produces_fixed_actionable_mcp_error(self):
+        from playwright._impl._errors import TargetClosedError
+        reason = "Page.title: private host, cookies and session details must not leak"
+        with self.assertRaises(AnticipatedToolError) as caught:
+            self.handler(TargetClosedError(reason))
+        self.assertEqual(str(caught.exception), fix.PAGE_CLOSED_MESSAGE)
+        self.assertNotIn("private host", str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(self.calls, [])
+
+    def test_target_closed_subclass_does_not_leak_provider_url(self):
+        from playwright._impl._errors import TargetClosedError
+        class ClosedSubType(TargetClosedError):
+            pass
+        with self.assertRaises(AnticipatedToolError) as caught:
+            self.handler(ClosedSubType("wss://provider.invalid/session/secret"))
+        self.assertEqual(str(caught.exception), fix.PAGE_CLOSED_MESSAGE)
+        self.assertNotIn("provider.invalid", str(caught.exception))
+
+    def test_unrelated_exception_with_target_closed_words_is_not_reclassified(self):
+        with self.assertRaisesRegex(RuntimeError, "Browser operation failed"):
+            self.handler(RuntimeError("TargetClosedError fake SECRET"))
+
+    def test_mcp_error_classification_is_only_for_real_playwright_type(self):
+        from playwright._impl._errors import TargetClosedError
+        self.assertIsNone(fix.classify_known_remote_failure(
+            RuntimeError("Target page was closed")))
+        self.assertEqual(
+            fix.classify_known_remote_failure(TargetClosedError("secret")),
+            fix.PAGE_CLOSED_MESSAGE,
+        )
+
     def test_busy_is_actionable(self):
         with self.assertRaises(AnticipatedToolError) as caught:
             self.handler(DomainError("AI Browser session limit reached (1). Stop an existing session first."))
