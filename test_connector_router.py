@@ -63,7 +63,8 @@ class ConnectorFirstRouting(unittest.TestCase):
         self.assertEqual(anita["action"],"discover_abilities")
         self.assertTrue(anita["requires_live_connector_probe"])
         self.assertNotEqual(anita["expected_site_url"],vet["expected_site_url"])
-        self.assertNotIn("password",str(anita).lower())
+        self.assertNotIn("password",str(anita["required_inputs"]).lower())
+        self.assertEqual(anita["privacy"],"never_request_password_or_otp_in_chat")
 
     def test_google_business_anita_uses_exact_location(self):
         p=plan_operation("google_business","business_reviews","anita")
