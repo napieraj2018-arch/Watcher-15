@@ -1,0 +1,30 @@
+name: AI Browser autonomous workflow catalogue and MCP contract
+on:
+  push:
+    branches:
+      - autonomous-operator-workflows-20261010
+    paths:
+      - "AGENTS.md"
+      - "docs/AUTONOMOUS_BROWSER.md"
+      - "docs/BROWSER_CAPABILITIES.md"
+      - "workflows/anita/reviews.yaml"
+      - "operator_catalog.py"
+      - "test_operator_catalog.py"
+      - "bootstrap.py"
+      - "Dockerfile"
+      - ".github/workflows/autonomous-browser-catalog-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-docker-and-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production Docker image including all embedded regressions
+        run: docker build --progress=plain -t aib-operator-workflows .
+      - name: Verify public manifest and safe MCP tool registration in container
+        run: docker run --rm --entrypoint python aib-operator-workflows /app/test_operator_catalog.py
+      - name: Check future-private-state guard and no login side effects
+        run: echo "CATALOG_METADATA_ONLY_NO_PRIVATE_CHECKPOINT_DB_NO_PROVIDER_OPERATIONS"
