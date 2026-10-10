@@ -6,7 +6,7 @@ from mcp.server.mcpserver import MCPServer
 from capability_guard import CapabilityGuard, TOOLS, OWNED
 from test_capability_guard import DummyManager
 
-def fake_mcp(manager):
+def fake_mcp(manager, *, sessions_as_list=False):
     server=MCPServer("synthetic-session-guard-test")
     @server.custom_route("/health/context",methods=["GET"])
     async def health(request):
@@ -19,6 +19,12 @@ def fake_mcp(manager):
     async def sessions()->dict:
         return {"result":[{"session_id":sid,"profile":s.profile,"mode":s.mode,"url":s.page.url}
                           for sid,s in manager._sessions.items()]}
+    async def sessions_list()->list[dict]:
+        # Mirror the LIVE browser_sessionsOutput.result list schema.
+        # Its SDK output adapter must accept the returned list, never a
+        # {"result": {"result": [...]}} nested object.
+        return [{"session_id":sid,"profile":s.profile,"mode":s.mode,
+                 "url":s.page.url} for sid,s in manager._sessions.items()]
     async def audit()->dict:
         return {"result":[]}
     async def noop(session_id:str)->dict:
@@ -48,7 +54,7 @@ def fake_mcp(manager):
     for name in TOOLS:
         if name=="browser_start": fn=start
         elif name=="browser_status": fn=status
-        elif name=="browser_sessions": fn=sessions
+        elif name=="browser_sessions": fn=sessions_list if sessions_as_list else sessions
         elif name=="browser_recent_audit": fn=audit
         elif name=="browser_set_mode": fn=mode
         elif name=="browser_stop": fn=stop
