@@ -53,6 +53,6 @@ jobs:
       - name: Validate AES-256-GCM one-time reattach tickets and fail-closed BFF flow
         run: python -m unittest tenant_security.tests.test_resume_service -v
       - name: Race sixteen authenticated BFF reattachments; enforce identity/epoch and run real BFF adapter
-        run: python tenant_security/tests/test_resume_owner_pg.py
+        run: python -m tenant_security.tests.test_resume_owner_pg
       - name: Confirm no customer records or paid provider were accessed
         run: echo "THROWAWAY_POSTGRES_ONLY_NO_REAL_STEEL_RENDER_FLOOT_META_GOOGLE"
