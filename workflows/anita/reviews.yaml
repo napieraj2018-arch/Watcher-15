@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "workflow_id": "reviews.deduplicate.graphics",
+  "version": "1.0.0",
+  "status": "template_requires_private_tenant_binding",
+  "source_requirements": [
+    {
+      "role": "story_highlight",
+      "media": "visual_slides",
+      "expected_count": 8
+    },
+    {
+      "role": "verified_business_reviews",
+      "media": "text_and_rating",
+      "expected_count": 20
+    }
+  ],
+  "steps": [
+    "verify_owner_and_account_identity",
+    "read_all_highlight_images",
+    "read_all_business_reviews",
+    "normalize_and_find_similarities",
+    "compare_against_private_used_reviews",
+    "classify_used_unused_needs_verification",
+    "render_only_verified_unused_reviews",
+    "create_private_zip_for_approval"
+  ],
+  "private_bindings": [
+    "instagram_account_id",
+    "highlight_id",
+    "google_business_location",
+    "already_used_review_authors",
+    "auth_profile_mapping",
+    "authentic_brand_logo_assets",
+    "private_evidence_and_output_store"
+  ],
+  "evidence": {
+    "source_item_id_required": true,
+    "complete_or_partial_required": true,
+    "visual_frames_required": true,
+    "private_provenance_required": true
+  },
+  "safety": {
+    "no_publication_without_user_approval": true,
+    "read_only_source_access": true,
+    "refuse_missing_account_identity": true,
+    "never_copy_private_reviews_to_git": true,
+    "no_cross_tenant_data": true,
+    "no_duplicate_materials": true
+  }
+}
