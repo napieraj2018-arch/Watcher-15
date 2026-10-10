@@ -310,12 +310,27 @@ class MultiCapabilityGuard:
     def safe_sessions(self):
         # Directly use the manager metadata, not page.title() or page
         # screenshots. A closed Chromium tab must not break all chats.
-        self._assess()
+        try:
+            self._assess()
+        except OwnershipError as exc:
+            # An interrupted browser_start may leave a manager session with
+            # no capability. Do not crash the read-only inventory: report the
+            # existence of a quarantined session without its profile, mode,
+            # URL, page title, internal handle or provider reference.
+            if str(exc) != "UNMANAGED_SESSION_QUARANTINED":
+                raise
         items = []
         for sid, session in self.sessions().items():
             lease = self.leases.get(sid)
             if lease is None:
-                raise OwnershipError("UNMANAGED_SESSION_QUARANTINED")
+                self.quarantined = True
+                items.append({
+                    "session_id": "[redacted]",
+                    "profile": "[redacted]",
+                    "mode": "unknown",
+                    "state": "unmanaged_quarantined",
+                })
+                continue
             # Expired per-chat capabilities must never appear as healthy
             # active sessions. Do not auto-stop, renew or reveal the handle.
             state = ("recovery_required" if lease.recovery_required
