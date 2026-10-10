@@ -6,12 +6,28 @@ from __future__ import annotations
 from collections.abc import Callable, MutableMapping
 from typing import Any, NoReturn
 
-FIX_REVISION = "2026-10-08.2"
+from playwright._impl._errors import TargetClosedError
+
+FIX_REVISION = "2026-10-10.1"
 BUSY_MESSAGE = (
     "AI_BROWSER_BUSY: The configured browser session limit is occupied. "
     "Use browser_sessions to inspect it. Do not stop another active task or "
     "retry login automatically; retry this operation after the session is released."
 )
+
+PAGE_CLOSED_MESSAGE = (
+    "AI_BROWSER_REMOTE_PAGE_CLOSED: The remote Chromium page closed during "
+    "navigation or status inspection. Login state was NOT confirmed. "
+    "Do not repeat authentication automatically. Retry only after checking "
+    "that the prior remote session has been reconciled or released."
+)
+
+
+def classify_known_remote_failure(exc: Exception) -> str | None:
+    """Precise exception class, never pattern-match private exception text."""
+    if isinstance(exc, TargetClosedError):
+        return PAGE_CLOSED_MESSAGE
+    return None
 
 
 def build_failure_handler(
@@ -30,6 +46,9 @@ def build_failure_handler(
         raise RuntimeError("AI_BROWSER_ERROR_REPORTING_INCOMPATIBLE")
 
     def fail(exc: Exception) -> NoReturn:
+        known = classify_known_remote_failure(exc)
+        if known is not None:
+            raise tool_error_type(known) from None
         try:
             original_fail(exc)
         except ValueError as sanitized:

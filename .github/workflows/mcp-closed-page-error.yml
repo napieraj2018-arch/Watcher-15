@@ -1,0 +1,24 @@
+name: AI Browser actionable closed-page errors
+on:
+  push:
+    branches:
+      - mcp-closed-page-actionable-error-20261010
+    paths:
+      - "mcp_error_reporting.py"
+      - "test_mcp_error_reporting.py"
+      - ".github/workflows/mcp-closed-page-error.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production-image-error-reporting:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build exact production Docker image including regression tests
+        run: docker build --progress=plain -t aib-closed-page-error .
+      - name: Explicitly test actionable errors without any real Steel profiles
+        run: docker run --rm --entrypoint python aib-closed-page-error /app/test_mcp_error_reporting.py
+      - name: No login retries or provider calls
+        run: echo "OFFLINE_SANITIZED_ERROR_ONLY_NO_REAL_AUTHENTICATION"
