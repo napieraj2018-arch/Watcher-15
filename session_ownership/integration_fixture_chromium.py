@@ -137,6 +137,7 @@ class RealChromiumReadback(unittest.IsolatedAsyncioTestCase):
         await self.context.add_cookies([{
             "name": "unrelated_canary",
             "value": "unrelated-native-only",
+            "expires": 2200000000,
             "domain": "ai-browser-vault.floot.app",
             "path": "/",
             "secure": True,
