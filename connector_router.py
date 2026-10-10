@@ -140,7 +140,9 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
         result["browser_profile_if_required"]=target["browser_google"]
     elif service=="wordpress":
         result["expected_site_url"]=target["wordpress"]
-        result["browser_profile_if_required"]=target["browser_google"]
+        # A Google profile is not automatically a WordPress login.
+        # Avoid repeated login loops caused by guessing the wrong profile.
+        result["browser_profile_if_required"]="explicit_verified_wordpress_profile"
     elif service=="browser":
         result["status"]="browser_authentication_required"
         result["browser_profile_if_required"]="explicit_owner_selected_profile"
