@@ -6,7 +6,7 @@ from mcp.server.mcpserver import MCPServer
 from capability_guard import CapabilityGuard, TOOLS, OWNED
 from test_capability_guard import DummyManager
 
-def fake_mcp(manager, *, sessions_as_list=False):
+def fake_mcp(manager, *, sessions_as_list=False, audit_as_list=False):
     server=MCPServer("synthetic-session-guard-test")
     @server.custom_route("/health/context",methods=["GET"])
     async def health(request):
@@ -27,6 +27,8 @@ def fake_mcp(manager, *, sessions_as_list=False):
                  "url":s.page.url} for sid,s in manager._sessions.items()]
     async def audit()->dict:
         return {"result":[]}
+    async def audit_list(limit:int=50, profile:str="", session_id:str="")->list[dict]:
+        return []
     async def noop(session_id:str)->dict:
         manager._session(session_id)
         return {"session_id":session_id,"ok":True}
@@ -55,7 +57,7 @@ def fake_mcp(manager, *, sessions_as_list=False):
         if name=="browser_start": fn=start
         elif name=="browser_status": fn=status
         elif name=="browser_sessions": fn=sessions_list if sessions_as_list else sessions
-        elif name=="browser_recent_audit": fn=audit
+        elif name=="browser_recent_audit": fn=audit_list if audit_as_list else audit
         elif name=="browser_set_mode": fn=mode
         elif name=="browser_stop": fn=stop
         elif name=="profile_flush": fn=flush
