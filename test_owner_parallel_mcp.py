@@ -16,7 +16,11 @@ from starlette.requests import Request
 
 from multi_capability_guard import MultiCapabilityGuard
 from capability_guard import OwnershipError
-from session_ownership.tests.test_sdk_contract import fake_mcp
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent
+                       / "session_ownership" / "tests"))
+from test_sdk_contract import fake_mcp
 
 HANDLE_RE = re.compile(r"aib_[A-Za-z0-9_-]{43}")
 
