@@ -316,11 +316,17 @@ class MultiCapabilityGuard:
             lease = self.leases.get(sid)
             if lease is None:
                 raise OwnershipError("UNMANAGED_SESSION_QUARANTINED")
+            # Expired per-chat capabilities must never appear as healthy
+            # active sessions. Do not auto-stop, renew or reveal the handle.
+            state = ("recovery_required" if lease.recovery_required
+                     else "capability_expired"
+                     if self.clock() - lease.started_at > 850
+                     else "active")
             items.append({
                 "session_id": "[redacted]",
                 "profile": lease.profile,
                 "mode": getattr(session, "mode", "unknown"),
-                "state": "recovery_required" if lease.recovery_required else "active",
+                "state": state,
             })
         # The production ChatGPT connector's browser_sessionsOutput.result
         # schema is a LIST, not a dictionary with {result, capacity, ...}.
