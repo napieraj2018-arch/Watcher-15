@@ -9,6 +9,8 @@ on:
       - "docs/BROWSER_CAPABILITIES.md"
       - "workflows/anita/reviews.yaml"
       - "operator_catalog.py"
+      - "review_dedupe.py"
+      - "test_review_dedupe.py"
       - "test_operator_catalog.py"
       - "bootstrap.py"
       - "Dockerfile"
