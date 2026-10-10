@@ -87,6 +87,9 @@ class SteelFailure(RuntimeError):
 class Engine:
     def __init__(self):
         self.remote = {}
+        # ONE by default. Opt-in owner beta may increase this only when the
+        # entire 51-tool MCP surface has a verified profile capability guard.
+        self.max_sessions = 1
         # Serialize the entire remote-create/CDP-connect/cleanup sequence.
         # Checking only active sessions before the first await races with
         # simultaneous browser_start calls and can consume extra Steel sessions.
@@ -139,8 +142,8 @@ class Engine:
         # Never create a replacement while the previous release is in flight.
         if self._quarantined:
             raise SteelFailure('STEEL_SESSION_QUARANTINED')
-        if self.remote:
-            raise SteelFailure('STEEL_SESSION_LIMIT_1')
+        if len(self.remote) >= self.max_sessions:
+            raise SteelFailure('STEEL_SESSION_LIMIT_' + str(self.max_sessions))
         remote_id = str(uuid.uuid4())
         browser = None
         creation_confirmed = False
@@ -254,6 +257,24 @@ class RemotePlaywright:
         return getattr(self.playwright, name)
 
 
+def parallel_session_capacity():
+    """Opt-in only: Steel Launch supports up to 10, but owner beta caps at 5.
+
+    Explicit flags prevent deployment of an unsecured numeric session limit.
+    This is not per-tenant isolation and is not suitable for public SaaS.
+    """
+    raw = os.environ.get("AI_BROWSER_PARALLEL_SESSIONS", "1")
+    if raw not in ("1", "2", "3", "4", "5"):
+        raise SteelFailure("PARALLEL_SESSIONS_CONFIG_INVALID")
+    slots = int(raw)
+    mode = os.environ.get("AI_BROWSER_SESSION_GUARD", "0")
+    if slots > 1 and mode != "multi":
+        raise SteelFailure("PARALLEL_OWNER_GUARD_REQUIRED")
+    if mode == "multi" and os.environ.get("AI_BROWSER_PARALLEL_OWNER_BETA") != "1":
+        raise SteelFailure("PARALLEL_OWNER_BETA_REQUIRED")
+    return slots
+
+
 def install(ns):
     if os.environ.get('AI_BROWSER_ENGINE', '').lower() != 'steel':
         return
@@ -262,9 +283,11 @@ def install(ns):
         return
     if not manager.portable_profiles:
         raise SteelFailure('STEEL_REQUIRES_PORTABLE_PROFILES')
+    slots = parallel_session_capacity()
     engine = Engine()
+    engine.max_sessions = slots
     manager._steel_engine = engine
-    manager.max_sessions = 1
+    manager.max_sessions = slots
     old_ensure = manager._ensure_playwright
     old_start, old_stop, old_status = manager.start, manager.stop, manager.status
     timers = {}

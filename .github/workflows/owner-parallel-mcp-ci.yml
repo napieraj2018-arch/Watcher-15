@@ -1,0 +1,40 @@
+name: AI Browser five owner sessions — real MCP 2.3 Docker contract
+on:
+  push:
+    branches:
+      - owner-parallel-mcp-runtime-20261010
+    paths:
+      - "steel_runtime.py"
+      - "session_ownership/multi_capability_guard.py"
+      - "test_steel_parallel_runtime.py"
+      - "test_owner_parallel_mcp.py"
+      - "bootstrap.py"
+      - "Dockerfile"
+      - ".github/workflows/owner-parallel-mcp-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aib-five-mcp-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  production-docker-offline-five:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build exact production image and execute all 2026-10-10 safety tests
+        run: docker build --progress=plain -t aib-five-mcp .
+      - name: Five independent provider sessions, strict mode and quarantine
+        run: docker run --rm --entrypoint python aib-five-mcp /app/test_steel_parallel_runtime.py
+      - name: Real MCP SDK with 51 browser tools, five opaque capabilities
+        run: docker run --rm --entrypoint sh aib-five-mcp -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_parallel_mcp.py"
+      - name: Existing singleflight and two-client isolation remain intact
+        run: |
+          docker run --rm --entrypoint python aib-five-mcp /app/test_steel_singleflight.py
+          docker run --rm --entrypoint sh aib-five-mcp -c "PYTHONPATH=/app/session_ownership:/app python -m unittest discover -s /app/session_ownership/tests -v"
+      - name: Verify that public SaaS / live Render limits are unchanged
+        run: |
+          grep -F 'AI_BROWSER_MAX_SESSIONS=1' Dockerfile
+          grep -F 'AI_BROWSER_SESSION_GUARD' bootstrap.py
+          echo "ONLY_OFFLINE_TESTS_NO_STEEL_CREDITS_NO_REAL_PROFILES_NO_DEPLOY"
