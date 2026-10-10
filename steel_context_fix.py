@@ -792,17 +792,25 @@ def install(ns):
                 'ok': False, 'error': 'SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED'}
             raise
         result = await old_stop(sid, *args, **kwargs)
-        if binding and getattr(remote, '_aib_native_hydrated', False):
-            try:
-                await await_profile_ready(original_request, binding['profile_id'])
-                if isinstance(result, dict) and result.get('profile_saved') is True:
-                    await registry.request('POST', binding['profile'], binding['profile_id'], True)
-                if isinstance(result, dict):
-                    result['full_profile_saved'] = True
-            except Exception:
-                if isinstance(result, dict):
-                    result['full_profile_saved'] = False
+        if isinstance(result, dict):
+            # An upstream "full_profile_saved" flag is not a durable receipt.
+            # In particular, READY must never turn a failed portable save into
+            # success or authorize the owner guard to release another slot.
+            result['full_profile_saved'] = False
+            if result.get('profile_saved') is not True:
+                result['full_profile_error'] = 'PORTABLE_SAVE_NOT_CONFIRMED'
+            elif not binding or not getattr(remote, '_aib_native_hydrated', False):
+                result['full_profile_error'] = 'NATIVE_SAVE_NOT_CONFIRMED'
+            else:
+                try:
+                    await await_profile_ready(original_request, binding['profile_id'])
+                    await registry.request(
+                        'POST', binding['profile'], binding['profile_id'], True)
+                except Exception:
                     result['full_profile_error'] = 'PERSISTENCE_NOT_CONFIRMED'
+                else:
+                    result['full_profile_saved'] = True
+                    result.pop('full_profile_error', None)
         engine._native_bindings.pop(rid, None)
         save_locks.pop(sid, None)
         save_status.pop(sid, None)

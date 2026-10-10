@@ -1,0 +1,32 @@
+name: AI Browser P0 truthful stop receipt - full Docker regression
+on:
+  push:
+    branches:
+      - p0-stop-receipt-truth-20261010
+    paths:
+      - "steel_context_fix.py"
+      - "test_synthetic_restore_readback.py"
+      - "Dockerfile"
+      - ".github/workflows/stop-receipt-proof.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aib-stop-receipt-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  docker-negative-positive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Production image compiles and runs all existing embedded tests
+        run: docker build --progress=plain -t aib-stop-receipt .
+      - name: Exercise actual installed wrapper and receipt regressions
+        run: docker run --rm --entrypoint python aib-stop-receipt /app/test_synthetic_restore_readback.py
+      - name: Preserve five-session and capability isolation regressions
+        run: |
+          docker run --rm --entrypoint sh aib-stop-receipt -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_parallel_mcp.py"
+          docker run --rm --entrypoint python aib-stop-receipt /app/test_steel_parallel_runtime.py
+      - name: Confirm build has no secrets or live Steel invocations
+        run: echo "SYNTHETIC_TESTS_ONLY_NO_PROVIDER_NO_DEPLOY"
