@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - ai-browser-cloud
+      - steel-selftest-save-integrity-20261010
       - owner-beta-quarantine-list-20261010
       - owner-beta-safe-status-20261010
       - parallel-main-ci-20261010
@@ -11,6 +12,8 @@ on:
       - owner-parallel-session-list-schema-20261010
     paths:
       - "steel_runtime.py"
+      - "steel_context_fix.py"
+      - "test_synthetic_restore_readback.py"
       - "session_ownership/multi_capability_guard.py"
       - "test_steel_parallel_runtime.py"
       - "test_owner_parallel_mcp.py"
