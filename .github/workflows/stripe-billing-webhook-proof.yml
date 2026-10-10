@@ -1,0 +1,43 @@
+name: AI Browser Stripe webhook security proof
+on:
+  push:
+    branches:
+      - stripe-signed-webhook-inbox-20261009
+    paths:
+      - "stripe_billing/**"
+      - ".github/workflows/stripe-billing-webhook-proof.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aib-stripe-webhook-proof-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ephemeral-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Synthetic signed payload tests without provider/network calls
+        run: |
+          python -m py_compile stripe_billing/inbox.py stripe_billing/postgres.py
+          python -m unittest discover -s stripe_billing/tests -p "test_webhook.py" -v
+      - name: Start ephemeral local Postgres (no Docker Hub)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-16 postgresql-client-16
+          sudo sed -i '1i host all all 127.0.0.1/32 trust' /etc/postgresql/16/main/pg_hba.conf
+          sudo pg_ctlcluster 16 main restart
+          pg_isready -h 127.0.0.1 -p 5432 -U postgres
+          python -m pip install --disable-pip-version-check "psycopg[binary]>=3.2,<3.3"
+      - name: Create SQL inbox only on disposable CI DB
+        run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f stripe_billing/001_inbox.sql
+      - name: Check database isolation, idempotency and unmapped quarantine
+        run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f stripe_billing/tests/test_postgres.sql
+      - name: Race 16 separately authenticated synthetic signed deliveries
+        run: PYTHONPATH=. python stripe_billing/tests/test_postgres_race.py
+      - name: Record that no real payment or tenant access was touched
+        run: echo "SIGNED_STRIPE_WEBHOOK_PROOF_ONLY_NO_LIVE_PRODUCTS_NO_CHARGES"
