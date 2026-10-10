@@ -4,6 +4,7 @@ on:
     branches:
       - ai-browser-cloud
       - parallel-main-ci-20261010
+      - owner-multi-watchdog-regression-20261010
       - owner-parallel-mcp-runtime-20261010
       - owner-parallel-session-list-schema-20261010
     paths:
