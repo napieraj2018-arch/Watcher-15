@@ -12,6 +12,7 @@ on:
       - "review_dedupe.py"
       - "test_review_dedupe.py"
       - "test_operator_catalog.py"
+      - "test_operator_mcp_real.py"
       - "bootstrap.py"
       - "Dockerfile"
       - ".github/workflows/autonomous-browser-catalog-ci.yml"
