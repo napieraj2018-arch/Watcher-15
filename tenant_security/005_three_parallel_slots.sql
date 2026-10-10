@@ -153,7 +153,7 @@ BEGIN
 END $body$;
 
 CREATE FUNCTION browser_parallel.activate(
-  p_task uuid,p_lease uuid,p_slot smallint,p_generation bigint
+  p_task uuid,p_lease uuid,p_slot integer,p_generation bigint
 ) RETURNS boolean
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,browser_parallel,browser_product,pg_temp
@@ -193,7 +193,7 @@ BEGIN
 END $body$;
 
 CREATE FUNCTION browser_parallel.extend(
-  p_task uuid,p_lease uuid,p_slot smallint,p_generation bigint,p_ttl integer
+  p_task uuid,p_lease uuid,p_slot integer,p_generation bigint,p_ttl integer
 ) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,browser_parallel,browser_product,pg_temp
 AS $body$
@@ -217,7 +217,7 @@ BEGIN
 END $body$;
 
 CREATE FUNCTION browser_parallel.begin_close(
-  p_task uuid,p_lease uuid,p_slot smallint,p_generation bigint
+  p_task uuid,p_lease uuid,p_slot integer,p_generation bigint
 ) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,browser_parallel,browser_product,pg_temp
 AS $body$
@@ -250,7 +250,7 @@ BEGIN
 END $body$;
 
 CREATE FUNCTION browser_parallel.record_verified_release(
-  p_slot smallint,p_generation bigint,p_lease uuid,
+  p_slot integer,p_generation bigint,p_lease uuid,
   p_remote_closed boolean,p_profile_saved boolean
 ) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,browser_parallel,pg_temp
@@ -273,7 +273,7 @@ BEGIN
 END $body$;
 
 CREATE FUNCTION browser_parallel.finish(
-  p_task uuid,p_lease uuid,p_slot smallint,p_generation bigint
+  p_task uuid,p_lease uuid,p_slot integer,p_generation bigint
 ) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,browser_parallel,browser_product,pg_temp
 AS $body$
@@ -325,14 +325,14 @@ $body$;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA browser_parallel FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION
   browser_parallel.claim(uuid,uuid,integer),
-  browser_parallel.activate(uuid,uuid,smallint,bigint),
-  browser_parallel.extend(uuid,uuid,smallint,bigint,integer),
-  browser_parallel.begin_close(uuid,uuid,smallint,bigint),
+  browser_parallel.activate(uuid,uuid,integer,bigint),
+  browser_parallel.extend(uuid,uuid,integer,bigint,integer),
+  browser_parallel.begin_close(uuid,uuid,integer,bigint),
   browser_parallel.quarantine_expired(),
-  browser_parallel.finish(uuid,uuid,smallint,bigint),
+  browser_parallel.finish(uuid,uuid,integer,bigint),
   browser_parallel.my_slot_count()
 TO aib_parallel_worker;
 GRANT EXECUTE ON FUNCTION
-  browser_parallel.record_verified_release(smallint,bigint,uuid,boolean,boolean)
+  browser_parallel.record_verified_release(integer,bigint,uuid,boolean,boolean)
 TO aib_parallel_verifier;
 COMMIT;
