@@ -12,6 +12,7 @@ COPY test_steel_singleflight.py /app/test_steel_singleflight.py
 COPY test_steel_parallel_runtime.py /app/test_steel_parallel_runtime.py
 COPY test_steel_health_private.py /app/test_steel_health_private.py
 COPY steel_context_fix.py /app/steel_context_fix.py
+COPY native_origin_readback.py /app/native_origin_readback.py
 COPY test_context_health_private.py /app/test_context_health_private.py
 COPY auth_status_v052.py /app/auth_status_v052.py
 COPY test_auth_status_052.py /app/test_auth_status_052.py
