@@ -238,6 +238,37 @@ class MultiMcp(IsolatedAsyncioTestCase):
         result=await self.mcp.call_tool("browser_status",{"session_id":other})
         self.assertIn("Google - Architekt",str(result))
 
+    async def test_broken_start_inventory_redacts_unmanaged_session(self):
+        owned = await self.begin("Owner-Technical")
+        class ClosedPage:
+            @property
+            def url(self):
+                raise RuntimeError("PRIVATE_CLOSED_PAGE_URL")
+        self.manager._sessions["SENSITIVE_PROVIDER_ID"] = SimpleNamespace(
+            profile="PRIVATE_ACCOUNT_NAME",
+            mode="write",
+            page=ClosedPage(),
+        )
+        catalog = self.guard.safe_sessions()
+        self.assertEqual(len(catalog), 2)
+        self.assertTrue(self.guard.quarantined)
+        self.assertEqual(catalog[0]["state"], "active")
+        self.assertEqual(catalog[1], {
+            "session_id": "[redacted]",
+            "profile": "[redacted]",
+            "mode": "unknown",
+            "state": "unmanaged_quarantined",
+        })
+        via_mcp = str(await self.mcp.call_tool("browser_sessions", {}))
+        for private in ("SENSITIVE_PROVIDER_ID", "PRIVATE_ACCOUNT_NAME",
+                        "PRIVATE_CLOSED_PAGE_URL", owned):
+            self.assertNotIn(private, via_mcp)
+        with self.assertRaisesRegex(
+                ToolError, "UNMANAGED_SESSION_QUARANTINED"):
+            await self.begin("Another-Technical")
+        # Read-only inspection does not adopt, stop, or erase the orphan.
+        self.assertIn("SENSITIVE_PROVIDER_ID", self.manager._sessions)
+
     async def test_unmanaged_session_fails_closed_not_adopted(self):
         self.manager._sessions["FOREIGN_SESSION"]=SimpleNamespace(
             profile="OTHER",mode="write",page=SimpleNamespace(url="about:blank"))
