@@ -1,0 +1,54 @@
+name: AI Browser durable task resume — actor and provider fencing
+on:
+  push:
+    branches:
+      - tenant-task-resume-fenced-20261010
+    paths:
+      - "tenant_security/007_task_resume_owner_fenced.sql"
+      - "tenant_security/tests/test_resume_owner_pg.py"
+      - ".github/workflows/durable-task-resume-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aib-durable-resume-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  postgres16-real-authenticated-reattach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Create isolated throwaway PostgreSQL 16 (no Render/Floot)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-16 postgresql-client-16
+          sudo sed -i '1i host all all 127.0.0.1/32 trust' /etc/postgresql/16/main/pg_hba.conf
+          sudo pg_ctlcluster 16 main restart
+          pg_isready -h 127.0.0.1 -U postgres
+          python -m pip install --disable-pip-version-check "psycopg[binary]==3.2.10"
+      - name: Apply existing RLS+auth+fenced provider slot ancestors
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/001_tenant_isolation.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_isolation.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/002_bff_session_auth.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f commercial/leases/001_durable_slot.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/004_tenant_fenced_slot.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/005_three_parallel_slots.sql
+      - name: Old 3-slot/16-client integration must remain green
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/tests/test_three_parallel_slots.sql
+          python tenant_security/tests/test_three_parallel_race.py
+      - name: Old configurable 5/10-slot/32-client proof must remain green
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/006_configurable_capacity.sql
+          python tenant_security/tests/test_elastic_capacity.py
+      - name: Apply isolated BFF-authenticated owner recovery and worker fencing
+        run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f tenant_security/007_task_resume_owner_fenced.sql
+      - name: Race sixteen authenticated BFF reattachments; enforce identity/epoch
+        run: python tenant_security/tests/test_resume_owner_pg.py
+      - name: Confirm no customer records or paid provider were accessed
+        run: echo "THROWAWAY_POSTGRES_ONLY_NO_REAL_STEEL_RENDER_FLOOT_META_GOOGLE"
