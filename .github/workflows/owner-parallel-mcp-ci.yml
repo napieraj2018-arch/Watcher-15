@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - ai-browser-cloud
+      - owner-beta-safe-status-20261010
       - parallel-main-ci-20261010
       - owner-multi-watchdog-regression-20261010
       - owner-parallel-mcp-runtime-20261010

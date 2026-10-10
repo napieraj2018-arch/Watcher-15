@@ -114,6 +114,23 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.assertNotIn("INTERNAL_SYNTHETIC_SESSION_",report)
         self.assertNotIn(caps[0],report)
 
+    async def test_expired_capability_is_not_reported_as_active(self):
+        cap = await self.begin("Owner-Expired-Technical")
+        lease = next(iter(self.guard.leases.values()))
+        self.guard.clock = lambda: lease.started_at + 851
+        listing = self.guard.safe_sessions()
+        self.assertEqual(len(listing), 1)
+        self.assertEqual(listing[0]["state"], "capability_expired")
+        self.assertEqual(listing[0]["session_id"], "[redacted]")
+        self.assertNotIn(cap, str(listing))
+        with self.assertRaisesRegex(ToolError, "SESSION_CAPABILITY_EXPIRED"):
+            await self.mcp.call_tool("browser_status", {"session_id": cap})
+        # Cleanup remains available to the owner after capability expiry.
+        receipt = await self.mcp.call_tool(
+            "browser_stop", {"session_id": cap})
+        self.assertIn("full_profile_saved", str(receipt))
+        self.assertEqual(self.guard.safe_sessions(), [])
+
     async def test_one_writer_per_profile_even_if_slots_available(self):
         cap=await self.begin("Meta - Anita")
         with self.assertRaisesRegex(ToolError,"PARALLEL_PROFILE_BUSY"):
