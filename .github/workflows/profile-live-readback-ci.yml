@@ -1,0 +1,38 @@
+name: Profile live readback regression
+on:
+  push:
+    branches: [p0-profile-live-readback-20261010]
+  pull_request:
+    branches: [ai-browser-cloud]
+    paths:
+      - 'profile_live_readback.py'
+      - 'test_profile_live_readback.py'
+      - '.github/workflows/profile-live-readback-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive only public tracked source from this exact commit
+        run: git archive --format=tar.gz HEAD > /tmp/aib-public-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aib-public-source-${{ github.sha }}
+          path: /tmp/aib-public-source.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Full production Docker regression without provider credentials
+        run: docker build --progress=plain -t aib-profile-readback .
