@@ -61,6 +61,7 @@ class ConnectorFirstRouting(unittest.TestCase):
         self.assertEqual(anita["expected_site_url"],"https://architekt.radom.pl/poradnik")
         self.assertEqual(vet["expected_site_url"],"https://weterynarz.radom.pl")
         self.assertEqual(anita["action"],"discover_abilities")
+        self.assertEqual(anita["browser_profile_if_required"],"explicit_verified_wordpress_profile")
         self.assertTrue(anita["requires_live_connector_probe"])
         self.assertNotEqual(anita["expected_site_url"],vet["expected_site_url"])
         self.assertNotIn("password",str(anita["required_inputs"]).lower())
