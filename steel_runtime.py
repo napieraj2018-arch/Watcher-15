@@ -120,18 +120,45 @@ class Engine:
         except ValueError:
             raise SteelFailure('STEEL_INVALID_RESPONSE') from None
 
+    async def confirm_terminal(self, remote_id):
+        """Independent provider readback for EXACTLY the released session.
+
+        A successful release POST, a missing CDP connection and HTTP 404/410
+        cannot alone prove provider shutdown. Only a fresh GET with matching
+        session id and an explicitly terminal status counts as proof.
+        Unknown schemas/statuses/errors stay unverified, without leaking data.
+        This is a fail-closed draft until Steel's real response is certified.
+        """
+        for attempt in range(3):
+            try:
+                observed = await self.request(
+                    'GET', '/sessions/' + remote_id, None, 8)
+            except (SteelFailure, ValueError, TypeError):
+                observed = None
+            if (isinstance(observed, dict)
+                    and isinstance(observed.get('status'), str)
+                    and observed.get('id') == remote_id
+                    and observed['status'] in {'released', 'failed'}):
+                return True
+            if attempt < 2:
+                await asyncio.sleep(0.2)
+        return False
+
     async def release(self, remote_id):
-        # Never release other callers' sessions and never retry session creation.
+        """Release only the chosen session; require separate GET confirmation."""
         for attempt in range(2):
             try:
-                await self.request('POST', '/sessions/' + remote_id + '/release', {}, 12)
-                return True
+                await self.request(
+                    'POST', '/sessions/' + remote_id + '/release', {}, 12)
+                break
             except SteelFailure as exc:
+                # Not-found might indicate an expired provider resource, but
+                # it might also mean the wrong project/scope: readback decides.
                 if str(exc) in {'STEEL_HTTP_404', 'STEEL_HTTP_410'}:
-                    return True
+                    break
                 if attempt == 0:
                     await asyncio.sleep(0.3)
-        return False
+        return await self.confirm_terminal(remote_id)
 
     async def launch(self, chromium, **_ignored_local_options):
         async with self._launch_lock:
@@ -199,6 +226,7 @@ class RemoteBrowser:
         self.engine, self.browser, self.remote_id = engine, browser, remote_id
         self.created_at = time.time()
         self.closed = False
+        self._release_confirmed = False
         self.close_lock = asyncio.Lock()
 
     def __getattr__(self, name):
@@ -215,23 +243,35 @@ class RemoteBrowser:
 
     async def close(self, **_kwargs):
         async with self.close_lock:
-            if self.closed:
+            if self._release_confirmed:
                 return
-            self.closed = True
-            confirmed_released = False
             try:
-                with contextlib.suppress(Exception):
-                    await asyncio.wait_for(self.browser.close(), 5)
-                confirmed_released = await self.engine.release(self.remote_id)
-            finally:
-                if confirmed_released:
-                    self.engine.remote.pop(self.remote_id, None)
+                if not self.closed:
+                    self.closed = True
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(self.browser.close(), 5)
+                    confirmed_released = await self.engine.release(
+                        self.remote_id)
                 else:
-                    # Preserve the remote reference; NEVER silently free the
-                    # single session slot on an uncertain provider response.
+                    # After an uncertain first attempt, a repeated authorized
+                    # close only reads provider state; never repeats POST.
+                    confirmed_released = await self.engine.confirm_terminal(
+                        self.remote_id)
+                if not confirmed_released:
+                    raise SteelFailure('STEEL_REMOTE_RELEASE_UNCONFIRMED')
+                self._release_confirmed = True
+                if self.engine.remote.get(self.remote_id) is self:
+                    self.engine.remote.pop(self.remote_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Do not leak arbitrary provider errors or third-party URLs.
+                raise SteelFailure('STEEL_REMOTE_RELEASE_UNCONFIRMED') from None
+            finally:
+                if not self._release_confirmed:
+                    # Even cancellation/unexpected exceptions fail closed.
+                    # Never silently free a slot or auto-unquarantine.
                     self.engine._quarantined = True
-            if not confirmed_released:
-                raise SteelFailure('STEEL_REMOTE_RELEASE_UNCONFIRMED')
 
 
 class RemoteChromium:
