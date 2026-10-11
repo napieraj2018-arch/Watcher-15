@@ -12,6 +12,26 @@ from native_origin_readback import (
 )
 
 
+def fixture_navigation(page, *, response=..., fulfill_error=None):
+    """Run the actual registered handler, rather than mocking only goto()."""
+    async def navigate(*args, **kwargs):
+        route = SimpleNamespace(
+            request=SimpleNamespace(url=URL, method='GET', resource_type='document'),
+            fulfill=AsyncMock(side_effect=fulfill_error), abort=AsyncMock())
+        handler = page.route.call_args.args[1]
+        try:
+            await handler(route)
+        except RuntimeError:
+            if fulfill_error is None:
+                raise
+            # Adversarial transport: goto appears to succeed despite a failed
+            # fulfillment. The runtime must require completed interception.
+        if response is ...:
+            return SimpleNamespace(url=URL, status=200, from_service_worker=False)
+        return response
+    return navigate
+
+
 class CanaryReadback(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.env = patch.dict(os.environ, {FLAG: '1', 'AI_BROWSER_PORTABLE_PRIORITY_PROFILES': ''})
@@ -21,6 +41,7 @@ class CanaryReadback(unittest.IsolatedAsyncioTestCase):
             url=URL, route=AsyncMock(), goto=AsyncMock(), close=AsyncMock(),
             evaluate=AsyncMock(return_value={
                 'cookie_present': True, 'storage_present': True, 'pair_matches': True}))
+        self.page.goto.side_effect = fixture_navigation(self.page)
         self.context = SimpleNamespace(new_page=AsyncMock(return_value=self.page),
                                        set_storage_state=AsyncMock())
         self.binding = {'profile': 'SteelSelfTest', 'hydrated': True}
@@ -123,6 +144,40 @@ class CanaryReadback(unittest.IsolatedAsyncioTestCase):
                 route.abort.assert_awaited_once()
                 route.fulfill.assert_not_awaited()
 
+    async def test_unintercepted_navigation_cannot_claim_native_readback(self):
+        self.page.goto.side_effect = None
+        self.page.goto.return_value = SimpleNamespace(
+            url=URL, status=200, from_service_worker=False)
+        with self.assertRaisesRegex(ReliabilityError, '^' + ERROR + '$'):
+            await self.wrapped(self.remote, storage_state={})
+        self.page.evaluate.assert_not_awaited()
+        self.applied.assert_not_awaited()
+        self.page.close.assert_awaited_once()
+        self.assertNotIn('synthetic_native_origin_readback', self.binding)
+
+    async def test_failed_fulfill_cannot_claim_native_readback(self):
+        self.page.goto.side_effect = fixture_navigation(
+            self.page, fulfill_error=RuntimeError('PRIVATE INTERCEPTION DETAIL'))
+        with self.assertRaisesRegex(ReliabilityError, '^' + ERROR + '$'):
+            await self.wrapped(self.remote, storage_state={})
+        self.page.evaluate.assert_not_awaited()
+        self.applied.assert_not_awaited()
+        self.page.close.assert_awaited_once()
+
+    async def test_untrusted_navigation_response_cannot_claim_native_readback(self):
+        for response in (None,
+                         SimpleNamespace(url=URL, status=200, from_service_worker=True),
+                         SimpleNamespace(url=URL, status=500, from_service_worker=False),
+                         SimpleNamespace(url=URL + '?redirected=1', status=200,
+                                         from_service_worker=False)):
+            with self.subTest(response=response):
+                self.page.goto.side_effect = fixture_navigation(self.page, response=response)
+                with self.assertRaisesRegex(ReliabilityError, '^' + ERROR + '$'):
+                    await self.wrapped(self.remote, storage_state={})
+        self.page.evaluate.assert_not_awaited()
+        self.applied.assert_not_awaited()
+        self.assertEqual(self.page.close.await_count, 4)
+
     async def test_portable_priority_conflict_denies_before_any_probe(self):
         with patch.dict(os.environ, {'AI_BROWSER_PORTABLE_PRIORITY_PROFILES': 'SteelSelfTest'}):
             with self.assertRaisesRegex(ReliabilityError, 'NATIVE_READBACK_POLICY_CONFLICT'):
@@ -152,6 +207,7 @@ class CanarySelectiveRestore(unittest.IsolatedAsyncioTestCase):
             evaluate=AsyncMock(return_value={
                 "cookie_present": True, "storage_present": True,
                 "pair_matches": True}))
+        self.page.goto.side_effect = fixture_navigation(self.page)
         self.context = SimpleNamespace(
             new_page=AsyncMock(return_value=self.page),
             add_cookies=AsyncMock(), set_storage_state=AsyncMock())
@@ -199,6 +255,44 @@ class CanarySelectiveRestore(unittest.IsolatedAsyncioTestCase):
             await reconcile_fixture_origin(self.context, self.backup)
         self.page.close.assert_awaited_once()
         self.context.set_storage_state.assert_not_awaited()
+
+    async def test_unintercepted_navigation_cannot_authorize_repair(self):
+        self.page.goto.side_effect = None
+        self.page.goto.return_value = SimpleNamespace(
+            url=URL, status=200, from_service_worker=False)
+        before = copy.deepcopy(self.backup)
+        with self.assertRaisesRegex(ReliabilityError, '^SYNTHETIC_ORIGIN_INTERCEPTION_NOT_VERIFIED$'):
+            await reconcile_fixture_origin(self.context, self.backup)
+        self.page.evaluate.assert_not_awaited()
+        self.context.add_cookies.assert_not_awaited()
+        self.context.set_storage_state.assert_not_awaited()
+        self.page.close.assert_awaited_once()
+        self.assertEqual(self.backup, before)
+
+    async def test_failed_fulfill_cannot_authorize_repair(self):
+        self.page.goto.side_effect = fixture_navigation(
+            self.page, fulfill_error=RuntimeError('PRIVATE INTERCEPTION DETAIL'))
+        with self.assertRaisesRegex(ReliabilityError, '^SYNTHETIC_ORIGIN_INTERCEPTION_NOT_VERIFIED$'):
+            await reconcile_fixture_origin(self.context, self.backup)
+        self.page.evaluate.assert_not_awaited()
+        self.context.add_cookies.assert_not_awaited()
+        self.context.set_storage_state.assert_not_awaited()
+        self.page.close.assert_awaited_once()
+
+    async def test_untrusted_navigation_response_cannot_authorize_repair(self):
+        for response in (None,
+                         SimpleNamespace(url=URL, status=200, from_service_worker=True),
+                         SimpleNamespace(url=URL, status=500, from_service_worker=False),
+                         SimpleNamespace(url=URL + '?redirected=1', status=200,
+                                         from_service_worker=False)):
+            with self.subTest(response=response):
+                self.page.goto.side_effect = fixture_navigation(self.page, response=response)
+                with self.assertRaisesRegex(ReliabilityError, '^SYNTHETIC_ORIGIN_INTERCEPTION_NOT_VERIFIED$'):
+                    await reconcile_fixture_origin(self.context, self.backup)
+        self.page.evaluate.assert_not_awaited()
+        self.context.add_cookies.assert_not_awaited()
+        self.context.set_storage_state.assert_not_awaited()
+        self.assertEqual(self.page.close.await_count, 4)
 
     async def test_cancellation_closes_own_page(self):
         self.page.goto.side_effect = asyncio.CancelledError()
