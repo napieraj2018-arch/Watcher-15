@@ -5,7 +5,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from src.facebook_pilot import DraftStore, GROUP_ID, PROFILE, PilotInputError, ingest_evidence, topic_for
+from src import facebook_pilot
+from src.facebook_pilot import CandidateStore, GROUP_ID, PROFILE, PilotInputError, ingest_evidence, topic_for
 
 NOW = datetime(2026, 10, 11, 20, 0, tzinfo=timezone.utc)
 
@@ -24,37 +25,43 @@ def batch(posts=None, **updates):
 
 class PilotTests(unittest.TestCase):
     def setUp(self):
-        self.store=DraftStore()
+        self.store=CandidateStore()
         self.addCleanup(self.store.close)
 
-    def test_new_post_creates_transparent_draft_only(self):
+    def test_new_post_creates_candidate_without_comment(self):
         output=ingest_evidence(batch(),self.store,now=NOW)
-        self.assertEqual(output["new_drafts"],1)
+        self.assertEqual(output["new_candidates"],1)
         self.assertEqual(output["auto_published"],0)
+        self.assertEqual(output["comments_generated"],0)
         total, urgent=self.store.counts()
         self.assertEqual((total,urgent),(1,0))
-        row=self.store.conn.execute("SELECT draft,state FROM facebook_pilot_drafts").fetchone()
-        self.assertIn("Piszemy jako zespół",row[0]);self.assertEqual(row[1],"needs_operator_review")
-        self.assertNotIn("poleci dobrego",row[0])
+        row=self.store.conn.execute("SELECT state FROM facebook_pilot_candidates").fetchone()
+        self.assertEqual(row[0],"awaiting_individual_author")
+        fields={r[1] for r in self.store.conn.execute("PRAGMA table_info(facebook_pilot_candidates)")}
+        for name in ("draft","comment","message","author_profile"):
+            self.assertNotIn(name,fields)
+        self.assertNotIn("poleci dobrego","".join(self.store.conn.iterdump()))
 
     def test_duplicate_same_post_is_not_processed_twice(self):
         ingest_evidence(batch(),self.store,now=NOW)
         out=ingest_evidence(batch(),self.store,now=NOW)
-        self.assertEqual(out["new_drafts"],0)
+        self.assertEqual(out["new_candidates"],0)
         self.assertEqual(out["duplicates"],1)
         self.assertEqual(self.store.counts()[0],1)
 
     def test_duplicate_variants_url_canonicalized(self):
         a=event();b=event();b["url"]=f"https://m.facebook.com/groups/{GROUP_ID}/permalink/12345678901/"
         out=ingest_evidence(batch([a,b]),self.store,now=NOW)
-        self.assertEqual((out["new_drafts"],out["duplicates"]),(1,1))
+        self.assertEqual((out["new_candidates"],out["duplicates"]),(1,1))
 
     def test_urgent_cases_are_reviewed_not_published(self):
         out=ingest_evidence(batch([event("Kot połknął igłę, co robić?", "12345678902")]),self.store,now=NOW)
-        self.assertEqual(out["new_drafts"],1)
+        self.assertEqual(out["new_candidates"],1)
         self.assertEqual(self.store.counts()[1],1)
-        draft=self.store.conn.execute("SELECT draft FROM facebook_pilot_drafts").fetchone()[0]
-        self.assertIn("pilnej",draft)
+        priority,state=self.store.conn.execute(
+            "SELECT priority,state FROM facebook_pilot_candidates").fetchone()
+        self.assertEqual(priority,"urgent")
+        self.assertEqual(state,"awaiting_individual_author")
 
     def test_inaccessible_source_never_means_zero_found(self):
         out=ingest_evidence(batch(status="authentication_required",posts=[]),self.store,now=NOW)
@@ -83,8 +90,8 @@ class PilotTests(unittest.TestCase):
         self.assertEqual(self.store.counts()[0],0)
 
     def test_non_question_is_skipped(self):
-        self.assertEqual(ingest_evidence(batch([event("Sprzedam łóżko dla psa")]),self.store,now=NOW)["new_drafts"],0)
-        self.assertEqual(ingest_evidence(batch([event("Piękny dzień z moim psem")]),self.store,now=NOW)["new_drafts"],0)
+        self.assertEqual(ingest_evidence(batch([event("Sprzedam łóżko dla psa")]),self.store,now=NOW)["new_candidates"],0)
+        self.assertEqual(ingest_evidence(batch([event("Piękny dzień z moim psem")]),self.store,now=NOW)["new_candidates"],0)
 
     def test_partial_is_reported_as_partial(self):
         out=ingest_evidence(batch(status="partial"),self.store,now=NOW)
@@ -110,16 +117,18 @@ class PilotTests(unittest.TestCase):
     def test_sqlite_persists_dedup_between_runs(self):
         with tempfile.TemporaryDirectory() as folder:
             path=str(Path(folder)/"pilot.db")
-            store=DraftStore(path)
-            self.assertEqual(ingest_evidence(batch(),store,now=NOW)["new_drafts"],1)
+            store=CandidateStore(path)
+            self.assertEqual(ingest_evidence(batch(),store,now=NOW)["new_candidates"],1)
             store.close()
-            another=DraftStore(path)
+            another=CandidateStore(path)
             try:
                 self.assertEqual(ingest_evidence(batch(),another,now=NOW)["duplicates"],1)
             finally: another.close()
 
     def test_no_autopublish_method_or_remote_access(self):
         self.assertFalse(any("publish" in name for name in vars(self.store) if callable(getattr(self.store,name))))
+        self.assertFalse(hasattr(facebook_pilot,"draft_for"))
+        self.assertFalse(hasattr(facebook_pilot,"comment_for"))
         self.assertIsNone(topic_for("Życzę powodzenia."))
 
 
