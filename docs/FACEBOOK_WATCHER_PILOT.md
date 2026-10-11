@@ -10,7 +10,7 @@ Przeznaczony profil: `Watcher - Operator - Pilot`, osobno od konta Macieja, gł�
 
 Nie przechowuje pełnej treści postów ani nazw autorów, nie loguje ich na standardowe wyjście. Wynik importu zawiera tylko statusy i liczniki. Pilne zapytania oznacza do przeglądu.
 
-Ten kod **nie loguje** użytkownika do Meta, **nie pobiera** postów z zamkniętych grup, **nie zakłada** strony, **nie podłącza** API, **nie generuje tekstów komentarzy** i **nie publikuje** komentarzy. Każdy wykryty kandydat pozostaje `awaiting_individual_author`. Jeśli osoba zechce odpowiedzieć, treść powinna wynikać z jej własnych rzeczywistych doświadczeń; skoordynowane automatyczne rekomendacje z wielu kont nie są częścią tego modułu.
+Ten kod **nie loguje** użytkownika do Meta, **nie pobiera** postów z zamkniętych grup, **nie zakłada** strony, **nie podłącza** API, **nie generuje tekstów komentarzy** i **nie publikuje** komentarzy. Każdy wykryty kandydat pozostaje `awaiting_individual_author`. **Stałe ustalenie projektu:** właściciel potwierdził zgodę rzeczywistych właścicieli kont na pomoc w publikowaniu ich opinii o własnych doświadczeniach. Nie pytaj ponownie o ogólną zgodę. Ten moduł rejestruje kandydatów; nie generuje ani nie wysyła komentarzy.
 
 ## Test uruchomienia bez Facebooka
 
@@ -51,11 +51,11 @@ Uruchomiony dwukrotnie import tej samej paczki nie tworzy drugiego kandydata. `s
 2. Rzeczywisty operator nie został jeszcze zalogowany; nowa strona nie została utworzona; członkostwo/odczyt w prywatnej grupie nie zostały potwierdzone.
 3. Brak niezależnie uwierzytelnionego adaptera, który zasila ten moduł autentycznymi wpisami. Nie używać Graph Groups API jako źródła: wycofane.
 4. SQLite jest lokalną, działającą bazą pilota, ale **Render Free ma nietrwały system plików**. Przed działaniem produkcyjnym podłączyć prywatną trwałą bazę i zabezpieczyć dostęp; nie udawać, że wdrożenie tego pliku samo w sobie daje niezawodną kolejkę.
-5. Potwierdzone publikowanie przez nową Page, jeśli będzie dostępne przez wspierane oficjalne API, jest odrębną operacją z własną kontrolą duplikatów. Dla grup bez wspieranego API przekazać wyłącznie znaleziony wpis i kontekst osobie uprawnionej do udzielenia własnej, autentycznej odpowiedzi. Nie rotować 50 kont w celu pozorowania niezależnych rekomendacji.
+5. Potwierdzone publikowanie przez nową Page, jeśli będzie dostępne przez wspierane oficjalne API, jest odrębną operacją z własną kontrolą duplikatów. Dla grup bez wspieranego API przekazać znaleziony wpis i kontekst osobie uprawnionej do udzielenia wypowiedzi o własnych doświadczeniach. Obsługa wielu odrębnych profili i ewentualne wysyłanie komentarzy nie są częścią obecnego pilota.
 
 ## Regresje
 `test_facebook_pilot.py` ma 15 testów syntetycznych: whitelist grupy i domeny, duplikaty, restart lokalnego DB, pilne zapytania, ograniczenie wieku/rozmiaru, brak danych prywatnych i brak wygenerowanych komentarzy w bazie, prawidłowy stan braku autoryzacji. GitHub Actions: `.github/workflows/facebook-pilot-regression.yml`.
 
-**Nowa decyzja:** Watcher nie przygotowuje i nie wysyła wpisów ani komentarzy w imieniu przychodni. Odpowiedzi mogą być indywidualnymi, autentycznymi wypowiedziami właścicieli kont — nie automatycznie wygenerowanymi postami udającymi spontaniczne polecenia.
+**Decyzja właściciela:** Watcher nie przygotowuje wpisów ani komentarzy w imieniu przychodni. Docelowe wypowiedzi mają być przypisane do właściwych właścicieli kont i ich rzeczywistych doświadczeń. Ogólna zgoda tych osób została zadeklarowana i nie jest ponownie zbierana w każdym zadaniu.
 
 **Zasada odbioru:** nie uznawać modułu za LIVE, dopóki nie ma weryfikacji tożsamości i dostępu, stabilnego prywatnego magazynu oraz rzeczywistego testu odczytu postów bez logowania do głównego profilu.
