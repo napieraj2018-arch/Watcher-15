@@ -1,10 +1,12 @@
 """Read-only Facebook group pilot adapter for the existing Watcher-15.
 
-Consumes *already authorized* post evidence, prepares transparent company reply
-DRAFTS and deduplicates them locally. Does not log into Facebook, fetch a group,
-call Meta APIs, publish, or impersonate people. No private post body/author is
-persisted or echoed in output. Production requires an authenticated ingestion
-adapter and private durable database; SQLite here is a functional pilot.
+Consumes *already authorized* post evidence, records candidate questions that
+an individual account holder may choose to answer, and deduplicates them locally.
+It does not compose company-branded replies or comments in a patient's voice,
+login, fetch a group, call Meta APIs, publish or impersonate people.
+No private post body/author is persisted or echoed in output. Production
+requires an authenticated ingestion adapter and private durable database;
+SQLite here is a functional pilot.
 """
 from __future__ import annotations
 
@@ -86,24 +88,13 @@ def topic_for(text: object) -> tuple[str, str] | None:
     return None
 
 
-def draft_for(topic: str, priority: str) -> str:
-    base = ("Dzień dobry. Piszemy jako zespół Przychodni Weterynaryjnej "
-            "Napieraj i Synowie w Radomiu. ")
-    if priority == "urgent":
-        return base + ("Opisane objawy mogą wymagać pilnej oceny przez lekarza "
-                       "weterynarii. Prosimy nie odkładać bezpośredniej konsultacji. "
-                       "Bez badania nie możemy postawić rozpoznania w komentarzu.")
-    return base + ("W sprawie konsultacji lub diagnostyki najlepiej skontaktować "
-                   "się bezpośrednio z przychodnią. Możemy wyjaśnić zakres dostępnych usług. ")
-
-
-class DraftStore:
+class CandidateStore:
     """SQLite for OFFLINE pilot only; do not use ephemeral Render FS in production."""
 
     def __init__(self, path: str = ":memory:"):
         self.conn = sqlite3.connect(path)
         self.conn.execute("PRAGMA busy_timeout=5000")
-        self.conn.execute("""CREATE TABLE IF NOT EXISTS facebook_pilot_drafts (
+        self.conn.execute("""CREATE TABLE IF NOT EXISTS facebook_pilot_candidates (
           event_key TEXT PRIMARY KEY,
           group_id TEXT NOT NULL,
           post_id TEXT NOT NULL,
@@ -111,30 +102,28 @@ class DraftStore:
           seen_at TEXT NOT NULL,
           topic TEXT NOT NULL,
           priority TEXT NOT NULL,
-          draft TEXT NOT NULL,
-          state TEXT NOT NULL CHECK(state='needs_operator_review')
+          state TEXT NOT NULL CHECK(state='awaiting_individual_author')
         )""")
         self.conn.commit()
 
     def insert(self, post_id: str, url: str, seen_at: str, topic: str, priority: str) -> bool:
         digest = hashlib.sha256(f"{GROUP_ID}:{post_id}".encode("ascii")).hexdigest()
         with self.conn:
-            cur = self.conn.execute("""INSERT OR IGNORE INTO facebook_pilot_drafts
-                (event_key, group_id, post_id, post_url, seen_at, topic, priority, draft, state)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'needs_operator_review')""",
-                (digest, GROUP_ID, post_id, url, seen_at, topic, priority,
-                 draft_for(topic, priority)))
+            cur = self.conn.execute("""INSERT OR IGNORE INTO facebook_pilot_candidates
+                (event_key, group_id, post_id, post_url, seen_at, topic, priority, state)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'awaiting_individual_author')""",
+                (digest, GROUP_ID, post_id, url, seen_at, topic, priority))
         return cur.rowcount == 1
 
     def counts(self) -> tuple[int, int]:
-        r = self.conn.execute("SELECT COUNT(*), SUM(priority='urgent') FROM facebook_pilot_drafts").fetchone()
+        r = self.conn.execute("SELECT COUNT(*), SUM(priority='urgent') FROM facebook_pilot_candidates").fetchone()
         return r[0], r[1] or 0
 
     def close(self):
         self.conn.close()
 
 
-def ingest_evidence(payload: object, store: DraftStore, *, now: datetime | None = None) -> dict:
+def ingest_evidence(payload: object, store: CandidateStore, *, now: datetime | None = None) -> dict:
     """Ingest externally supplied authorized evidence; NEVER authenticate or publish.
 
     An ingestion endpoint must independently establish identity and group access.
@@ -148,11 +137,11 @@ def ingest_evidence(payload: object, store: DraftStore, *, now: datetime | None 
     if state not in ALLOWED_STATES:
         raise PilotInputError("INVALID_SOURCE_STATE")
     if state in ("authentication_required", "source_unavailable"):
-        return {"source_status": state, "coverage": "none", "new_drafts": 0,
-                "duplicates": 0, "auto_published": 0}
+        return {"source_status": state, "coverage": "none", "new_candidates": 0,
+                "duplicates": 0, "auto_published": 0, "comments_generated": 0}
     if payload.get("identity_verified") is not True or payload.get("membership_verified") is not True:
         return {"source_status": "authentication_required", "coverage": "none",
-                "new_drafts": 0, "duplicates": 0, "auto_published": 0}
+                "new_candidates": 0, "duplicates": 0, "auto_published": 0, "comments_generated": 0}
     observed = parse_time(payload.get("observed_at"))
     utc_now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if observed > utc_now + timedelta(minutes=5) or utc_now - observed > timedelta(days=2):
@@ -179,18 +168,18 @@ def ingest_evidence(payload: object, store: DraftStore, *, now: datetime | None 
         else:
             dupes += 1
     return {"source_status": state, "coverage": "partial" if state == "partial" else "reported_complete",
-            "scanned": len(posts), "new_drafts": new, "duplicates": dupes,
-            "skipped": skipped, "auto_published": 0}
+            "scanned": len(posts), "new_candidates": new, "duplicates": dupes,
+            "skipped": skipped, "auto_published": 0, "comments_generated": 0}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Watcher FB pilot: import authenticated observations into drafts only")
+    parser = argparse.ArgumentParser(description="Watcher FB pilot: import authorized observations into reply candidates only")
     parser.add_argument("--input", required=True, help="Private JSON with source evidence, never committed")
     parser.add_argument("--db", required=True, help="Private SQLite file for local pilot (not Render Free)")
     args = parser.parse_args()
     if args.db == ":memory:":
         parser.error("--db must be durable for a real run")
-    store = DraftStore(args.db)
+    store = CandidateStore(args.db)
     try:
         data = json.loads(Path(args.input).read_text(encoding="utf-8"))
         receipt = ingest_evidence(data, store)
