@@ -28,6 +28,24 @@ Użytkownik wydaje jedno polecenie w ChatGPT; agent sam rozpoznaje właściwe ko
 
 **Stan techniczny:** 11.10.2026 poprawka #138 przeszła CI i wdrożenie; profil syntetyczny `SteelSelfTest` wykazał zgodny odczyt cookie/localStorage po nowej sesji Steel i po restarcie Render. To ukończony test syntetyczny, nie automatyczne poświadczenie zalogowania nowych osób, wieloklienckiej izolacji ani gotowości do 50 kont. Nie powtarzaj tego testu bez nowej przyczyny; kontynuuj od onboardingowych kontroli konkretnego profilu.
 
+## Facebook — Watcher grup i delegowanie dostępu (11.10.2026)
+
+**Zadanie:** wykrywać rzeczywiste pytania o usługi Napieraj i Synowie w grupach Spotted Radom, RADOM-OGŁOSZENIA, PORADY WETERYNARYJNE i Buldog Francuski Polska, z wynikami w ChatGPT. Zapisany automat „Zapytania klientów z Facebooka” (6ac79280a1708191897ad82e9e0e2655) jest obecnie WYŁĄCZONY i ma pozostać wyłączony do potwierdzenia nowego sposobu odczytu. Historyczny harmonogram: co 12 godzin, tylko odczyt, profil „Meta - Maciej - Monitoring”; nie uruchamiaj kolejnych prób logowania ani dodatkowego watchera. Repozytoryjny `.github/workflows/watcher.yml` jest ręcznym watcherem wakacyjnym, nie działającym watcherem grup FB.
+
+**Zweryfikowane ograniczenia API (stan 11.10.2026):** oficjalny Facebook Groups API, `publish_to_groups` i `groups_access_member_info` usunięto 22.04.2024. Token Page, nowa aplikacja Meta, nowa strona i dodatkowy administrator NIE zapewniają oficjalnego odczytu feedu cudzych grup. Źródło: https://developers.facebook.com/docs/graph-api/changelog/version19.0/ . Facebook Page może poprosić o przyjęcie do grupy i działać przez UI, jeśli administrator grupy zezwala na strony; nie oznacza to dostępu grupowego Graph API: https://www.facebook.com/help/401492893195007 . Facebook Page ma zarządców z dostępem przez ich konta — nie ma osobnego logowania „do strony”, a dostęp zadaniowy nie pozwala automatycznie przełączać się w Page: https://www.facebook.com/help/289207354498410/ .
+
+**Decyzja techniczna:** NIE twórz dodatkowej strony tylko po to, aby ominąć cykl logowania do grup. Najpierw użyj istniejącej Page przychodni (Page ID `138554046242234`) oraz zwykłego, upoważnionego zarządcy z odpowiednim dostępem, ale dopiero po osobnym potwierdzeniu, że konkretna grupa wpuszcza Page i pokazuje jej wpisy. Nie zakładaj, że dotyczy to dowolnej z czterech grup.
+
+Rozdziel źródła monitoringu bez mnożenia logowań:
+1. **Oficjalny Page Graph API / Webhooks (jeśli właściwe uprawnienia są faktycznie aktywne):** własna Page, wiadomości, komentarze, zgłoszone wzmianki i inne obsługiwane zdarzenia. Nie używaj tej ścieżki do fikcyjnego „czytania grup”.
+2. **Wpisy z publicznych źródeł:** odnośniki znalezione w dostępnych bez logowania stronach / wyszukiwarkach, o ile rzeczywiście są opublikowane i dają się zweryfikować; traktuj ich zasięg jako niepełny i opóźniony.
+3. **Grupy tylko przez uprawniony interfejs FB:** gdy Page jest rzeczywistym uczestnikiem, korzystaj z jej natywnego widoku lub dostępnych sygnałów powiadomień. Gdy grupa nie dopuszcza Page, opieraj ewentualny odczyt na prawdziwej, upoważnionej tożsamości człowieka, nie na nowym pozornym koncie. Nie zakładaj, że powiadomienia odzwierciedlają wszystkie posty.
+4. **Wynik:** zapisuj źródło, link i datę wpisu, czas wykrycia, deduplikację, przydatność zapytania i jawny status `read_ok`, `partial`, `auth_required`, `unsupported_api` lub `source_unavailable`. Nie raportuj „zero wpisów”, gdy źródło było niedostępne.
+
+**Błędy Facebooka:** usterki logowania, wyzwania bezpieczeństwa i nietypowa aktywność nie są błędami naprawianymi nową Page ani zmianą IP. Ogranicz niepotrzebne odświeżania i jednoczesne przeglądanie jednego konta, nie ponawiaj CAPTCHA/MFA, nie rotuj kont w celu obejścia blokad, nie zamieniaj obsługi błędu na automatyczny retry. Po wykryciu blokady wyłącz tylko zależną ścieżkę odczytu i uruchom niezależne źródła; zgłoś rzeczywistą przyczynę weryfikacji, jeśli jest widoczna.
+
+**Kryterium wznowienia:** przynajmniej jedna autoryzowana grupa z potwierdzonym sposobem odczytu i dowodem kompletności wybranego zakresu, zweryfikowana tożsamość, brak pętli logowania, odczytowe przebiegi i prywatny rejestr deduplikacji, jawny status wyników. Nie uruchamiaj automatycznego komentowania grup. Powyższe to decyzja architektoniczna i instrukcja, a nie potwierdzenie, że wszystkie grupy są monitorowane.
+
 ## Granice
 Repo jest **PUBLICZNE**. Nie zapisuj tutaj haseł, tokenów, cookies, przechwyconych sesji, treści prywatnych dokumentów, grafik użytkowników ani odczytanych opinii klientów. Publiczne manifesty zawierają tylko ogólne zasady i jawne identyfikatory profili biznesowych. Prawdziwy rejestr opinii Anity utworzono w prywatnym Google Sheets, nie w GitHubie. Żaden inny tenant nie może go odczytać.
 
