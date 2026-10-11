@@ -6,11 +6,11 @@ Pierwsza grupa: PORADY WETERYNARYJNE (ID 3046642772082014).
 Przeznaczony profil: `Watcher - Operator - Pilot`, osobno od konta Macieja, głównej Page 138554046242234 i kont Anity.
 
 ## Co jest naprawdę napisane
-`src/facebook_pilot.py` przyjmuje paczkę dowodów postów z już autoryzowanego źródła, weryfikuje dokładną grupę, URL, datę i status dostępu, rozpoznaje potencjalne pytania weterynaryjne, odrzuca nieistotne/za stare wpisy, przygotowuje **jawny szkic odpowiedzi przychodni** i atomowo deduplikuje go w lokalnej bazie SQLite.
+`src/facebook_pilot.py` przyjmuje paczkę dowodów postów z już autoryzowanego źródła, weryfikuje dokładną grupę, URL, datę i status dostępu, rozpoznaje potencjalne pytania weterynaryjne, odrzuca nieistotne/za stare wpisy, zapisuje **kandydata do indywidualnego komentarza**, bez układania tekstu komentarza w imieniu przychodni ani w imieniu innej osoby, i atomowo usuwa duplikaty w lokalnej bazie SQLite.
 
 Nie przechowuje pełnej treści postów ani nazw autorów, nie loguje ich na standardowe wyjście. Wynik importu zawiera tylko statusy i liczniki. Pilne zapytania oznacza do przeglądu.
 
-Ten kod **nie loguje** użytkownika do Meta, **nie pobiera** postów z zamkniętych grup, **nie zakłada** strony, **nie podłącza** API i **nie publikuje** komentarzy. Każdy szkic pozostaje `needs_operator_review`.
+Ten kod **nie loguje** użytkownika do Meta, **nie pobiera** postów z zamkniętych grup, **nie zakłada** strony, **nie podłącza** API, **nie generuje tekstów komentarzy** i **nie publikuje** komentarzy. Każdy wykryty kandydat pozostaje `awaiting_individual_author`. Jeśli osoba zechce odpowiedzieć, treść powinna wynikać z jej własnych rzeczywistych doświadczeń; skoordynowane automatyczne rekomendacje z wielu kont nie są częścią tego modułu.
 
 ## Test uruchomienia bez Facebooka
 
@@ -43,7 +43,7 @@ python src/facebook_pilot.py --input /private/evidence.json --db /private/facebo
 python -m unittest test_facebook_pilot -v
 ```
 
-Uruchomiony dwukrotnie import tej samej paczki nie tworzy drugiego zadania. `status=authentication_required` i `status=source_unavailable` nie są interpretowane jako pomyślny odczyt 0 postów.
+Uruchomiony dwukrotnie import tej samej paczki nie tworzy drugiego kandydata. `status=authentication_required` i `status=source_unavailable` nie są interpretowane jako pomyślny odczyt 0 postów.
 
 ## Co blokuje pilotaż LIVE
 
@@ -51,9 +51,11 @@ Uruchomiony dwukrotnie import tej samej paczki nie tworzy drugiego zadania. `sta
 2. Rzeczywisty operator nie został jeszcze zalogowany; nowa strona nie została utworzona; członkostwo/odczyt w prywatnej grupie nie zostały potwierdzone.
 3. Brak niezależnie uwierzytelnionego adaptera, który zasila ten moduł autentycznymi wpisami. Nie używać Graph Groups API jako źródła: wycofane.
 4. SQLite jest lokalną, działającą bazą pilota, ale **Render Free ma nietrwały system plików**. Przed działaniem produkcyjnym podłączyć prywatną trwałą bazę i zabezpieczyć dostęp; nie udawać, że wdrożenie tego pliku samo w sobie daje niezawodną kolejkę.
-5. Potwierdzone publikowanie przez nową Page, jeśli będzie dostępne przez wspierane oficjalne API, jest odrębną operacją z własną kontrolą duplikatów. Dla grup bez wspieranego API szkic przekazać upoważnionemu operatorowi. Nie rotować 50 kont w celu pozorowania niezależnych rekomendacji.
+5. Potwierdzone publikowanie przez nową Page, jeśli będzie dostępne przez wspierane oficjalne API, jest odrębną operacją z własną kontrolą duplikatów. Dla grup bez wspieranego API przekazać wyłącznie znaleziony wpis i kontekst osobie uprawnionej do udzielenia własnej, autentycznej odpowiedzi. Nie rotować 50 kont w celu pozorowania niezależnych rekomendacji.
 
 ## Regresje
-`test_facebook_pilot.py` ma 15 testów syntetycznych: whitelist grupy i domeny, duplikaty, restart lokalnego DB, pilne zapytania, ograniczenie wieku/rozmiaru, brak danych prywatnych w bazie i potwierdzeniach, prawidłowy stan braku autoryzacji. GitHub Actions: `.github/workflows/facebook-pilot-regression.yml`.
+`test_facebook_pilot.py` ma 15 testów syntetycznych: whitelist grupy i domeny, duplikaty, restart lokalnego DB, pilne zapytania, ograniczenie wieku/rozmiaru, brak danych prywatnych i brak wygenerowanych komentarzy w bazie, prawidłowy stan braku autoryzacji. GitHub Actions: `.github/workflows/facebook-pilot-regression.yml`.
+
+**Nowa decyzja:** Watcher nie przygotowuje i nie wysyła wpisów ani komentarzy w imieniu przychodni. Odpowiedzi mogą być indywidualnymi, autentycznymi wypowiedziami właścicieli kont — nie automatycznie wygenerowanymi postami udającymi spontaniczne polecenia.
 
 **Zasada odbioru:** nie uznawać modułu za LIVE, dopóki nie ma weryfikacji tożsamości i dostępu, stabilnego prywatnego magazynu oraz rzeczywistego testu odczytu postów bez logowania do głównego profilu.
