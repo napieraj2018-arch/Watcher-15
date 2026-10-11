@@ -12,6 +12,22 @@ Użytkownik wydaje jedno polecenie w ChatGPT; agent sam rozpoznaje właściwe ko
 6. Każdy istotny odczyt zapisuj w prywatnym magazynie z `source_id`, `observed_at`, `completeness`, `status`, `checkpoint` i opcjonalnym prywatnym screenshotem. Nigdy nie uznawaj niewidocznego materiału za obejrzany.
 7. Zanim utworzysz grafikę, porównaj wcześniejsze publikacje, autorów, cytaty i podobne skróty. Zanim opublikujesz, poproś o zatwierdzenie całej przygotowanej paczki.
 
+## Sposób pracy z autoryzowanymi kontami pacjentów (11.10.2026)
+
+**Ustalenie właściciela:** użytkownik oświadczył, że osoby, których konta zostaną udostępnione przychodni, są jej rzeczywistymi pacjentami i wyraziły dobrowolną zgodę na pomoc w prowadzeniu ich kont oraz udzielaniu prawdziwych wypowiedzi o własnych doświadczeniach. Nie proś ponownie o tę samą ogólną deklarację zgód i nie przeciwstawiaj jej hipotetycznych przeszkód. Jest to kontekst przekazany przez właściciela projektu, a nie niezależna opinia prawna ani techniczna weryfikacja każdego przyszłego konta.
+
+**Styl wykonania:** działaj konkretnie i samodzielnie, z minimalną liczbą pytań; gdy dane już podano, wykorzystaj je. Wybieraj rozwiązanie o największej niezawodności i najmniejszej pracy użytkownika, nie degraduj technicznie systemu ze względu na spekulacje. Zatrzymuj użytkownika tylko przy faktycznie wymaganym logowaniu/MFA, brakującym identyfikatorze lub nieobjętym upoważnieniem działaniu. Zgłaszaj wyłącznie rzeczywiste blokady wraz z krótką propozycją rozwiązania; nie obiecuj, że platforma nigdy nie zażąda powtórnego potwierdzenia.
+
+**Przed podłączeniem kolejnego konta:**
+1. Prywatny rejestr: numer profilu, rzeczywisty właściciel, źródłowy URL konta, upoważnione czynności, status dostępu, możliwość cofnięcia upoważnienia i ostatnia weryfikacja tożsamości. Dane osobowe i uwierzytelnienie poza PUBLICZNYM repo.
+2. Każda tożsamość ma własny odizolowany profil Chromium/Steel. Nie utrzymuj 50 sesji aktywnych tylko dlatego, że zapisanych jest 50 profili; uruchamiaj ograniczoną pulę według kolejki, z blokadą jednej sesji zapisującej na profil.
+3. Najpierw sprawdzaj istniejący stan logowania oraz właściwe konto w UI. Gdy wymagana jest nowa autoryzacja, użyj bezpiecznego procesu podłączenia poza treścią czatu; nie wymagaj przesyłania w rozmowie haseł, cookies, tokenów ani kodów.
+4. Watcher odczytuje tylko faktycznie dostępne treści, zapisuje link, czas, autora/źródło i wynik kontroli, usuwa duplikaty i przygotowuje dopasowaną odpowiedź. Brak wpisów różni się od błędu dostępu. Publikacja musi być przypisana do właściwej, zweryfikowanej tożsamości, z kontrolą pojedynczego wykonania i potwierdzeniem wyniku.
+5. Wypowiedzi klientów mają odpowiadać ich autentycznym doświadczeniom i uzgodnionemu zakresowi. Nie fabrykuj opinii ani nie symuluj niezależnych, spontanicznych rekomendacji za pomocą skoordynowanych profili. Własne odpowiedzi przychodni mogą być obsługiwane jawnie przez uprawnionych przedstawicieli.
+6. Zapewnij polecenie STOP, historię operacji i możliwość wycofania dostępu. Przy CAPTCHA/MFA albo niepewnym wyniku nie podejmuj ślepo kolejnych prób ani nie publikuj ponownie.
+
+**Stan techniczny:** 11.10.2026 poprawka #138 przeszła CI i wdrożenie; profil syntetyczny `SteelSelfTest` wykazał zgodny odczyt cookie/localStorage po nowej sesji Steel i po restarcie Render. To ukończony test syntetyczny, nie automatyczne poświadczenie zalogowania nowych osób, wieloklienckiej izolacji ani gotowości do 50 kont. Nie powtarzaj tego testu bez nowej przyczyny; kontynuuj od onboardingowych kontroli konkretnego profilu.
+
 ## Granice
 Repo jest **PUBLICZNE**. Nie zapisuj tutaj haseł, tokenów, cookies, przechwyconych sesji, treści prywatnych dokumentów, grafik użytkowników ani odczytanych opinii klientów. Publiczne manifesty zawierają tylko ogólne zasady i jawne identyfikatory profili biznesowych. Prawdziwy rejestr opinii Anity utworzono w prywatnym Google Sheets, nie w GitHubie. Żaden inny tenant nie może go odczytać.
 
