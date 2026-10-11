@@ -2,7 +2,8 @@
 
 Persistent Chromium storage_state may omit an origin until this connection
 has visited it. Missing from that snapshot does NOT mean absent on disk.
-Only a disposable canary origin is visited, with all its traffic intercepted.
+Only a disposable canary origin is visited. A completed local interception
+and a non-Service-Worker navigation response are required before state access.
 No customer origins, passwords, provider IDs or browser data are exported.
 """
 from __future__ import annotations
@@ -20,7 +21,7 @@ ERROR = 'SYNTHETIC_NATIVE_ORIGIN_READBACK_REQUIRED'
 
 
 async def observe_native_origin(context):
-    """Register and read the canary origin without network or storage writes.
+    """Register and read a locally fulfilled canary without storage writes.
 
     Close only the page created here. Do not close the context, release Steel,
     save a profile, touch other pages, or infer authentication from the result.
@@ -29,8 +30,10 @@ async def observe_native_origin(context):
     try:
         async with asyncio.timeout(10):
             page = await context.new_page()
+            fixture_fulfilled = False
 
             async def fixture_only(route):
+                nonlocal fixture_fulfilled
                 req = route.request
                 if req.url == URL and req.resource_type == 'document' and req.method == 'GET':
                     await route.fulfill(
@@ -38,11 +41,19 @@ async def observe_native_origin(context):
                         headers={'cache-control': 'no-store',
                                  'content-security-policy': "default-src 'none'"},
                         body='<!doctype html><title>Native storage canary</title>')
+                    # The flag must follow the awaited fulfill, not just entry to
+                    # the handler: a failed interception is never a readback proof.
+                    fixture_fulfilled = True
                 else:
                     await route.abort()
 
             await page.route('**/*', fixture_only)
-            await page.goto(URL, wait_until='domcontentloaded', timeout=5000)
+            response = await page.goto(URL, wait_until='domcontentloaded', timeout=5000)
+            # page.route can be bypassed by a Service Worker. Navigation or
+            # matching cookie values alone must not authorize reading state.
+            if (not fixture_fulfilled or response is None or response.url != URL
+                    or response.status != 200 or response.from_service_worker is not False):
+                raise ReliabilityError(ERROR)
             observed = await synthetic_fixture_page_readback(page)
             if observed.get('status') != 'observed':
                 raise ReliabilityError(ERROR)
@@ -70,7 +81,7 @@ async def reconcile_fixture_origin(context, portable):
     The provider-native userDataDir is authoritative when its *actual* DOM
     already agrees. A coherent encrypted backup may repair only the exact
     test cookie/path and localStorage key. Never apply this to user accounts,
-    never visit the real network and never return cookie/storage values.
+    require a locally fulfilled page and never return cookie/storage values.
     """
     from steel_context_fix import (
         synthetic_fixture_exact_evidence, synthetic_fixture_browser_verified,
@@ -85,8 +96,10 @@ async def reconcile_fixture_origin(context, portable):
     try:
         async with asyncio.timeout(12):
             page = await context.new_page()
+            fixture_fulfilled = False
 
             async def fixture_only(route):
+                nonlocal fixture_fulfilled
                 req = route.request
                 if (req.url == URL and req.resource_type == "document"
                         and req.method == "GET"):
@@ -97,11 +110,16 @@ async def reconcile_fixture_origin(context, portable):
                             "content-security-policy": "default-src 'none'",
                         },
                         body="<!doctype html><title>Native restore canary</title>")
+                    fixture_fulfilled = True
                 else:
                     await route.abort()
 
             await page.route("**/*", fixture_only)
-            await page.goto(URL, wait_until="domcontentloaded", timeout=5000)
+            response = await page.goto(URL, wait_until="domcontentloaded", timeout=5000)
+            # Reject bypassed/failed interception before *any* read or write.
+            if (not fixture_fulfilled or response is None or response.url != URL
+                    or response.status != 200 or response.from_service_worker is not False):
+                raise ReliabilityError("SYNTHETIC_ORIGIN_INTERCEPTION_NOT_VERIFIED")
             before = await synthetic_fixture_page_readback(page)
             if before.get("status") != "observed":
                 raise ReliabilityError("SYNTHETIC_ORIGIN_READBACK_FAILED")
