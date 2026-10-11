@@ -44,6 +44,12 @@ Rozdziel źródła monitoringu bez mnożenia logowań:
 
 **Błędy Facebooka:** usterki logowania, wyzwania bezpieczeństwa i nietypowa aktywność nie są błędami naprawianymi nową Page ani zmianą IP. Ogranicz niepotrzebne odświeżania i jednoczesne przeglądanie jednego konta, nie ponawiaj CAPTCHA/MFA, nie rotuj kont w celu obejścia blokad, nie zamieniaj obsługi błędu na automatyczny retry. Po wykryciu blokady wyłącz tylko zależną ścieżkę odczytu i uruchom niezależne źródła; zgłoś rzeczywistą przyczynę weryfikacji, jeśli jest widoczna.
 
+## Programowy pilot Facebook Watcher — etap #140 (11.10.2026)
+
+W repo scalono PR #140 (kod `src/facebook_pilot.py`, 15 testów `test_facebook_pilot.py`, oddzielny offline CI, `docs/FACEBOOK_WATCHER_PILOT.md`). Działający **program offline** przyjmuje już autoryzowane dowody wpisów z pierwszej grupy, sprawdza źródło i datę, deduplikuje w lokalnej bazie SQLite i przygotowuje jawne szkice firmy do przeglądu. Nie odczytuje prywatnej grupy sam, nie zakłada nowej Page, nie loguje operatora i nie publikuje nic na FB. GitHub Actions 38176778279: 15/15 PASS. Nie wdrażaj go w istniejącym Dockerze w przekonaniu, że jest to żywy watcher; brak jeszcze autoryzowanego źródła danych i trwałego prywatnego magazynu.
+
+Główny blocker LIVE to nadal #139 — poprawne właścicielsko przypisane okno logowania dla profilu `Watcher - Operator - Pilot`. Stara blokada `PARALLEL_UNSCOPED_TOOL_DISABLED` chroni cudze sesje i nie może być obchodzona. Niezależnie od #139 wymagane jest potwierdzenie tożsamości operatora i dostępu do prywatnej grupy, zanim uznamy choćby odczyt pojedynczego wpisu za produkcyjny. Wypowiedzi klientów nie mogą być masowo emitowane tak, by wyglądały na nieskoordynowane spontaniczne rekomendacje.
+
 **Kryterium wznowienia:** przynajmniej jedna autoryzowana grupa z potwierdzonym sposobem odczytu i dowodem kompletności wybranego zakresu, zweryfikowana tożsamość, brak pętli logowania, odczytowe przebiegi i prywatny rejestr deduplikacji, jawny status wyników. Nie uruchamiaj automatycznego komentowania grup. Powyższe to decyzja architektoniczna i instrukcja, a nie potwierdzenie, że wszystkie grupy są monitorowane.
 
 ## Granice
