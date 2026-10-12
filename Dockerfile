@@ -32,6 +32,7 @@ COPY test_owner_mobile_handoff.py /app/test_owner_mobile_handoff.py
 COPY session_ownership/ /app/session_ownership/
 COPY session_ownership/capability_guard.py /app/capability_guard.py
 COPY session_ownership/multi_capability_guard.py /app/multi_capability_guard.py
+COPY session_ownership/owner_mobile_handoff.py /app/owner_mobile_handoff.py
 COPY connector_router.py /app/connector_router.py
 COPY operator_catalog.py /app/operator_catalog.py
 COPY review_dedupe.py /app/review_dedupe.py
