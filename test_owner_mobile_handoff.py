@@ -143,7 +143,9 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         self.assertIn(b"synthetic-valid-debug",view.body)
         self.assertNotIn(setup["setup_url"].split("#s=")[-1].encode(),view.body)
         self.assertIn(b'id="fullscreen"',view.body)
-        self.assertIn(b"Otw\xc3\xb3rz Facebook na pe\xc5\x82nym ekranie",view.body)
+        self.assertIn(b'Sterowanie dotykowe',view.body)
+        self.assertIn(b'href="/owner-mobile-login/touch"',view.body)
+        self.assertIn(b'Alternatywa: podgl',view.body)
         self.assertNotIn(b"<iframe",view.body)
         self.assertNotIn(b"height:70vh",view.body)
         finish=await self.handoff.finish(request(
