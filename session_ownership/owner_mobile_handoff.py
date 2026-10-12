@@ -300,11 +300,18 @@ class OwnerMobileHandoff:
               headers:{"Content-Type":"application/json"},
               body:JSON.stringify({token:m[1]})
             });
+            if (r.status === 410) {
+              document.getElementById("status").textContent =
+                "Link jednorazowy został już użyty lub wygasł. Wróć do " +
+                "otwartego wcześniej okna logowania; jeśli je zamknięto, " +
+                "poproś w czacie o nowy link.";
+              return;
+            }
             if(!r.ok) throw Error("claim");
             location.replace("/owner-mobile-login/view");
           } catch (_) {
             document.getElementById("status").textContent =
-              "Nie udało się otworzyć sesji. Link mógł wygasnąć.";
+              "Nie udało się nawiązać połączenia. Spróbuj odświeżyć tę stronę.";
           }
         })();
         """
