@@ -41,6 +41,7 @@ class Handoff:
     handle: str
     viewer_url: str
     token_digest: bytes
+    setup_id_digest: bytes
     expires_at: float
     cookie_digest: bytes | None = None
     claimed: bool = False
@@ -187,17 +188,46 @@ class OwnerMobileHandoff:
                                         {"session_id": handle})
                 raise OwnershipError("MOBILE_VIEWER_UNAVAILABLE") from None
             token = secrets.token_urlsafe(32)
+            setup_id = secrets.token_urlsafe(32)
             self.active = Handoff(profile, handle, viewer, _digest(token),
-                                  self.clock() + ttl)
+                                  _digest(setup_id), self.clock() + ttl)
             # Fragment is never sent to Render/Steel access logs or Referer.
             return {
                 "status": "ready_for_human_login",
                 "profile": profile,
                 "setup_url": self.origin + SETUP_PATH + "#s=" + token,
+                "setup_id": setup_id,
                 "expires_in_seconds": ttl,
                 "password_collected_by_chat": False,
                 "browser_session_started": True,
             }
+
+    async def cancel(self, args: dict) -> dict:
+        """Stop only the session minted for this owner-issued setup ID."""
+        if set(args) != {"setup_id"}:
+            raise OwnershipError("MOBILE_CANCEL_PARAMETERS_INVALID")
+        identifier = args.get("setup_id")
+        if (not isinstance(identifier, str)
+                or not 32 <= len(identifier) <= 128):
+            raise OwnershipError("MOBILE_SETUP_ID_REQUIRED")
+        try:
+            digest = _digest(identifier)
+        except UnicodeError:
+            raise OwnershipError("MOBILE_SETUP_ID_REQUIRED") from None
+        async with self.lock:
+            r = self.active
+            if (r is None or r.finished
+                    or not hmac.compare_digest(digest,r.setup_id_digest)):
+                raise OwnershipError("MOBILE_SETUP_ID_NOT_OWNED")
+            result = await self.guard.action(
+                "browser_stop", self.original_stop,
+                {"session_id":r.handle})
+            if (not isinstance(result,dict) or
+                    result.get("profile_saved") is not True or
+                    result.get("full_profile_saved") is not True):
+                raise OwnershipError("MOBILE_SAVE_UNCONFIRMED")
+            r.finished = True
+            return {"cancelled":True, "profile_saved":True}
 
     def _get_record(self, token: str) -> Handoff | None:
         r = self.active
