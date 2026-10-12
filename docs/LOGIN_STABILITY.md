@@ -34,3 +34,15 @@ Nie kupować adresu IP ani abonamentu na własną rękę. Jeśli przyszłe warun
 - Żadna próba nie tworzy powtarzanych loginów, wysyłek kodów, zmian haseł, żadnych nowych opłat bez zgody.
 
 **Stan: NIEZALICZONY** — testy dotyczące realnego profilu Meta wymagają bieżącego poprawnego odczytu i mogą nadal wymagać pojedynczej autoryzacji użytkownika. Problem #111 / #118 blokuje uznanie rozwiązania za wdrożone.
+
+## Mobilny podgląd logowania — powrót po wykorzystaniu linku (12.10.2026)
+
+Po PR #143 w trybie owner-beta istnieje ograniczony do jednej sesji `/owner-mobile-login`; pozostałe stare, nieautoryzowane trasy setup pozostają zablokowane. Oryginalny link z fragmentem `#s=` służy do **jednorazowego** uzyskania ciasteczka HttpOnly (max 10 minut). Ten sam link nie może być użyty do przejęcia sesji w innym urządzeniu.
+
+Nowa poprawka pilotażowa:
+1. Powrót do oryginalnego linku w **tym samym oknie przeglądarki**, która już ma właściwe ciasteczko, przekierowuje na `/owner-mobile-login/view` bez ponownego claim. Ponowione żądanie claim z tym ciasteczkiem jest idempotentne, bez udzielania drugiego dostępu. Nowy WebView/urządzenie bez ciasteczka nadal otrzyma 410 — wtedy konieczny jest **nowy link wystawiony przez właściciela**, a nie ponowne uruchamianie starego.
+2. Pierwszy wybór na iPhonie to **„Otwórz duży podgląd Steel”**. Chroniona ciasteczkiem trasa `/owner-mobile-login/player` otwiera oryginalny interaktywny podgląd Steel bez miniaturowego, zagnieżdżonego iframe; ewentualnie obrócić telefon poziomo. Po zalogowaniu trzeba wrócić przyciskiem Wstecz do panelu i nacisnąć **„Zapisz profil i zakończ”**.
+3. Panel na iPhonie jest zwarty; mały iframe uruchamia strumień WebRTC tylko po rozwinięciu sekcji awaryjnej. Sama miniaturka nie jest dowodem błędu logowania — może to być sposób skalowania przeglądarki w osadzonym Steel na iOS. Steel zgłaszał problemy klawiatury w iframe WebKit (https://github.com/steel-dev/steel-browser/issues/270).
+4. Trasa player wymaga żywego, dokładnie przypisanego do sesji ciasteczka; sama znajomość starego `setup_id` albo linku nie wystarcza. Po potwierdzonym stop lub upływie ważności GET zwraca 403. Nigdzie w publicznym repo, logach ani treści ChatGPT nie umieszczać rzeczywistych `debugUrl` (nieautoryzowany po stronie dostawcy bearer). Nie obchodź tej bramki przekierowaniem na niezwiązany profil.
+5. Wdrożenie i testy syntetyczne **nie są dowodem, że interaktywny podgląd działa na konkretnym iPhonie** ani że wskazany profil Facebook został poprawnie zalogowany. Wymagany jest ręczny test logowania, bezpieczne zamknięcie i świeży odczyt tożsamości z nowej sesji.
+
