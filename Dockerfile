@@ -31,6 +31,7 @@ COPY test_owner_parallel_mcp.py /app/test_owner_parallel_mcp.py
 COPY test_owner_mobile_handoff.py /app/test_owner_mobile_handoff.py
 COPY test_owner_mobile_touch.py /app/test_owner_mobile_touch.py
 COPY test_owner_mobile_touch_chromium.py /app/test_owner_mobile_touch_chromium.py
+COPY test_owner_mobile_touch_webkit.py /app/test_owner_mobile_touch_webkit.py
 COPY session_ownership/ /app/session_ownership/
 COPY session_ownership/capability_guard.py /app/capability_guard.py
 COPY session_ownership/multi_capability_guard.py /app/multi_capability_guard.py
