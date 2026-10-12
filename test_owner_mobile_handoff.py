@@ -9,6 +9,8 @@ import re
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 from test_owner_parallel_mcp import MultiManager
 from session_ownership.multi_capability_guard import MultiCapabilityGuard
@@ -68,6 +70,10 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.manager = FakeMobileManager()
         self.mcp = fake_mcp(self.manager)
+        async def legacy(_request):
+            return JSONResponse({"unexpected":"legacy_viewer"})
+        self.mcp._custom_starlette_routes.append(
+            Route("/setup/legacy",legacy,methods=["POST"]))
         self.guard = MultiCapabilityGuard(
             self.mcp, self.manager, capacity=5, watchdog_enabled=False)
         self.assertEqual(self.guard.install(),51)
@@ -218,7 +224,7 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
                       if r.path.startswith("/health") is False
                       and r.path != SETUP_PATH
                       and not r.path.startswith(SETUP_PATH+"/"))
-        result=await legacy.endpoint(request(legacy.path))
+        result=await legacy.endpoint(request(legacy.path,"POST",{}))
         self.assertEqual(result.status_code,403)
         with self.assertRaises(Exception):
             await self.mcp.call_tool("profile_delete",{
