@@ -9,6 +9,7 @@ on:
       - "test_owner_mobile_handoff.py"
       - "test_owner_mobile_touch.py"
       - "test_owner_mobile_touch_chromium.py"
+      - "test_owner_mobile_touch_webkit.py"
       - "test_owner_parallel_mcp.py"
       - "Dockerfile"
       - ".github/workflows/owner-mobile-login-ci.yml"
@@ -43,4 +44,5 @@ jobs:
         run: |
           docker run --rm --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_handoff.py && PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_touch.py"
           docker run --rm --network none --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_touch_chromium.py"
+          docker run --rm --network none --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_touch_webkit.py"
           echo "OFFLINE_TESTS_ONLY_NO_ACCOUNTS_NO_STEEL_NO_DEPLOY"
