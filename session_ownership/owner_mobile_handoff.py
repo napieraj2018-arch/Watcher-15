@@ -167,9 +167,33 @@ class OwnerMobileHandoff:
             raise OwnershipError("MOBILE_SETUP_NOT_READY")
         async with self.lock:
             if self.active is not None and not self.active.finished:
-                # A timed-out setup may still own a billable session.
-                # It must be explicitly closed by the original owner guard.
-                raise OwnershipError("MOBILE_SETUP_IN_PROGRESS")
+                # An invite can outlive a *successfully saved and released*
+                # browser, for example after the owner guard's watchdog closes
+                # an abandoned iPhone window. Elapsed time alone is NEVER
+                # sufficient to clear it: require evidence that the exact
+                # owner lease is gone via the guarded saved-stop path.
+                previous = self.active
+                try:
+                    self.guard._assess()
+                except OwnershipError:
+                    raise OwnershipError("MOBILE_SETUP_IN_PROGRESS") from None
+                prior_digest = _digest(previous.handle)
+                still_leased = any(
+                    hmac.compare_digest(prior_digest, lease.capability_digest)
+                    for lease in self.guard.leases.values()
+                )
+                same_profile_live = (
+                    previous.profile in self.guard.by_profile
+                    or any(getattr(session, "profile", None) == previous.profile
+                           for session in self.guard.sessions().values())
+                )
+                if self.guard.quarantined or still_leased or same_profile_live:
+                    # Never release, adopt, or silently discard a provider
+                    # session with an uncertain close/save receipt.
+                    raise OwnershipError("MOBILE_SETUP_IN_PROGRESS")
+                previous.finished = True
+                previous.cookie_digest = None
+                previous.viewer_url = ""
             # The deployed SteelContextFix applies a 508x1074 mobile
             # viewport only when browser_start explicitly requests a visible
             # session. The former implicit headless=True produced a wide
