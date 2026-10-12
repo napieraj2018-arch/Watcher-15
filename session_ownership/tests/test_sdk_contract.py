@@ -12,8 +12,10 @@ def fake_mcp(manager):
     async def health(request):
         return JSONResponse({"ok":True})
 
-    async def start(profile:str,mode:str="read_only",start_url:str="about:blank")->dict:
-        return await manager.start(profile,mode=mode,start_url=start_url)
+    async def start(profile:str,mode:str="read_only",start_url:str="about:blank",headless:bool=True)->dict:
+        # Mirror the deployed browser_start headless option. The mobile
+        # handoff deliberately passes False for portrait Steel readback.
+        return await manager.start(profile,mode=mode,start_url=start_url,headless=headless)
     async def status(session_id:str)->dict:
         return await manager.status(session_id)
     async def sessions()->dict:
