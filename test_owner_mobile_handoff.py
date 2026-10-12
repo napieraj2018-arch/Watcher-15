@@ -33,9 +33,11 @@ class FakeMobileManager(MultiManager):
     def __init__(self, **kw):
         super().__init__(**kw)
         self.fake_viewer = GOOD_URL
+        self.last_headless = None
 
     async def start(self, profile, mode="read_only", start_url="about:blank",
                     headless=True):
+        self.last_headless = headless
         result = await super().start(profile,mode=mode,start_url=start_url,
                                      headless=headless)
         self._sessions[result["session_id"]].browser = SimpleNamespace(
@@ -98,6 +100,9 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         self.assertEqual(len(self.manager._sessions),1)
         self.assertEqual(next(iter(self.manager._sessions.values())).profile,PROFILE)
         self.assertEqual(next(iter(self.manager._sessions.values())).mode,"write")
+        # Forces the Steel browser to use its portrait mobile viewport,
+        # rather than squeezing a desktop screenshot into a tall iframe.
+        self.assertIs(self.manager.last_headless,False)
         self.assertEqual(self.guard.capacity,5)
 
     async def test_owner_cancellation_stops_only_bound_setup(self):
@@ -137,6 +142,10 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         self.assertEqual(view.status_code,200)
         self.assertIn(b"synthetic-valid-debug",view.body)
         self.assertNotIn(setup["setup_url"].split("#s=")[-1].encode(),view.body)
+        self.assertIn(b'id="fullscreen"',view.body)
+        self.assertIn(b"Otw\xc3\xb3rz Facebook na pe\xc5\x82nym ekranie",view.body)
+        self.assertNotIn(b"<iframe",view.body)
+        self.assertNotIn(b"height:70vh",view.body)
         finish=await self.handoff.finish(request(
             SETUP_PATH+"/finish","POST",{},cookie=cookie))
         self.assertEqual(finish.status_code,200)
@@ -153,6 +162,35 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         replay=await self.claim(setup)
         self.assertEqual(replay.status_code,410)
         self.assertNotIn(GOOD_URL,replay.body.decode())
+
+    async def test_reopening_claimed_link_resumes_only_same_cookie_session(self):
+        setup=await self.begin()
+        first=await self.claim(setup)
+        self.assertEqual(first.status_code,200)
+        cookie=first.headers["set-cookie"].split(";",1)[0]
+        home=await self.handoff.home(request(SETUP_PATH,cookie=cookie))
+        self.assertEqual(home.status_code,303)
+        self.assertEqual(home.headers["location"],SETUP_PATH+"/view")
+        self.assertEqual(len(self.manager._sessions),1)
+        self.assertNotIn(GOOD_URL,str(home.headers))
+        # No cookie: same one-use invitation cannot be claimed again.
+        anonymous=await self.handoff.home(request(SETUP_PATH))
+        self.assertEqual(anonymous.status_code,200)
+        self.assertIn(b"location.hash",anonymous.body)
+        replay=await self.claim(setup)
+        self.assertEqual(replay.status_code,410)
+        self.assertEqual(len(self.manager._sessions),1)
+
+    async def test_expired_claim_cookie_cannot_resume_or_reveal_player(self):
+        setup=await self.begin()
+        first=await self.claim(setup)
+        cookie=first.headers["set-cookie"].split(";",1)[0]
+        self.handoff.clock=lambda:100 + setup["expires_in_seconds"] + 91
+        expired=await self.handoff.home(request(SETUP_PATH,cookie=cookie))
+        self.assertEqual(expired.status_code,200)
+        self.assertNotIn(GOOD_URL,expired.body.decode())
+        expired_view=await self.handoff.view(request(SETUP_PATH+"/view",cookie=cookie))
+        self.assertNotIn(GOOD_URL,expired_view.body.decode())
 
     async def test_wrong_origin_and_content_type_cannot_claim(self):
         setup=await self.begin()
