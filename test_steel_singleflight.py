@@ -41,6 +41,7 @@ class FakeEngine(Engine):
         super().__init__()
         self.creates = 0
         self.releases = 0
+        self.last_create_body = None
         self.block_create = False
         self.block_release = False
         self.return_wrong_id = False
@@ -55,6 +56,7 @@ class FakeEngine(Engine):
         # Replaces ALL I/O. No API, browser or paid provider is contacted.
         if method == "POST" and path == "/sessions":
             self.creates += 1
+            self.last_create_body = body
             if self.fail_create:
                 raise SteelFailure('STEEL_CONNECTION_FAILED')
             if self.block_create:
@@ -79,6 +81,19 @@ class SteelSingleFlight(unittest.IsolatedAsyncioTestCase):
 
     def tearDown(self):
         self.key.stop()
+
+    async def test_steel_session_explicitly_allows_human_mouse_keyboard(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        browser = await engine.launch(chrome)
+        try:
+            request = engine.last_create_body
+            self.assertEqual(request["debugConfig"]["interactive"], True)
+            self.assertEqual(request["debugConfig"]["systemCursor"], True)
+            self.assertEqual(request["dimensions"], {"width": 508, "height": 1074})
+            self.assertIs(request["headless"], False)
+            self.assertIs(request["solveCaptcha"], False)
+        finally:
+            await browser.close()
 
     async def test_two_simultaneous_starts_create_only_one_remote(self):
         engine, chrome = FakeEngine(), FakeChromium()

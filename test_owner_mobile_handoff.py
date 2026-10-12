@@ -236,6 +236,34 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
                         "profile":PROFILE,"login_url":raw})
         self.assertEqual(self.manager._sessions,{})
 
+    async def test_steel_player_url_enables_real_input_without_leaking_token(self):
+        # The live Steel player accepts video and can still be read-only
+        # unless both the provider session and viewer request allow input.
+        base = ("https://api.steel.dev/v1/sessions/"
+                "b87f2eeb-7dcb-4cb0-aa34-d7aeb5e4eaee/player")
+        self.assertEqual(_viewer_url(base), base
+                         + "?interactive=true&showControls=true")
+        self.assertEqual(
+            _viewer_url(base + "?interactive=false&showControls=false"),
+            base + "?interactive=true&showControls=true")
+        self.manager.fake_viewer = base + "?interactive=false"
+        setup = await self.begin()
+        self.assertNotIn(base, str(setup))
+        claimed = await self.claim(setup)
+        cookie = claimed.headers["set-cookie"].split(";", 1)[0]
+        view = await self.handoff.view(
+            request(SETUP_PATH + "/view", cookie=cookie))
+        self.assertEqual(view.status_code, 200)
+        self.assertIn(b"interactive=true", view.body)
+        self.assertIn(b"showControls=true", view.body)
+        self.assertNotIn(b"interactive=false", view.body)
+        without_cookie = await self.handoff.view(
+            request(SETUP_PATH + "/view"))
+        self.assertNotIn(base.encode(), without_cookie.body)
+        saved = await self.handoff.finish(
+            request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        self.assertEqual(saved.status_code, 200)
+
     async def test_debug_url_rejected_for_untrusted_domains(self):
         for url in ("https://steel.dev.evil.test/x",
                     "http://app.steel.dev/sessions/xxx",

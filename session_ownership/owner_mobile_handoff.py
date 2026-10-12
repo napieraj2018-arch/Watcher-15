@@ -21,7 +21,7 @@ import html
 import json
 import secrets
 import time
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
@@ -63,7 +63,16 @@ def _viewer_url(raw: object) -> str:
                 host.endswith(".steel.dev")) or u.username or u.password or
                 u.port not in (None, 443) or u.fragment):
             raise ValueError()
-        return urlunsplit((u.scheme, u.netloc, u.path, u.query, ""))
+        # Steel's remote player is meant for human takeovers. Explicitly
+        # request interactive controls rather than relying on the provider's
+        # evolving debugUrl defaults. Never allow an existing
+        # interactive=false query to disable mouse and keyboard input.
+        params = dict(parse_qsl(u.query, keep_blank_values=True))
+        if host == "api.steel.dev" and u.path.endswith("/player"):
+            params["interactive"] = "true"
+            params["showControls"] = "true"
+        return urlunsplit((u.scheme, u.netloc, u.path,
+                           urlencode(params), ""))
     except (ValueError, TypeError):
         raise OwnershipError("MOBILE_VIEWER_INVALID") from None
 
