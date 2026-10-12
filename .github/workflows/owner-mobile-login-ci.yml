@@ -8,6 +8,7 @@ on:
       - "steel_runtime.py"
       - "test_owner_mobile_handoff.py"
       - "test_owner_mobile_touch.py"
+      - "test_owner_mobile_touch_chromium.py"
       - "test_owner_parallel_mcp.py"
       - "Dockerfile"
       - ".github/workflows/owner-mobile-login-ci.yml"
@@ -29,7 +30,7 @@ jobs:
         env:
           PYTHONPATH: ".:session_ownership:session_ownership/tests"
         run: |
-          python -m py_compile steel_runtime.py session_ownership/owner_mobile_handoff.py session_ownership/owner_mobile_touch.py session_ownership/multi_capability_guard.py test_owner_mobile_handoff.py test_owner_mobile_touch.py
+          python -m py_compile steel_runtime.py session_ownership/owner_mobile_handoff.py session_ownership/owner_mobile_touch.py session_ownership/multi_capability_guard.py test_owner_mobile_handoff.py test_owner_mobile_touch.py test_owner_mobile_touch_chromium.py
           python -m unittest test_owner_mobile_touch test_owner_mobile_handoff test_owner_parallel_mcp -v
   production-image:
     runs-on: ubuntu-latest
@@ -41,4 +42,5 @@ jobs:
       - name: Verify 51 existing MCP tools plus four scoped HTTP routes
         run: |
           docker run --rm --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_handoff.py && PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_touch.py"
+          docker run --rm --network none --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_touch_chromium.py"
           echo "OFFLINE_TESTS_ONLY_NO_ACCOUNTS_NO_STEEL_NO_DEPLOY"
