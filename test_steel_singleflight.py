@@ -41,6 +41,14 @@ class FakeEngine(Engine):
         super().__init__()
         self.creates = 0
         self.releases = 0
+        self.readbacks = 0
+        self.states = {}
+        self.fail_readback = False
+        self.wrong_readback_id = False
+        self.status_override = None
+        self.ack_without_release = False
+        self.terminal_readback_lag = 0
+        self.fail_release_after_state_change = False
         self.block_create = False
         self.block_release = False
         self.return_wrong_id = False
@@ -60,6 +68,7 @@ class FakeEngine(Engine):
             if self.block_create:
                 self.create_entered.set()
                 await self.create_continue.wait()
+            self.states[body["sessionId"]] = "live"
             return {"id": "mismatched-id" if self.return_wrong_id else body["sessionId"]}
         if method == "POST" and path.endswith("/release"):
             self.releases += 1
@@ -68,7 +77,25 @@ class FakeEngine(Engine):
             if self.block_release:
                 self.release_entered.set()
                 await self.release_continue.wait()
+            requested = path[len("/sessions/"):-len("/release")]
+            if requested in self.states and not self.ack_without_release:
+                self.states[requested] = "released"
+            if self.fail_release_after_state_change:
+                raise SteelFailure('STEEL_CONNECTION_FAILED')
             return {}
+        if method == "GET" and path.startswith("/sessions/"):
+            self.readbacks += 1
+            if self.fail_readback:
+                raise SteelFailure("STEEL_CONNECTION_FAILED")
+            requested = path[len("/sessions/"):]
+            state = self.states.get(requested, "unknown")
+            if state in {"released", "failed"} and self.terminal_readback_lag:
+                self.terminal_readback_lag -= 1
+                state = "live"
+            return {
+                "id": "foreign-session" if self.wrong_readback_id else requested,
+                "status": self.status_override or state,
+            }
         raise AssertionError("Unexpected request to provider stub")
 
 
@@ -166,10 +193,119 @@ class SteelSingleFlight(unittest.IsolatedAsyncioTestCase):
         engine.fail_release = True
         with self.assertRaises(SteelFailure):
             await remote.close()
-        await remote.close()
-        self.assertEqual(engine.releases, 2)
+        with self.assertRaisesRegex(SteelFailure,
+                                    "STEEL_REMOTE_RELEASE_UNCONFIRMED"):
+            await remote.close()
+        self.assertEqual(engine.releases, 2,
+                         "Readback retries must never repeat release POST")
         self.assertTrue(engine._quarantined)
         self.assertIn(remote.remote_id, engine.remote)
+
+    async def test_release_post_200_without_terminal_state_is_rejected(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        remote = await engine.launch(chrome)
+        engine.ack_without_release = True
+        with self.assertRaisesRegex(SteelFailure,
+                                    "STEEL_REMOTE_RELEASE_UNCONFIRMED"):
+            await remote.close()
+        self.assertEqual(engine.releases, 1)
+        self.assertEqual(engine.readbacks, 3)
+        self.assertTrue(engine._quarantined)
+        self.assertIn(remote.remote_id, engine.remote)
+        self.assertEqual(engine.states[remote.remote_id], "live")
+
+    async def test_terminal_status_with_foreign_id_never_frees_slot(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        remote = await engine.launch(chrome)
+        engine.wrong_readback_id = True
+        with self.assertRaisesRegex(SteelFailure,
+                                    "STEEL_REMOTE_RELEASE_UNCONFIRMED"):
+            await remote.close()
+        self.assertTrue(engine._quarantined)
+        self.assertIn(remote.remote_id, engine.remote)
+
+    async def test_unknown_status_and_failed_get_are_unverified(self):
+        for failure in ("unknown_status", "readback_exception"):
+            with self.subTest(case=failure):
+                engine, chrome = FakeEngine(), FakeChromium()
+                remote = await engine.launch(chrome)
+                if failure == "unknown_status":
+                    engine.status_override = "saving"
+                else:
+                    engine.fail_readback = True
+                with self.assertRaisesRegex(
+                        SteelFailure, "STEEL_REMOTE_RELEASE_UNCONFIRMED"):
+                    await remote.close()
+                self.assertTrue(engine._quarantined)
+                self.assertIn(remote.remote_id, engine.remote)
+
+    async def test_bounded_delayed_terminal_readback_succeeds(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        engine.terminal_readback_lag = 2
+        remote = await engine.launch(chrome)
+        await remote.close()
+        self.assertEqual(engine.readbacks, 3)
+        self.assertFalse(engine._quarantined)
+        self.assertEqual(engine.remote, {})
+
+    async def test_post_network_failure_can_be_resolved_by_independent_get(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        engine.fail_release_after_state_change = True
+        remote = await engine.launch(chrome)
+        await remote.close()
+        self.assertEqual(engine.releases, 2)
+        self.assertEqual(engine.readbacks, 1)
+        self.assertEqual(engine.remote, {})
+
+    async def test_repeat_close_only_readbacks_same_session_without_releasing(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        remote = await engine.launch(chrome)
+        engine.ack_without_release = True
+        with self.assertRaises(SteelFailure):
+            await remote.close()
+        self.assertEqual(engine.releases, 1)
+        self.assertTrue(engine._quarantined)
+        engine.states[remote.remote_id] = "released"
+        await remote.close()
+        self.assertEqual(engine.releases, 1)
+        self.assertNotIn(remote.remote_id, engine.remote)
+        self.assertTrue(engine._quarantined,
+                        "Readback never auto-unquarantines other sessions")
+        self.assertEqual(chrome.connections[0].close_count, 1)
+
+    async def test_malformed_terminal_status_rejected_without_type_error(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        remote = await engine.launch(chrome)
+        engine.status_override = {"value": "released"}
+        with self.assertRaisesRegex(SteelFailure,
+                                    "STEEL_REMOTE_RELEASE_UNCONFIRMED"):
+            await remote.close()
+        self.assertTrue(engine._quarantined)
+        self.assertIn(remote.remote_id, engine.remote)
+
+    async def test_unexpected_provider_exception_quarantines_and_redacts(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        remote = await engine.launch(chrome)
+        with patch.object(engine, "release",
+                          side_effect=RuntimeError("synthetic-private-url")):
+            with self.assertRaises(SteelFailure) as caught:
+                await remote.close()
+        self.assertEqual(str(caught.exception),
+                         "STEEL_REMOTE_RELEASE_UNCONFIRMED")
+        self.assertTrue(engine._quarantined)
+        self.assertIn(remote.remote_id, engine.remote)
+
+    async def test_cancelled_release_preserves_slot_and_quarantine(self):
+        engine, chrome = FakeEngine(), FakeChromium()
+        remote = await engine.launch(chrome)
+        with patch.object(engine, "release",
+                          side_effect=asyncio.CancelledError()):
+            with self.assertRaises(asyncio.CancelledError):
+                await remote.close()
+        self.assertTrue(engine._quarantined)
+        self.assertIn(remote.remote_id, engine.remote)
+        self.assertEqual(engine.creates, 1)
+        self.assertEqual(chrome.connections[0].close_count, 1)
 
     async def test_ambiguous_create_is_quarantined_even_if_cleanup_acknowledges(self):
         engine, chrome = FakeEngine(), FakeChromium()
