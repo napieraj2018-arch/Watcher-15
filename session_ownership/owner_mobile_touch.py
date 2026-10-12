@@ -113,7 +113,7 @@ class NativeTouchController:
           const status = document.getElementById("touch-status");
           const value = document.getElementById("touch-value");
           const pass = document.getElementById("touch-password");
-          let busy = false, start = null;
+          let busy = false, start = null, framePending = false;
           function announce(t) { status.textContent = t; }
           async function command(payload) {
             if (busy) {
@@ -137,8 +137,12 @@ class NativeTouchController:
             } finally { busy = false; }
           }
           function refresh() {
-            if (document.visibilityState === "visible")
-              shot.src = "/owner-mobile-login/touch/frame?t=" + Date.now();
+            // Slow remote screenshots must finish before changing src again.
+            // Replacing src every 2 seconds aborts the image in the client
+            // while server-side captures pile up behind the same input lock.
+            if (document.visibilityState !== "visible" || framePending) return;
+            framePending = true;
+            shot.src = "/owner-mobile-login/touch/frame?t=" + Date.now();
           }
           const fraction = (v, a, size) =>
             Math.max(0, Math.min(1, (v - a) / Math.max(size, 1)));
@@ -179,8 +183,15 @@ class NativeTouchController:
               () => command({kind:"key",key});
           }
           document.getElementById("touch-refresh").onclick=refresh;
-          shot.addEventListener("error", () =>
-            announce("Brak obrazu. Sesja mogła wygasnąć."));
+          shot.addEventListener("load", () => {
+            framePending = false;
+            if (status.textContent === "Łączę z aktywną sesją…")
+              announce("Obraz gotowy. Dotknij wybranego miejsca.");
+          });
+          shot.addEventListener("error", () => {
+            framePending = false;
+            announce("Brak obrazu. Sesja mogła wygasnąć.");
+          });
           refresh();
           setInterval(() => {
             if (!busy && document.visibilityState === "visible") refresh();
