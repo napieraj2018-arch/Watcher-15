@@ -116,7 +116,10 @@ class NativeTouchController:
           let busy = false, start = null;
           function announce(t) { status.textContent = t; }
           async function command(payload) {
-            if (busy) return;
+            if (busy) {
+              announce("Trwa poprzednia operacja. Spróbuj za chwilę.");
+              return false;
+            }
             busy = true;
             try {
               const response = await fetch("/owner-mobile-login/touch/action", {
@@ -127,8 +130,11 @@ class NativeTouchController:
               if (!response.ok) throw Error("unavailable");
               announce("Wykonano. Odświeżam widok…");
               refresh();
-            } catch (_) { announce("Nie udało się sterować. Sesja mogła wygasnąć."); }
-            finally { busy = false; }
+              return true;
+            } catch (_) {
+              announce("Nie udało się sterować. Wpisany tekst nie został usunięty.");
+              return false;
+            } finally { busy = false; }
           }
           function refresh() {
             if (document.visibilityState === "visible")
@@ -155,11 +161,14 @@ class NativeTouchController:
             start = null;
           });
           shot.addEventListener("pointercancel", () => {start=null;});
-          const sendText = (element, field) => {
+          const sendText = async (element, field) => {
             const t=element.value;
             if (!t) {announce("Najpierw wpisz tekst na klawiaturze.");return;}
-            command({kind:"text", field, text:t});
-            element.value = "";
+            const sent = await command({kind:"text", field, text:t});
+            // Only clear sensitive input AFTER the remote browser reports
+            // confirmed success. Busy, errors and disconnected sessions must
+            // never silently discard a user's typed credentials.
+            if (sent && element.value === t) element.value = "";
           };
           document.getElementById("touch-send").onclick =
             () => sendText(value,"text");
