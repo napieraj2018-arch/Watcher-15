@@ -450,8 +450,14 @@ class MultiCapabilityGuard:
                         raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
                     return await self.mobile_handoff.create(kw)
                 tool.fn = setup_tool
+            elif name == "profile_cancel_setup":
+                async def cancel_setup_tool(*a, **kw):
+                    if a:
+                        raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
+                    return await self.mobile_handoff.cancel(kw)
+                tool.fn = cancel_setup_tool
             else:
-                # Legacy unscoped login viewers, cancellation, profile
+                # Legacy unscoped login viewers, profile
                 # deletion and generic staged-file operations stay blocked.
                 # Only the new owner-initiated, single-profile setup above
                 # can create a short-lived, capability-scoped handoff.
