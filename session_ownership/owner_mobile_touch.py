@@ -267,8 +267,7 @@ class NativeTouchController:
                         type(height) is int and height>0):
                     return False
                 await page.mouse.click(max(1,min(width-1,round(data["x"]*width))),
-                                       max(1,min(height-1,round(data["y"]*height))),
-                                       timeout=7000)
+                                       max(1,min(height-1,round(data["y"]*height))))
             elif kind == "scroll":
                 await page.mouse.wheel(0,round(data["delta"]))
             elif kind == "key":
