@@ -3,6 +3,12 @@
 ## Cel
 Użytkownik wydaje jedno polecenie w ChatGPT; agent sam rozpoznaje właściwe konto, procedurę i ostatni bezpieczny checkpoint. Pracuje odczytowo domyślnie, bez ręcznego przepisywania treści i bez wysyłania użytkownika do innego promptu. Wymagane MFA i świadoma zgoda na publikację są wyjątkami, a nie codzienną obsługą.
 
+## Blokada po próbie testu interaktywnego Steel — 12.10.2026
+
+**Stan w chwili kontroli, zawsze sprawdź ponownie:** LIVE Render `e4f9518566318c6fce76e89bd0b774ba70e28794` (#147) ma `debugConfig.interactive=true` i player `interactive=true`. Faktyczny dostawca przyjął POST utworzenia testowej sesji `SteelSelfTest`, ale zamknięcie tej sesji zakończyło się `SYNTHETIC_FIXTURE_SAVE_NOT_VERIFIED` z powodu niezgodnego/nieaktualnego syntetycznego cookie/localStorage. `browser_sessions` zwrócił `recovery_required` i pozostającą lease dla wyłącznie syntetycznego profilu. W logach Steel API widać release HTTP 200, jednak BRAK niezależnej weryfikacji exact-session terminal GET. Zgłoszenie #148; związane #111 i draft #132. **Nie uruchamiaj nowych sesji, nie restartuj i nie wdrażaj kolejnych zmian, nie kasuj sesji przez nazwę oraz nie czyszcz kwarantanny, zanim niezależne sprawdzenie providera potwierdzi terminalny stan, a poprawne lokalne lease/profile-save zostaną uzgodnione.** Prace niezależne od live Steel mogą trwać.
+
+Ekran bezpośredniego Steel playera na iPhonie pokazywał obraz Facebooka, ale nie przyjmował dotyku/klawiatury. To nie jest udany test loginu. Zgłoszono dostawcy Steel e-mail w istniejącym wątku technicznym 12.10.2026, z linkiem do upstream iOS issue #270; nie przekazano haseł ani URL viewerów. **Nie kieruj użytkownika do kolejnych prób wpisywania haseł na iPhonie, zanim dotyk nie przejdzie testu na neutralnej stronie i test zapis→zamknięcie→nowa sesja nie zakończy się potwierdzonym PASS.** Nie używaj starego `SteelSelfTest` z wygasłym znacznikiem jako neutralnego smoke testu sterowania.
+
 ## Każde uruchomienie
 1. Sprawdź HEAD gałęzi `ai-browser-cloud`, aktywny deploy Render `srv-db34e6ks728c73bae4sg`, CI, `browser_sessions`, nazwę profilu oraz aktualną procedurę w `workflows/`.
 2. Preferuj autoryzowane API/OAuth (Meta, Google Business, Search Console) zamiast ponownego otwierania logowania w przeglądarce, gdy API rzeczywiście zwraca potrzebne dane.
