@@ -14,7 +14,7 @@ from starlette.routing import Route
 
 from test_owner_parallel_mcp import MultiManager
 from session_ownership.multi_capability_guard import MultiCapabilityGuard
-from session_ownership.owner_mobile_handoff import (
+from owner_mobile_handoff import (
     COOKIE, SETUP_ORIGIN, SETUP_PATH, _viewer_url
 )
 from session_ownership.capability_guard import OwnershipError
