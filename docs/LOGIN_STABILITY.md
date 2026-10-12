@@ -42,3 +42,15 @@ W nowym właścicielskim handoff `/owner-mobile-login` jednorazowy link służy 
 Przy logowaniu wyświetlaj interaktywny podgląd Steel jako osobną stronę na **pełnym ekranie**, a nie w poziomym iframe wewnątrz wysokiego panelu iPhone (powodowało czarne pasy i mikroskopijny formularz Facebooka). Start żąda `headless=false` aby istniejąca warstwa `steel_context_fix` ustawiła viewport 508×1074. Po zalogowaniu wróć przyciskiem „Wstecz” do krótkotrwałego ekranu i wybierz „Zapisz profil i zakończ”. Nie nazywaj zapisu potwierdzonym logowaniem bez niezależnego odczytu tożsamości w **nowej sesji**.
 
 Nie przedłużaj automatycznie TTL, nie powielaj sesji i nie publikuj surowego URL playera ani fragmentu zaproszenia w logach/raportach. Przy nieweryfikowalnej starej sesji użyj wyłącznie jej autoryzowanego `profile_cancel_setup` z własnym identyfikatorem i wymagaj `full_profile_saved` przed nowym setup. Poprawka nie zmienia dostępu do cudzych profili.
+
+## iPhone Steel player — widoczna strona bez możliwości kliknięcia (12.10.2026)
+
+Rzeczywisty zrzut z profilu `Meta - Karolina Machnicka` pokazuje stronę Facebook w środku bezpośredniego `api.steel.dev` playera, z dużymi czarnymi polami. Użytkownik nie może wybrać pola ani wpisywać. Wyświetlanie obrazu z WebRTC NIE jest dowodem działania zdalnych wejść.
+
+Dwie warstwy sterowania według [Steel Configuration](https://docs.steel.dev/overview/sessions-api/configuration) i [Human-in-the-Loop](https://docs.steel.dev/overview/sessions-api/human-in-the-loop):
+- Provider POST /sessions: `debugConfig.interactive: true`, `debugConfig.systemCursor: true`.
+- Link do właścicielsko uwierzytelnionego playera: jawne `interactive=true&showControls=true`, niezależnie od potencjalnego `interactive=false` w `debugUrl`.
+Ani nazwa profilu, ani link do obrazowego podglądu nie wystarczają do dowodu interakcji; wynik wymaga **dotknięcia pola i faktycznej odpowiedzi kursora/klawiatury na iPhonie**.
+
+Upstream Steel ma osobny [otwarty błąd iOS WebKit input](https://github.com/steel-dev/steel-browser/issues/270), dotyczący przede wszystkim klawiatury osadzonego iframe; u nas wykorzystujemy pełny ekran, ale dostawca może nadal mieć usterkę dotykową. Nie zastępować tej zależności niezweryfikowaną pętlą logowania ani wstrzykiwaniem haseł przez AI. Jeśli jawne włączenie `interactive` nie pomaga na prawdziwym telefonie, następny krok to diagnostyka tego konkretnego playera z dostawcą lub osobny, autoryzowany interfejs obsługi zdalnej sesji. **Nie deklarować naprawy dotyku wyłącznie na podstawie CI.**
+
