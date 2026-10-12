@@ -285,10 +285,14 @@ class MultiMcp(IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(
             OwnershipError,"DIRECT_SESSION_ACCESS_BLOCKED"):
             self.manager._session("INTERNAL_SYNTHETIC_SESSION_1")
+        # The new setup endpoint only accepts the exact Facebook login
+        # surface; it must not run arbitrary destinations.
         with self.assertRaisesRegex(
-            ToolError,"PARALLEL_UNSCOPED_TOOL_DISABLED"):
+            ToolError,"MOBILE_LOGIN_ORIGIN_NOT_ALLOWED"):
             await self.mcp.call_tool("profile_start_setup",{
                 "profile":"OTHER","login_url":"https://example.com/"})
+        # The unscoped legacy setup endpoint is still HTTP 403, and
+        # deletion/unowned operations remain disabled.
         with self.assertRaisesRegex(
             ToolError,"PARALLEL_UNSCOPED_TOOL_DISABLED"):
             await self.mcp.call_tool("profile_delete",{

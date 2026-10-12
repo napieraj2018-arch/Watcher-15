@@ -25,6 +25,7 @@ from capability_guard import (
     TOOLS, OWNED, START_TOOLS, WRAPPED_ASYNC,
     Lease, OwnershipError, preflight, scrub_result,
 )
+from owner_mobile_handoff import OwnerMobileHandoff
 
 VERSION = "2026-10-10.multi-beta.1"
 READ_ONLY_ROUTES = frozenset({"/health", "/health/context", "/health/steel"})
@@ -51,6 +52,7 @@ class MultiCapabilityGuard:
         self.watchdogs: set[asyncio.Task] = set()
         self.quarantined = False
         self.installed = False
+        self.mobile_handoff = OwnerMobileHandoff(self)
 
     def sessions(self):
         return self.manager._sessions
@@ -390,6 +392,11 @@ class MultiCapabilityGuard:
             raise OwnershipError("PARALLEL_TOOL_CATALOG_INVALID")
         self.guard_routes()
         self.wrap_manager()
+        self.mobile_handoff.original_start = self.mcp._tool_manager._tools["browser_start"].fn
+        self.mobile_handoff.original_stop = self.mcp._tool_manager._tools["browser_stop"].fn
+        # Register only NEW profile-scoped routes; the legacy unscoped mobile
+        # endpoints above remain denied even when every slot is idle.
+        self.mcp._custom_starlette_routes.extend(self.mobile_handoff.routes())
         for name, tool in self.mcp._tool_manager._tools.items():
             fn = tool.fn
             if name == "browser_start":
@@ -437,10 +444,23 @@ class MultiCapabilityGuard:
                 tool.fn = read_audit
             elif name == "profile_list":
                 pass
+            elif name == "profile_start_setup":
+                async def setup_tool(*a, **kw):
+                    if a:
+                        raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
+                    return await self.mobile_handoff.create(kw)
+                tool.fn = setup_tool
+            elif name == "profile_cancel_setup":
+                async def cancel_setup_tool(*a, **kw):
+                    if a:
+                        raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
+                    return await self.mobile_handoff.cancel(kw)
+                tool.fn = cancel_setup_tool
             else:
-                # Direct login setup/viewer, profile deletion and generic
-                # unowned staged-file operations are not authorized in
-                # owner-parallel beta. Real mobile viewer needs BFF scope.
+                # Legacy unscoped login viewers, profile
+                # deletion and generic staged-file operations stay blocked.
+                # Only the new owner-initiated, single-profile setup above
+                # can create a short-lived, capability-scoped handoff.
                 async def deny(*a, **kw):
                     raise OwnershipError("PARALLEL_UNSCOPED_TOOL_DISABLED")
                 tool.fn = deny

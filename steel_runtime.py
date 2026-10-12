@@ -175,6 +175,12 @@ class Engine:
             except Exception:
                 raise SteelFailure('STEEL_CDP_CONNECTION_FAILED') from None
             remote = RemoteBrowser(self, browser, remote_id)
+            # Keep the provider's unauthenticated live-view URL SERVER-SIDE.
+            # Only a separate, one-time, owner-scoped mobile handoff may expose
+            # it after authentication. Never send it through MCP or logs.
+            remote._aib_viewer_url = (
+                data.get('debugUrl') or data.get('sessionViewerUrl')
+                or data.get('sessionViewerURL'))
             self.remote[remote_id] = remote
             return remote
         except BaseException:
