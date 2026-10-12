@@ -25,7 +25,7 @@ from capability_guard import (
     TOOLS, OWNED, START_TOOLS, WRAPPED_ASYNC,
     Lease, OwnershipError, preflight, scrub_result,
 )
-from session_ownership.owner_mobile_handoff import OwnerMobileHandoff
+from owner_mobile_handoff import OwnerMobileHandoff
 
 VERSION = "2026-10-10.multi-beta.1"
 READ_ONLY_ROUTES = frozenset({"/health", "/health/context", "/health/steel"})
