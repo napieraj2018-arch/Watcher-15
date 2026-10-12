@@ -100,6 +100,26 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         self.assertEqual(next(iter(self.manager._sessions.values())).mode,"write")
         self.assertEqual(self.guard.capacity,5)
 
+    async def test_owner_cancellation_stops_only_bound_setup(self):
+        previous=await self.mcp.call_tool("browser_start",{
+            "profile":"Meta - Other-Synthetic",
+            "start_url":"https://example.com/"})
+        setup=await self.begin()
+        self.assertEqual(len(self.manager._sessions),2)
+        receipt=await self.handoff.cancel({"setup_id":setup["setup_id"]})
+        self.assertEqual(receipt,{"cancelled":True,"profile_saved":True})
+        self.assertEqual(len(self.manager._sessions),1)
+        self.assertEqual(next(iter(self.manager._sessions.values())).profile,
+                         "Meta - Other-Synthetic")
+        self.assertTrue(self.handoff.active.finished)
+
+    async def test_cancellation_without_setup_id_denied(self):
+        setup=await self.begin()
+        with self.assertRaisesRegex(OwnershipError,"MOBILE_SETUP_ID_NOT_OWNED"):
+            await self.handoff.cancel({"setup_id":"X"*43})
+        self.assertEqual(len(self.manager._sessions),1)
+        self.assertFalse(self.handoff.active.finished)
+
     async def test_login_link_claim_view_finish_saves_exact_session(self):
         setup=await self.begin()
         home=await self.handoff.home(request(SETUP_PATH))
