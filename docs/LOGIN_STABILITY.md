@@ -34,3 +34,11 @@ Nie kupować adresu IP ani abonamentu na własną rękę. Jeśli przyszłe warun
 - Żadna próba nie tworzy powtarzanych loginów, wysyłek kodów, zmian haseł, żadnych nowych opłat bez zgody.
 
 **Stan: NIEZALICZONY** — testy dotyczące realnego profilu Meta wymagają bieżącego poprawnego odczytu i mogą nadal wymagać pojedynczej autoryzacji użytkownika. Problem #111 / #118 blokuje uznanie rozwiązania za wdrożone.
+
+## Mobilne okno logowania — iPhone (poprawka 12.10.2026)
+
+W nowym właścicielskim handoff `/owner-mobile-login` jednorazowy link służy **wyłącznie pierwszemu przyjęciu zaproszenia**. Po pierwszym wejściu sesja jest przypisana do krótkotrwałego, bezpiecznego cookie tej samej przeglądarki. Powrót strzałką „Wstecz” lub ponowne otwarcie zaproszenia z **tego samego Safari/in-app browser** ma wznowić istniejący ekran zapisu, zamiast zużywać zaproszenie powtórnie. Z innej przeglądarki lub po faktycznym wygaśnięciu nowy użytkownik nie może odzyskać sesji samym linkiem.
+
+Przy logowaniu wyświetlaj interaktywny podgląd Steel jako osobną stronę na **pełnym ekranie**, a nie w poziomym iframe wewnątrz wysokiego panelu iPhone (powodowało czarne pasy i mikroskopijny formularz Facebooka). Start żąda `headless=false` aby istniejąca warstwa `steel_context_fix` ustawiła viewport 508×1074. Po zalogowaniu wróć przyciskiem „Wstecz” do krótkotrwałego ekranu i wybierz „Zapisz profil i zakończ”. Nie nazywaj zapisu potwierdzonym logowaniem bez niezależnego odczytu tożsamości w **nowej sesji**.
+
+Nie przedłużaj automatycznie TTL, nie powielaj sesji i nie publikuj surowego URL playera ani fragmentu zaproszenia w logach/raportach. Przy nieweryfikowalnej starej sesji użyj wyłącznie jej autoryzowanego `profile_cancel_setup` z własnym identyfikatorem i wymagaj `full_profile_saved` przed nowym setup. Poprawka nie zmienia dostępu do cudzych profili.
