@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
@@ -71,9 +72,24 @@ class NativeTouchController:
             token = self.guard.actor_session.set(sid)
             try:
                 page = self.guard.manager._session(sid).page
+                if not self._safe_facebook_page(page):
+                    return None
                 return await asyncio.wait_for(fn(page), limit)
             finally:
                 self.guard.actor_session.reset(token)
+
+    @staticmethod
+    def _safe_facebook_page(page) -> bool:
+        # A password can only be sent to the exact HTTPS Facebook origin,
+        # never to a redirect to an arbitrary/phishing site or about:blank.
+        try:
+            u=urlsplit(page.url)
+            host=u.hostname or ""
+            return (u.scheme=="https" and u.username is None
+                    and u.password is None and u.port in (None,443)
+                    and (host=="facebook.com" or host.endswith(".facebook.com")))
+        except (TypeError,ValueError):
+            return False
 
     @staticmethod
     def _headers() -> dict[str, str]:
