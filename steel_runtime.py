@@ -155,6 +155,11 @@ class Engine:
                 'useProxy': False,
                 'solveCaptcha': False,
                 'headless': False,
+                # Require actual server-side input support for the short-lived
+                # owner-authorized human takeover. A viewer URL parameter
+                # alone cannot override a read-only provider session.
+                # Steel defaults to True today; pin the production contract.
+                'debugConfig': {'interactive': True, 'systemCursor': True},
                 # The mobile-first service must retain one consistent device
                 # fingerprint across setup and later automated sessions.
                 'deviceConfig': {'device': 'mobile'},
