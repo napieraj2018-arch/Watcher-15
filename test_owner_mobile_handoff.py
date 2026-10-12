@@ -268,6 +268,68 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         remaining=next(iter(self.manager._sessions.values()))
         self.assertEqual(remaining.profile,"Meta - Other-Synthetic")
 
+    async def test_watchdog_saved_stop_retires_only_expired_handoff(self):
+        first = await self.begin()
+        old_record = self.handoff.active
+        old_handle = old_record.handle
+        # Emulate the real guard watchdog completing a verified saved-stop
+        # without pressing the mobile page's Finish button.
+        receipt = await self.guard.action(
+            "browser_stop", self.handoff.original_stop,
+            {"session_id": old_handle})
+        self.assertTrue(receipt["profile_saved"])
+        self.assertTrue(receipt["full_profile_saved"])
+        self.assertEqual(self.guard.safe_sessions(), [])
+        self.assertFalse(old_record.finished)
+        second = await self.begin()
+        self.assertNotEqual(second["setup_id"], first["setup_id"])
+        self.assertTrue(old_record.finished)
+        self.assertEqual(old_record.viewer_url, "")
+        self.assertIsNone(old_record.cookie_digest)
+        self.assertEqual(len(self.manager._sessions), 1)
+        # Previously consumed links cannot adopt the newly created browser.
+        replay = await self.claim(first)
+        self.assertEqual(replay.status_code, 410)
+
+    async def test_retired_setup_does_not_close_other_owned_profiles(self):
+        first = await self.begin()
+        other = await self.mcp.call_tool("browser_start", {
+            "profile": "Meta - Other-Synthetic",
+            "start_url": "https://example.com/"})
+        self.assertEqual(len(self.manager._sessions), 2)
+        receipt = await self.guard.action(
+            "browser_stop", self.handoff.original_stop,
+            {"session_id": self.handoff.active.handle})
+        self.assertTrue(receipt["full_profile_saved"])
+        next_setup = await self.begin()
+        self.assertEqual(len(self.manager._sessions), 2)
+        profiles = sorted(s.profile for s in self.manager._sessions.values())
+        self.assertEqual(profiles, ["Meta - Other-Synthetic", PROFILE])
+        self.assertNotEqual(first["setup_id"], next_setup["setup_id"])
+
+    async def test_uncertain_saved_stop_does_not_retire_stale_handoff(self):
+        await self.begin()
+        self.manager.broken_save = True
+        receipt = await self.guard.action(
+            "browser_stop", self.handoff.original_stop,
+            {"session_id": self.handoff.active.handle})
+        self.assertFalse(receipt["full_profile_saved"])
+        self.assertTrue(self.guard.quarantined)
+        with self.assertRaisesRegex(OwnershipError, "MOBILE_SETUP_IN_PROGRESS"):
+            await self.begin()
+        self.assertFalse(self.handoff.active.finished)
+        self.assertEqual(self.manager.counter, 1)
+
+    async def test_active_lease_does_not_retire_just_because_time_passed(self):
+        first = await self.begin()
+        # 1000 elapsed handoff seconds is NOT evidence of profile save,
+        # provider release, or expiration of the owner guard's lease.
+        self.handoff.clock = lambda: 1000
+        with self.assertRaisesRegex(OwnershipError, "MOBILE_SETUP_IN_PROGRESS"):
+            await self.begin()
+        self.assertFalse(self.handoff.active.finished)
+        self.assertEqual(len(self.manager._sessions), 1)
+
     async def test_no_second_setup_during_first_active(self):
         await self.begin()
         with self.assertRaisesRegex(OwnershipError,"MOBILE_SETUP_IN_PROGRESS"):
