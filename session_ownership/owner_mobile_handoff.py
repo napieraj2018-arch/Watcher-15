@@ -27,6 +27,7 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 
 from capability_guard import OwnershipError
+from owner_mobile_touch import NativeTouchController
 
 SETUP_PATH = "/owner-mobile-login"
 SETUP_ORIGIN = "https://ai-browser-cloud.onrender.com"
@@ -118,13 +119,27 @@ def _page(body: str, script: str = "") -> HTMLResponse:
     .steps p{margin:4px 0}
     .actions{display:grid;gap:14px;margin:18px 0}
     .status{font-size:14px;color:#405365;line-height:1.5}
+    .touch-shell{border:1px solid #bccbdc;border-radius:13px;
+      overflow:hidden;background:#101b2a;margin:14px 0 8px}
+    #touch-shot{display:block;width:100%;height:auto;min-height:180px;
+      touch-action:none;-webkit-user-select:none;user-select:none;
+      -webkit-touch-callout:none;background:#101b2a}
+    .touch-field{background:#fff;padding:12px;border:1px solid #d9e3ec;
+      border-radius:12px;margin:12px 0}
+    .touch-field label{display:block;font-size:14px;font-weight:650;margin-bottom:7px}
+    .touch-field input{width:100%;box-sizing:border-box;font-size:17px;
+      padding:13px;border:1px solid #b9c8d7;border-radius:9px;
+      background:#fff;color:#162a3e;margin-bottom:9px}
+    .touch-field button{background:#1766aa}
+    .touch-keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+    .touch-keys button{font-size:15px;padding:13px 4px}
     @media (max-width:480px){
       main{padding:12px 16px calc(78px + env(safe-area-inset-bottom))}
       h1{font-size:22px}
     }
     """
     csp = ("default-src 'none'; base-uri 'none'; object-src 'none';"
-           " form-action 'self'; connect-src 'self'; img-src data:;"
+           " form-action 'self'; connect-src 'self'; img-src 'self' data:;"
            " frame-src https://*.steel.dev https://steel.dev;"
            f" script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}';"
            " frame-ancestors 'none'")
@@ -148,6 +163,7 @@ class OwnerMobileHandoff:
         self.active: Handoff | None = None
         self.original_start = None
         self.original_stop = None
+        self.touch = NativeTouchController(self)
 
     def routes(self) -> list[Route]:
         return [
@@ -155,6 +171,7 @@ class OwnerMobileHandoff:
             Route(SETUP_PATH + "/claim", self.claim, methods=["POST"]),
             Route(SETUP_PATH + "/view", self.view, methods=["GET"]),
             Route(SETUP_PATH + "/finish", self.finish, methods=["POST"]),
+            *self.touch.routes(),
         ]
 
     async def create(self, args: dict) -> dict:
@@ -391,6 +408,7 @@ class OwnerMobileHandoff:
             });
             if(!r.ok) throw Error("not-saved");
             document.getElementById("fullscreen").remove();
+            document.getElementById("touch").remove();
             button.remove();
             document.getElementById("status").textContent =
               "Sesja zamknięta i profil zapisany. Wróć do rozmowy.";
@@ -414,8 +432,11 @@ class OwnerMobileHandoff:
             'a następnie wybierz „Zapisz profil i zakończ”.</p>'
             '</div>'
             '<div class="actions">'
+            '<a id="touch" class="open-fullscreen" '
+            'href="/owner-mobile-login/touch">'
+            'Sterowanie dotykowe — iPhone</a>'
             f'<a id="fullscreen" class="open-fullscreen" href="{url}" '
-            'rel="noreferrer">Otwórz Facebook na pełnym ekranie</a>'
+            'rel="noreferrer">Alternatywa: podgląd Steel</a>'
             '<button id="finish" type="button">Zapisz profil i zakończ</button>'
             '</div>'
             '<p id="status" class="status">Możesz wrócić do tej strony '
