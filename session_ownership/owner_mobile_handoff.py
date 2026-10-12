@@ -155,8 +155,7 @@ class OwnerMobileHandoff:
                 # It must be explicitly closed by the original owner guard.
                 raise OwnershipError("MOBILE_SETUP_IN_PROGRESS")
             result = await self.guard.start(self.original_start, {
-                "profile": profile, "mode": "write", "headless": False,
-                "start_url": url,
+                "profile": profile, "mode": "write", "start_url": url,
             })
             handle = result.get("session_id")
             lease = self.guard.authorize(handle)
