@@ -147,6 +147,90 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
             SETUP_PATH+"/view",cookie=cookie))
         self.assertNotIn(b"synthetic-valid-debug",old_view.body)
 
+    async def test_same_iphone_can_reopen_consumed_link_with_owned_cookie(self):
+        setup = await self.begin()
+        first = await self.claim(setup)
+        self.assertEqual(first.status_code, 200)
+        cookie = first.headers["set-cookie"].split(";", 1)[0]
+
+        # Reopening an original, single-use fragment after the first claim
+        # is not a new login. Only the same HttpOnly-cookie browser resumes.
+        home = await self.handoff.home(request(SETUP_PATH, cookie=cookie))
+        self.assertEqual(home.status_code, 303)
+        self.assertEqual(home.headers["location"], SETUP_PATH + "/view")
+        self.assertEqual(home.headers["referrer-policy"], "no-referrer")
+        self.assertNotIn(GOOD_URL, str(home.headers))
+
+        token = setup["setup_url"].split("#s=", 1)[1]
+        same_device = await self.handoff.claim(request(
+            SETUP_PATH + "/claim", "POST", {"token": token}, cookie=cookie))
+        self.assertEqual(same_device.status_code, 200)
+        self.assertIn(b"already_claimed", same_device.body)
+        self.assertNotIn("set-cookie", same_device.headers)
+        self.assertEqual(len(self.manager._sessions), 1)
+        self.assertFalse(self.handoff.active.finished)
+
+        other_device = await self.handoff.claim(request(
+            SETUP_PATH + "/claim", "POST", {"token": token}))
+        self.assertEqual(other_device.status_code, 410)
+        forged = await self.handoff.home(
+            request(SETUP_PATH, cookie=COOKIE + "=" + "Z" * 43))
+        self.assertEqual(forged.status_code, 200)
+        self.assertNotIn(GOOD_URL, forged.body.decode())
+
+    async def test_fullscreen_player_requires_same_claimed_cookie(self):
+        setup = await self.begin()
+        denied = await self.handoff.player(request(SETUP_PATH + "/player"))
+        self.assertEqual(denied.status_code, 403)
+        self.assertNotIn(GOOD_URL, denied.body.decode())
+        claimed = await self.claim(setup)
+        cookie = claimed.headers["set-cookie"].split(";", 1)[0]
+        player = await self.handoff.player(
+            request(SETUP_PATH + "/player", cookie=cookie))
+        self.assertEqual(player.status_code, 303)
+        self.assertEqual(player.headers["location"], GOOD_URL)
+        self.assertEqual(player.headers["cache-control"], "no-store, max-age=0")
+        self.assertEqual(player.headers["referrer-policy"], "no-referrer")
+        self.assertNotIn("set-cookie", player.headers)
+        wrong = await self.handoff.player(request(
+            SETUP_PATH + "/player", cookie=COOKIE + "=" + "Z" * 43))
+        self.assertEqual(wrong.status_code, 403)
+        saved = await self.handoff.finish(request(
+            SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        self.assertEqual(saved.status_code, 200)
+        after_stop = await self.handoff.player(
+            request(SETUP_PATH + "/player", cookie=cookie))
+        self.assertEqual(after_stop.status_code, 403)
+
+    async def test_mobile_layout_prefers_full_player_and_loads_inline_fallback_lazily(self):
+        setup = await self.begin()
+        cookie = (await self.claim(setup)).headers["set-cookie"].split(";", 1)[0]
+        view = await self.handoff.view(request(SETUP_PATH + "/view", cookie=cookie))
+        self.assertEqual(view.status_code, 200)
+        self.assertIn(b'href="/owner-mobile-login/player"', view.body)
+        self.assertIn(b'<details id="preview">', view.body)
+        self.assertIn(b'loading="lazy"', view.body)
+        self.assertIn(b'data-src="', view.body)
+        self.assertIn(b'allowfullscreen', view.body)
+        self.assertNotIn(b'height:70vh', view.body)
+        self.assertNotIn(b'src="https://app.steel.dev', view.body)
+        self.assertIn(b'viewer.removeAttribute("src")', view.body)
+        self.assertIn(b'calc(100dvh - 180px)', view.body)
+        self.assertNotIn(setup["setup_url"].split("#s=")[-1].encode(), view.body)
+
+    async def test_expired_cookie_cannot_resume_or_open_player(self):
+        setup = await self.begin()
+        cookie = (await self.claim(setup)).headers["set-cookie"].split(";", 1)[0]
+        self.handoff.clock = lambda: 1000
+        home = await self.handoff.home(request(SETUP_PATH, cookie=cookie))
+        self.assertEqual(home.status_code, 200)
+        player = await self.handoff.player(
+            request(SETUP_PATH + "/player", cookie=cookie))
+        self.assertEqual(player.status_code, 403)
+        self.assertNotIn(GOOD_URL, home.body.decode())
+        self.assertNotIn(GOOD_URL, player.body.decode())
+        self.assertEqual(len(self.manager._sessions), 1)
+
     async def test_steal_link_after_claim_fails(self):
         setup=await self.begin()
         self.assertEqual((await self.claim(setup)).status_code,200)
