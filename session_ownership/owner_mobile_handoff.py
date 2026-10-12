@@ -145,8 +145,12 @@ class OwnerMobileHandoff:
             raise OwnershipError("MOBILE_PROFILE_INVALID")
         url = _login_url(args.get("login_url"))
         ttl = args.get("timeout_seconds", MAX_TTL)
-        if type(ttl) is not int or not MIN_TTL <= ttl <= MAX_TTL:
+        # Existing MCP clients advertise a 900-second setup default.
+        # Accept it but cap this bridge to 600 seconds, below the existing
+        # 780-second ownership watchdog and provider session timeout.
+        if type(ttl) is not int or not MIN_TTL <= ttl <= 900:
             raise OwnershipError("MOBILE_TIMEOUT_INVALID")
+        ttl = min(ttl, MAX_TTL)
         if self.original_start is None or self.original_stop is None:
             raise OwnershipError("MOBILE_SETUP_NOT_READY")
         async with self.lock:
