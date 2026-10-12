@@ -22,6 +22,7 @@ COPY test_portable_precedence.py /app/test_portable_precedence.py
 COPY test_synthetic_fixture_evidence.py /app/test_synthetic_fixture_evidence.py
 COPY test_synthetic_fixture_exact.py /app/test_synthetic_fixture_exact.py
 COPY test_synthetic_restore_readback.py /app/test_synthetic_restore_readback.py
+COPY test_local_chromium_storage.py /app/test_local_chromium_storage.py
 COPY test_coherent_fixture_pair.py /app/test_coherent_fixture_pair.py
 COPY mcp_error_reporting.py /app/mcp_error_reporting.py
 COPY profile_delete_guard.py /app/profile_delete_guard.py
