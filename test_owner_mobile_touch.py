@@ -62,6 +62,7 @@ class FakePage:
     viewport_size={"width":508,"height":1074}
 
     def __init__(self):
+        self.url="https://www.facebook.com/login/"
         self.mouse=FakeMouse()
         self.keyboard=FakeKeyboard()
         self.focused=FakeFocused()
@@ -221,6 +222,20 @@ class TouchTests(IsolatedAsyncioTestCase):
         self.assertEqual(self.page.mouse.clicks,[(127,268)])
         profiles=sorted(x.profile for x in self.manager._sessions.values())
         self.assertEqual(profiles,["Meta - Other-Synthetic",PROFILE])
+
+    async def test_phishing_redirect_blocks_screenshots_and_password(self):
+        self.page.url="https://www.facebook.com.evil.test/login"
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,410)
+        denied=await self.touch.action(self.action_request({
+            "kind":"text","field":"password","text":"SYNTHETIC_ONLY"}))
+        self.assertEqual(denied.status_code,409)
+        self.assertEqual(self.page.focused.fills,[])
+        self.page.url="http://www.facebook.com/login"
+        denied_http=await self.touch.action(self.action_request({
+            "kind":"tap","x":0.4,"y":0.4}))
+        self.assertEqual(denied_http.status_code,409)
+        self.assertEqual(self.page.mouse.clicks,[])
 
     async def test_quarantine_fails_closed_without_remote_actions(self):
         self.guard.quarantined=True
