@@ -23,7 +23,7 @@ import secrets
 import time
 from urllib.parse import urlsplit, urlunsplit
 
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 
 from capability_guard import OwnershipError
@@ -95,13 +95,24 @@ def _page(body: str, script: str = "") -> HTMLResponse:
     style = """
     body{font:16px system-ui,-apple-system,sans-serif;color:#172b3d;
       margin:0;background:#f7f9fc}
-    main{max-width:820px;margin:0 auto;padding:14px}
-    h1{font-size:21px}
-    button{font-size:17px;border:0;border-radius:10px;padding:12px 16px;
-      color:white;background:#1667a3}
-    iframe{width:100%;height:70vh;min-height:420px;border:1px solid #ccd6e0;
-      border-radius:12px;background:white}
-    .status{font-size:14px;color:#405365}
+    main{max-width:620px;margin:0 auto;
+      padding:16px 18px calc(70px + env(safe-area-inset-bottom))}
+    h1{font-size:23px;line-height:1.25;margin:12px 0 16px}
+    p{line-height:1.55}
+    button,.open-fullscreen{display:block;width:100%;box-sizing:border-box;
+      padding:16px;border:0;border-radius:13px;font:600 17px system-ui,
+      -apple-system,sans-serif;text-align:center;min-height:54px}
+    button{color:white;background:#245c86}
+    .open-fullscreen{background:#1766aa;color:#fff;text-decoration:none}
+    .steps{background:#eaf1fa;border-radius:13px;padding:14px 18px;
+      margin:20px 0}
+    .steps p{margin:4px 0}
+    .actions{display:grid;gap:14px;margin:18px 0}
+    .status{font-size:14px;color:#405365;line-height:1.5}
+    @media (max-width:480px){
+      main{padding:12px 16px calc(78px + env(safe-area-inset-bottom))}
+      h1{font-size:22px}
+    }
     """
     csp = ("default-src 'none'; base-uri 'none'; object-src 'none';"
            " form-action 'self'; connect-src 'self'; img-src data:;"
@@ -159,8 +170,13 @@ class OwnerMobileHandoff:
                 # A timed-out setup may still own a billable session.
                 # It must be explicitly closed by the original owner guard.
                 raise OwnershipError("MOBILE_SETUP_IN_PROGRESS")
+            # The deployed SteelContextFix applies a 508x1074 mobile
+            # viewport only when browser_start explicitly requests a visible
+            # session. The former implicit headless=True produced a wide
+            # desktop page squeezed into an iPhone-sized Steel player.
             result = await self.guard.start(self.original_start, {
                 "profile": profile, "mode": "write", "start_url": url,
+                "headless": False,
             })
             handle = result.get("session_id")
             lease = self.guard.authorize(handle)
@@ -267,6 +283,13 @@ class OwnerMobileHandoff:
                 == "application/json")
 
     async def home(self, request):
+        # A one-time invitation is consumed on first claim. Returning via
+        # iPhone Back / reopening the same link must resume ONLY the
+        # already-claimed browser session authenticated by its HttpOnly
+        # cookie, not try to claim the fragment bearer a second time.
+        if self._cookie_record(request) is not None:
+            return RedirectResponse(SETUP_PATH + "/view", status_code=303,
+                                    headers=_headers())
         script = """
         (async () => {
           const m = location.hash.match(/^#s=([A-Za-z0-9_-]{30,100})$/);
@@ -334,7 +357,8 @@ class OwnerMobileHandoff:
               body:"{}"
             });
             if(!r.ok) throw Error("not-saved");
-            document.getElementById("viewer").remove();
+            document.getElementById("fullscreen").remove();
+            button.remove();
             document.getElementById("status").textContent =
               "Sesja zamknięta i profil zapisany. Wróć do rozmowy.";
           } catch (_) {
@@ -345,14 +369,25 @@ class OwnerMobileHandoff:
         };
         """
         url = html.escape(r.viewer_url, quote=True)
+        profile = html.escape(r.profile, quote=True)
         return _page(
-            '<h1>Logowanie do Facebooka</h1>'
-            '<p>Wpisz dane wyłącznie na stronie Facebooka w oknie poniżej. '
-            'Nie podawaj hasła ani kodu w czacie.</p>'
-            f'<iframe id="viewer" src="{url}" title="Interaktywna sesja Steel" '
-            'referrerpolicy="no-referrer" allow="clipboard-write"></iframe>'
-            '<p><button id="finish" type="button">Zapisz profil i zakończ</button></p>'
-            '<p id="status" class="status">Po zalogowaniu użyj przycisku powyżej.</p>',
+            '<h1>Logowanie Facebook — pełny ekran</h1>'
+            f'<p class="status">Osobny profil: <strong>{profile}</strong></p>'
+            '<div class="steps">'
+            '<p><strong>1.</strong> Otwórz Facebook na całym ekranie.</p>'
+            '<p><strong>2.</strong> Zaloguj się w przeglądarce Steel. '
+            'Hasło i kod wpisujesz tam, nie w czacie.</p>'
+            '<p><strong>3.</strong> Wróć strzałką Wstecz do tej strony, '
+            'a następnie wybierz „Zapisz profil i zakończ”.</p>'
+            '</div>'
+            '<div class="actions">'
+            f'<a id="fullscreen" class="open-fullscreen" href="{url}" '
+            'rel="noreferrer">Otwórz Facebook na pełnym ekranie</a>'
+            '<button id="finish" type="button">Zapisz profil i zakończ</button>'
+            '</div>'
+            '<p id="status" class="status">Możesz wrócić do tej strony '
+            'w tej samej przeglądarce bez ponownego użycia zaproszenia. '
+            'Sesja logowania jest krótkotrwała.</p>',
             script)
 
     async def finish(self, request):
