@@ -23,7 +23,7 @@ import secrets
 import time
 from urllib.parse import urlsplit, urlunsplit
 
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 
 from capability_guard import OwnershipError
@@ -93,15 +93,28 @@ def _headers(csp: str | None = None) -> dict[str, str]:
 def _page(body: str, script: str = "") -> HTMLResponse:
     nonce = secrets.token_urlsafe(16)
     style = """
+    :root{color-scheme:light}
+    *{box-sizing:border-box}
     body{font:16px system-ui,-apple-system,sans-serif;color:#172b3d;
-      margin:0;background:#f7f9fc}
-    main{max-width:820px;margin:0 auto;padding:14px}
-    h1{font-size:21px}
-    button{font-size:17px;border:0;border-radius:10px;padding:12px 16px;
-      color:white;background:#1667a3}
-    iframe{width:100%;height:70vh;min-height:420px;border:1px solid #ccd6e0;
-      border-radius:12px;background:white}
+      margin:0;min-height:100dvh;background:#f7f9fc}
+    main{max-width:720px;margin:0 auto;padding:12px 16px 22px}
+    h1{font-size:21px;line-height:1.2;margin:8px 0 10px}
+    p{line-height:1.45;margin:8px 0}
+    button,.open-player{display:block;width:100%;font-size:17px;border:0;
+      border-radius:11px;padding:14px 12px;color:white;background:#1667a3;
+      font-weight:650;text-align:center;text-decoration:none;cursor:pointer}
+    button{background:#115f41;margin-top:10px}
+    .login-controls{position:sticky;top:0;z-index:2;background:#f7f9fc;
+      padding:8px 0 12px}
+    details{border:1px solid #ccd6e0;border-radius:12px;padding:10px;
+      margin-top:12px;background:#fff}
+    summary{cursor:pointer;font-weight:600;touch-action:manipulation;padding:7px 2px}
+    iframe{display:block;width:100%;height:min(74dvh,730px);min-height:400px;
+      border:0;border-radius:10px;background:white;margin-top:10px}
     .status{font-size:14px;color:#405365}
+    @media(max-width:600px){main{padding:10px 12px 16px}
+      h1{font-size:20px} iframe{height:calc(100dvh - 180px);
+      min-height:440px}button,.open-player{font-size:17px}}
     """
     csp = ("default-src 'none'; base-uri 'none'; object-src 'none';"
            " form-action 'self'; connect-src 'self'; img-src data:;"
@@ -134,6 +147,7 @@ class OwnerMobileHandoff:
             Route(SETUP_PATH, self.home, methods=["GET"]),
             Route(SETUP_PATH + "/claim", self.claim, methods=["POST"]),
             Route(SETUP_PATH + "/view", self.view, methods=["GET"]),
+            Route(SETUP_PATH + "/player", self.player, methods=["GET"]),
             Route(SETUP_PATH + "/finish", self.finish, methods=["POST"]),
         ]
 
@@ -267,6 +281,13 @@ class OwnerMobileHandoff:
                 == "application/json")
 
     async def home(self, request):
+        # The fragment link is single-use; once claimed, the SameSite
+        # HttpOnly cookie is the sole continuation credential. Opening the
+        # original link again on the SAME iPhone/browser must not attempt
+        # to claim an already-consumed fragment.
+        if self._cookie_record(request) is not None:
+            return RedirectResponse(SETUP_PATH + "/view", status_code=303,
+                                    headers=_headers())
         script = """
         (async () => {
           const m = location.hash.match(/^#s=([A-Za-z0-9_-]{30,100})$/);
@@ -308,7 +329,15 @@ class OwnerMobileHandoff:
             token = None
         async with self.lock:
             r = self._get_record(token) if isinstance(token, str) else None
-            if r is None or r.claimed:
+            if r is None:
+                return JSONResponse({"error":"MOBILE_LINK_USED_OR_EXPIRED"},
+                                    status_code=410, headers=_headers())
+            if r.claimed:
+                # Idempotent only for the exact browser that has already
+                # claimed this link. A copied one-time URL alone still fails.
+                if self._cookie_record(request) is r:
+                    return JSONResponse({"status":"already_claimed"},
+                                        headers=_headers())
                 return JSONResponse({"error":"MOBILE_LINK_USED_OR_EXPIRED"},
                                     status_code=410, headers=_headers())
             cookie = secrets.token_urlsafe(32)
@@ -325,6 +354,19 @@ class OwnerMobileHandoff:
                          '<p>Otwórz ważny link logowania lub zakończ sesję w czacie.</p>')
         script = """
         const button = document.getElementById("finish");
+        const preview = document.getElementById("preview");
+        const viewer = document.getElementById("viewer");
+        // Avoid starting a second live WebRTC stream by default on an
+        // iPhone. The embedded option is a fallback if the native
+        // player cannot be used. Never fetch /player without a gesture.
+        preview.addEventListener("toggle", () => {
+          if (preview.open) {
+            if (!viewer.hasAttribute("src"))
+              viewer.setAttribute("src", viewer.getAttribute("data-src"));
+          } else {
+            viewer.removeAttribute("src");
+          }
+        });
         button.onclick = async () => {
           button.disabled = true;
           try {
@@ -334,7 +376,9 @@ class OwnerMobileHandoff:
               body:"{}"
             });
             if(!r.ok) throw Error("not-saved");
-            document.getElementById("viewer").remove();
+            viewer.removeAttribute("src");
+            preview.remove();
+            document.getElementById("open-player").remove();
             document.getElementById("status").textContent =
               "Sesja zamknięta i profil zapisany. Wróć do rozmowy.";
           } catch (_) {
@@ -346,14 +390,36 @@ class OwnerMobileHandoff:
         """
         url = html.escape(r.viewer_url, quote=True)
         return _page(
-            '<h1>Logowanie do Facebooka</h1>'
-            '<p>Wpisz dane wyłącznie na stronie Facebooka w oknie poniżej. '
-            'Nie podawaj hasła ani kodu w czacie.</p>'
-            f'<iframe id="viewer" src="{url}" title="Interaktywna sesja Steel" '
-            'referrerpolicy="no-referrer" allow="clipboard-write"></iframe>'
-            '<p><button id="finish" type="button">Zapisz profil i zakończ</button></p>'
-            '<p id="status" class="status">Po zalogowaniu użyj przycisku powyżej.</p>',
+            '<h1>Logowanie Facebook — osobny profil</h1>'
+            '<p>Użyj dużego podglądu Steel. Na iPhonie obróć ekran '
+            'poziomo, jeśli tekst jest za mały. Nie podawaj hasła '
+            'ani kodów w czacie.</p>'
+            '<section class="login-controls">'
+            '<a id="open-player" class="open-player" '
+            'href="/owner-mobile-login/player">Otwórz duży podgląd Steel</a>'
+            '<p class="status">Po zalogowaniu wróć strzałką Wstecz '
+            'do tej strony i zapisz profil.</p>'
+            '<button id="finish" type="button">Zapisz profil i zakończ</button>'
+            '</section>'
+            '<details id="preview"><summary>Jeśli duży podgląd nie działa, '
+            'użyj okna tutaj</summary>'
+            f'<iframe id="viewer" data-src="{url}" '
+            'title="Interaktywna sesja Steel" loading="lazy" '
+            'referrerpolicy="no-referrer" allow="fullscreen; clipboard-write" '
+            'allowfullscreen></iframe></details>'
+            '<p id="status" class="status">Logowanie jest aktywne.</p>',
             script)
+
+    async def player(self, request):
+        # This route is never callable with only an old invite or setup ID.
+        # The player URL is an unauthenticated Steel bearer capability:
+        # release it solely after verifying the same short-lived browser cookie.
+        r = self._cookie_record(request)
+        if r is None:
+            return JSONResponse({"error":"MOBILE_SESSION_UNAVAILABLE"},
+                                status_code=403, headers=_headers())
+        return RedirectResponse(r.viewer_url, status_code=303,
+                                headers=_headers())
 
     async def finish(self, request):
         if not self._same_origin(request):
