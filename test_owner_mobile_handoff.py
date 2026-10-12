@@ -13,11 +13,11 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from test_owner_parallel_mcp import MultiManager
-from session_ownership.multi_capability_guard import MultiCapabilityGuard
+from multi_capability_guard import MultiCapabilityGuard
 from owner_mobile_handoff import (
     COOKIE, SETUP_ORIGIN, SETUP_PATH, _viewer_url
 )
-from session_ownership.capability_guard import OwnershipError
+from capability_guard import OwnershipError
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent /
