@@ -90,7 +90,8 @@ def _login_url(raw: object) -> str:
     """
     error = "MOBILE_LOGIN_ORIGIN_NOT_ALLOWED"
     if (not isinstance(raw, str) or not 1 <= len(raw) <= 2048
-            or any(ord(ch) < 33 or ord(ch) == 127 for ch in raw)):
+            or any(ord(ch) < 33 or ord(ch) == 127 or ch == "\\"
+                   for ch in raw)):
         raise OwnershipError(error)
     try:
         u = urlsplit(raw)
