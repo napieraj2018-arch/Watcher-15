@@ -15,7 +15,7 @@ from starlette.routing import Route
 from test_owner_parallel_mcp import MultiManager
 from multi_capability_guard import MultiCapabilityGuard
 from owner_mobile_handoff import (
-    COOKIE, SETUP_ORIGIN, SETUP_PATH, _viewer_url
+    COOKIE, SETUP_ORIGIN, SETUP_PATH, _viewer_url, _login_url
 )
 from capability_guard import OwnershipError
 from pathlib import Path
@@ -34,10 +34,12 @@ class FakeMobileManager(MultiManager):
         super().__init__(**kw)
         self.fake_viewer = GOOD_URL
         self.last_headless = None
+        self.last_start_url = None
 
     async def start(self, profile, mode="read_only", start_url="about:blank",
                     headless=True):
         self.last_headless = headless
+        self.last_start_url = start_url
         result = await super().start(profile,mode=mode,start_url=start_url,
                                      headless=headless)
         self._sessions[result["session_id"]].browser = SimpleNamespace(
@@ -226,10 +228,42 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         self.assertEqual(len(self.manager._sessions),1)
         self.assertFalse(self.guard.quarantined)
 
+    async def test_safe_facebook_deep_links_normalize_to_login(self):
+        # Work often supplies a home page or account settings URL rather
+        # than one of the two literal URLs accepted before this fix.
+        for raw in (
+            "https://www.facebook.com",
+            "https://www.facebook.com/",
+            "https://facebook.com/",
+            "https://business.facebook.com/settings/?tab=profile_access",
+            "https://www.facebook.com/settings/?tab=profile_access",
+            "https://www.facebook.com/login",
+            "https://www.facebook.com/login/?next=https%3A%2F%2Fevil.test",
+            "https://www.facebook.com/login.php?next=malicious",
+            "https://www.facebook.com/groups/1886172518407420/",
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(_login_url(raw), FACEBOOK)
+        self.assertEqual(_login_url("https://m.facebook.com/login/?next=unsafe"),
+                         "https://m.facebook.com/")
+        setup = await self.handoff.create({
+            "profile": PROFILE,
+            "login_url": "https://www.facebook.com/settings/?tab=profile_access",
+        })
+        self.assertEqual(setup["status"], "ready_for_human_login")
+        self.assertEqual(self.manager.last_start_url, FACEBOOK)
+        self.assertEqual(len(self.manager._sessions), 1)
+
     async def test_no_redirect_to_fake_facebook_origin(self):
         for raw in ("http://www.facebook.com/login/",
                     "https://www.facebook.com.evil.test/login/",
-                    "https://www.facebook.com/login/?redirect=abc",
+                    "https://fakefacebook.com/login/",
+                    "https://facebook.com.evil.test/login/",
+                    "https://www.facebook.com:444/login/",
+                    "https://somebody:password@www.facebook.com/login/",
+                    "https://www.facebook.com./login/",
+                    "https://www.facebook.com/\\nignored",
+                    "https://www.facebook.com/login/ ",
                     "https://www.instagram.com/accounts/login/",
                     "about:blank"):
             with self.subTest(raw=raw):
