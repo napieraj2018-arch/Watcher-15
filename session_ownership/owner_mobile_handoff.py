@@ -79,13 +79,34 @@ def _viewer_url(raw: object) -> str:
 
 
 def _login_url(raw: object) -> str:
-    """The pilot opens only Facebook's standard sign-in surface."""
-    if raw not in (
-        "https://www.facebook.com/login/",
-        "https://m.facebook.com/",
-    ):
-        raise OwnershipError("MOBILE_LOGIN_ORIGIN_NOT_ALLOWED")
-    return raw
+    """Normalize official Facebook URLs to a fixed sign-in page.
+
+    Work may pass the Facebook home page, a settings deep link, or a
+    login URL with query parameters. Their paths and parameters must
+    NEVER be forwarded to the remote login browser: they may contain
+    open redirects or otherwise alter the intended destination. Accept
+    only HTTPS Facebook origins with no userinfo/non-standard port,
+    then use the pinned, trusted login destination.
+    """
+    error = "MOBILE_LOGIN_ORIGIN_NOT_ALLOWED"
+    if (not isinstance(raw, str) or not 1 <= len(raw) <= 2048
+            or any(ord(ch) < 33 or ord(ch) == 127 for ch in raw)):
+        raise OwnershipError(error)
+    try:
+        u = urlsplit(raw)
+        host = u.hostname or ""
+        if (u.scheme != "https" or u.username is not None
+                or u.password is not None or u.port not in (None, 443)
+                or not (host == "facebook.com"
+                        or host.endswith(".facebook.com"))):
+            raise ValueError()
+    except (TypeError, ValueError):
+        raise OwnershipError(error) from None
+    # Mobile login retains the previous mobile-first destination.
+    # Do not carry over the supplied path, query, fragment, or credentials.
+    if host == "m.facebook.com":
+        return "https://m.facebook.com/"
+    return "https://www.facebook.com/login/"
 
 
 def _headers(csp: str | None = None) -> dict[str, str]:
