@@ -44,6 +44,8 @@ class Handoff:
     token_digest: bytes
     setup_id_digest: bytes
     expires_at: float
+    service_name: str
+    allowed_origins: frozenset[str]
     cookie_digest: bytes | None = None
     claimed: bool = False
     finished: bool = False
@@ -78,36 +80,108 @@ def _viewer_url(raw: object) -> str:
         raise OwnershipError("MOBILE_VIEWER_INVALID") from None
 
 
-def _login_url(raw: object) -> str:
-    """Normalize official Facebook URLs to a fixed sign-in page.
+@dataclass(frozen=True)
+class LoginService:
+    """Server-owned login scope; callers cannot supply an origin allowlist."""
+    name: str
+    start_url: str
+    entry_hosts: frozenset[str]
+    allowed_origins: frozenset[str]
 
-    Work may pass the Facebook home page, a settings deep link, or a
-    login URL with query parameters. Their paths and parameters must
-    NEVER be forwarded to the remote login browser: they may contain
-    open redirects or otherwise alter the intended destination. Accept
-    only HTTPS Facebook origins with no userinfo/non-standard port,
-    then use the pinned, trusted login destination.
-    """
+
+_FACEBOOK_HOSTS = frozenset({
+    "facebook.com", "www.facebook.com", "m.facebook.com",
+    "business.facebook.com", "web.facebook.com",
+})
+_FACEBOOK_ORIGINS = frozenset("https://" + host for host in _FACEBOOK_HOSTS)
+_GOOGLE_LOGIN_ORIGINS = frozenset({"https://accounts.google.com"})
+_CHATGPT_ORIGINS = frozenset({
+    "https://chatgpt.com", "https://www.chatgpt.com",
+    "https://chat.openai.com", "https://auth.openai.com",
+    "https://auth0.openai.com", "https://setup.auth.openai.com",
+})
+
+# Fixed first-party login destinations, with only the known identity-provider
+# redirects needed by that service. Never use the union for an individual
+# handoff: a ChatGPT login must not become a credential relay to Metricool.
+# Canonical login pages: chatgpt.com/auth/login, app.metricool.com/login,
+# canva.com/login and accounts.google.com/ServiceLogin. OpenAI's published
+# network guidance identifies auth.openai.com, auth0.openai.com and
+# setup.auth.openai.com; asset/CDN domains are deliberately excluded here.
+_LOGIN_SERVICES = (
+    LoginService("Facebook", "https://www.facebook.com/login/",
+                 _FACEBOOK_HOSTS, _FACEBOOK_ORIGINS),
+    LoginService("Instagram", "https://www.instagram.com/accounts/login/",
+                 frozenset({"instagram.com", "www.instagram.com"}),
+                 frozenset({"https://instagram.com", "https://www.instagram.com"})
+                 | _FACEBOOK_ORIGINS),
+    LoginService("ChatGPT", "https://chatgpt.com/auth/login",
+                 frozenset({"chatgpt.com", "www.chatgpt.com", "chat.openai.com",
+                            "auth.openai.com", "auth0.openai.com",
+                            "setup.auth.openai.com"}),
+                 _CHATGPT_ORIGINS | _GOOGLE_LOGIN_ORIGINS),
+    LoginService("Metricool", "https://app.metricool.com/login",
+                 frozenset({"metricool.com", "www.metricool.com", "app.metricool.com"}),
+                 frozenset({"https://app.metricool.com"})
+                 | _GOOGLE_LOGIN_ORIGINS | _FACEBOOK_ORIGINS),
+    LoginService("Canva", "https://www.canva.com/login/",
+                 frozenset({"canva.com", "www.canva.com"}),
+                 frozenset({"https://canva.com", "https://www.canva.com"})
+                 | _GOOGLE_LOGIN_ORIGINS | _FACEBOOK_ORIGINS),
+    LoginService("Google", "https://accounts.google.com/ServiceLogin",
+                 frozenset({"accounts.google.com", "myaccount.google.com",
+                            "mail.google.com"}),
+                 _GOOGLE_LOGIN_ORIGINS | frozenset({
+                     "https://myaccount.google.com", "https://mail.google.com"})),
+    # Existing owner sites from docs/CONNECTED_SERVICES.md. WordPress
+    # authentication remains on that site's exact origin, without SSO scope.
+    LoginService("WordPress — Architekt", "https://architekt.radom.pl/poradnik/wp-login.php",
+                 frozenset({"architekt.radom.pl"}),
+                 frozenset({"https://architekt.radom.pl"})),
+    LoginService("WordPress — Napieraj i Synowie", "https://weterynarz.radom.pl/wp-login.php",
+                 frozenset({"weterynarz.radom.pl"}),
+                 frozenset({"https://weterynarz.radom.pl"})),
+)
+_LOGIN_BY_HOST = {host: service for service in _LOGIN_SERVICES
+                  for host in service.entry_hosts}
+
+
+def _https_origin(raw: object) -> str:
+    """Strict origin parser shared by setup and the private touch bridge."""
     error = "MOBILE_LOGIN_ORIGIN_NOT_ALLOWED"
-    if (not isinstance(raw, str) or not 1 <= len(raw) <= 2048
+    if (not isinstance(raw, str) or not 1 <= len(raw) <= 8192
             or any(ord(ch) < 33 or ord(ch) == 127 or ch == "\\"
                    for ch in raw)):
         raise OwnershipError(error)
     try:
         u = urlsplit(raw)
         host = u.hostname or ""
-        if (u.scheme != "https" or u.username is not None
-                or u.password is not None or u.port not in (None, 443)
-                or not (host == "facebook.com"
-                        or host.endswith(".facebook.com"))):
+        if (u.scheme != "https" or not host or u.username is not None
+                or u.password is not None or u.port not in (None, 443)):
             raise ValueError()
+        return "https://" + host
     except (TypeError, ValueError):
         raise OwnershipError(error) from None
-    # Mobile login retains the previous mobile-first destination.
-    # Do not carry over the supplied path, query, fragment, or credentials.
-    if host == "m.facebook.com":
+
+
+def _login_service(raw: object) -> LoginService:
+    """Resolve an exact official host; discard supplied paths and redirects."""
+    if not isinstance(raw, str) or len(raw) > 2048:
+        raise OwnershipError("MOBILE_LOGIN_ORIGIN_NOT_ALLOWED")
+    origin = _https_origin(raw)
+    service = _LOGIN_BY_HOST.get(origin.removeprefix("https://"))
+    if service is None:
+        raise OwnershipError("MOBILE_LOGIN_ORIGIN_NOT_ALLOWED")
+    return service
+
+
+def _login_url(raw: object) -> str:
+    """Start only at a pinned login page, never a supplied deep-link/query."""
+    service = _login_service(raw)
+    # Preserve the original Facebook mobile entry point for existing clients.
+    if _https_origin(raw) == "https://m.facebook.com":
         return "https://m.facebook.com/"
-    return "https://www.facebook.com/login/"
+    return service.start_url
 
 
 def _headers(csp: str | None = None) -> dict[str, str]:
@@ -203,6 +277,7 @@ class OwnerMobileHandoff:
         profile = args.get("profile")
         if not isinstance(profile, str) or not 1 <= len(profile) <= 64:
             raise OwnershipError("MOBILE_PROFILE_INVALID")
+        service = _login_service(args.get("login_url"))
         url = _login_url(args.get("login_url"))
         ttl = args.get("timeout_seconds", MAX_TTL)
         # Existing MCP clients advertise a 900-second setup default.
@@ -278,11 +353,14 @@ class OwnerMobileHandoff:
             token = secrets.token_urlsafe(32)
             setup_id = secrets.token_urlsafe(32)
             self.active = Handoff(profile, handle, viewer, _digest(token),
-                                  _digest(setup_id), self.clock() + ttl)
+                                  _digest(setup_id), self.clock() + ttl,
+                                  service.name, service.allowed_origins)
             # Fragment is never sent to Render/Steel access logs or Referer.
             return {
                 "status": "ready_for_human_login",
                 "profile": profile,
+                "service": service.name,
+                "login_origin": _https_origin(url),
                 "setup_url": self.origin + SETUP_PATH + "#s=" + token,
                 "setup_id": setup_id,
                 "expires_in_seconds": ttl,
@@ -382,7 +460,7 @@ class OwnerMobileHandoff:
           }
         })();
         """
-        return _page('<h1>Logowanie do Facebooka</h1>'
+        return _page('<h1>Bezpieczne logowanie</h1>'
                      '<p>Jednorazowe połączenie z zapisanym profilem AI Browser.</p>'
                      '<p class="status" id="status">Sprawdzanie zaproszenia…</p>',
                      script)
@@ -443,12 +521,13 @@ class OwnerMobileHandoff:
         """
         url = html.escape(r.viewer_url, quote=True)
         profile = html.escape(r.profile, quote=True)
+        service = html.escape(r.service_name, quote=True)
         return _page(
-            '<h1>Logowanie Facebook — pełny ekran</h1>'
+            f'<h1>Logowanie — {service}</h1>'
             f'<p class="status">Osobny profil: <strong>{profile}</strong></p>'
             '<div class="steps">'
-            '<p><strong>1.</strong> Otwórz Facebook na całym ekranie.</p>'
-            '<p><strong>2.</strong> Zaloguj się w przeglądarce Steel. '
+            '<p><strong>1.</strong> Otwórz sterowanie dotykowe.</p>'
+            f'<p><strong>2.</strong> Zaloguj się do {service}. '
             'Hasło i kod wpisujesz tam, nie w czacie.</p>'
             '<p><strong>3.</strong> Wróć strzałką Wstecz do tej strony, '
             'a następnie wybierz „Zapisz profil i zakończ”.</p>'

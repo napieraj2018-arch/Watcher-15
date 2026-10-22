@@ -131,6 +131,121 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.assertIn("full_profile_saved", str(receipt))
         self.assertEqual(self.guard.safe_sessions(), [])
 
+    async def test_engine_quarantine_without_manager_or_lease_is_visible(self):
+        self.manager._steel_engine = SimpleNamespace(
+            remote={}, _quarantined=True)
+        listing = self.guard.safe_sessions()
+        self.assertEqual(listing, [{
+            "session_id": "[redacted]", "profile": "[redacted]",
+            "mode": "unknown", "state": "provider_reconciliation_required"}])
+        result = await self.mcp.call_tool("browser_sessions", {})
+        self.assertIn("provider_reconciliation_required", str(result))
+        self.assertTrue(self.manager._steel_engine._quarantined)
+        self.assertEqual(self.manager.saved, [])
+
+    async def test_orphan_remote_reference_cannot_look_idle_or_disclose_id(self):
+        private_id = "PRIVATE_PROVIDER_SESSION_ID"
+        orphan = SimpleNamespace(_aib_viewer_url="PRIVATE_VIEWER_CAPABILITY")
+        self.manager._steel_engine = SimpleNamespace(
+            remote={private_id: orphan}, _quarantined=False)
+        for _ in range(2):
+            listing = self.guard.safe_sessions()
+            self.assertEqual(len(listing), 1)
+            self.assertEqual(listing[0]["state"], "provider_reconciliation_required")
+            self.assertNotIn(private_id, str(listing))
+            self.assertNotIn("PRIVATE_VIEWER_CAPABILITY", str(listing))
+        # Observation alone must not change release/admission state: this
+        # unmatched object could still be in an in-flight start or close.
+        self.assertIs(self.manager._steel_engine.remote[private_id], orphan)
+        self.assertFalse(self.manager._steel_engine._quarantined)
+        self.assertFalse(self.guard.quarantined)
+        self.assertEqual(self.manager.saved, [])
+
+    async def test_bound_remote_is_healthy_but_extra_remote_is_reported(self):
+        cap = await self.begin("TechnicalHealthy")
+        owned = SimpleNamespace(remote_id="PRIVATE_OWNED_PROVIDER_ID")
+        self.manager._sessions["INTERNAL_SYNTHETIC_SESSION_1"].browser = owned
+        self.manager._steel_engine = SimpleNamespace(
+            remote={owned.remote_id: owned}, _quarantined=False)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()], ["active"])
+        self.manager._steel_engine.remote["PRIVATE_ORPHAN_PROVIDER_ID"] = object()
+        listing = self.guard.safe_sessions()
+        self.assertEqual([x["state"] for x in listing],
+                         ["active", "provider_reconciliation_required"])
+        self.assertNotIn("PRIVATE_OWNED_PROVIDER_ID", str(listing))
+        self.assertNotIn("PRIVATE_ORPHAN_PROVIDER_ID", str(listing))
+        self.assertNotIn(cap, str(listing))
+        status = await self.mcp.call_tool("browser_status", {"session_id": cap})
+        self.assertIn("TechnicalHealthy", str(status))
+
+    async def test_engine_flag_does_not_duplicate_existing_recovery_row(self):
+        await self.begin("TechnicalMissing")
+        self.manager._sessions.clear()
+        self.manager._steel_engine = SimpleNamespace(remote={}, _quarantined=True)
+        listing = self.guard.safe_sessions()
+        self.assertEqual([x["state"] for x in listing], ["missing_session_quarantined"])
+
+    async def test_unknown_engine_inventory_is_not_an_idle_certificate(self):
+        self.manager._steel_engine = SimpleNamespace(_quarantined=False)
+        self.assertEqual(self.guard.safe_sessions()[0]["state"],
+                         "provider_reconciliation_required")
+
+    async def test_verified_empty_engine_and_manager_remain_empty(self):
+        self.manager._steel_engine = SimpleNamespace(remote={}, _quarantined=False)
+        self.assertEqual(self.guard.safe_sessions(), [])
+
+    async def test_start_reports_guard_deadline_not_later_provider_deadline(self):
+        self.guard.clock = lambda: 100
+        async def start_with_late_deadline(**args):
+            result = await self.manager.start(**args)
+            result["remaining_seconds"] = 870
+            return result
+        result = await self.guard.start(start_with_late_deadline, {
+            "profile": "TechnicalLifecycle", "mode": "read_only",
+            "start_url": "https://example.com/"})
+        self.assertEqual(result["remaining_seconds"], 780)
+        self.assertEqual(870 - result["remaining_seconds"], 90)
+        self.assertEqual(result["auto_save_close_in_seconds"], 780)
+        self.assertEqual(result["capability_expires_in_seconds"], 850)
+        self.assertIs(result["durable_resume_supported"], False)
+
+    async def test_status_and_inventory_share_actual_countdown_without_renewal(self):
+        self.guard.clock = lambda: 100
+        cap = await self.begin("TechnicalCountdown")
+        lease = self.guard.leases["INTERNAL_SYNTHETIC_SESSION_1"]
+        self.guard.clock = lambda: 865  # 15 seconds until automatic saved-close
+        async def upstream_status(session_id):
+            return {"session_id": session_id, "remaining_seconds": 105}
+        result = await self.guard.action("browser_status", upstream_status,
+                                        {"session_id": cap})
+        listing = self.guard.safe_sessions()[0]
+        for observation in (result, listing):
+            self.assertEqual(observation["remaining_seconds"], 15)
+            self.assertEqual(observation["auto_save_close_in_seconds"], 15)
+            self.assertEqual(observation["capability_expires_in_seconds"], 85)
+            self.assertIs(observation["durable_resume_supported"], False)
+        self.assertEqual(lease.started_at, 100)
+        self.assertEqual(self.manager.saved, [])
+        self.assertIn("INTERNAL_SYNTHETIC_SESSION_1", self.manager._sessions)
+
+    async def test_lifecycle_never_extends_shorter_provider_deadline(self):
+        cap = await self.begin("TechnicalShortProvider")
+        async def upstream_status(session_id):
+            return {"session_id": session_id, "remaining_seconds": 12}
+        result = await self.guard.action("browser_status", upstream_status,
+                                        {"session_id": cap})
+        self.assertEqual(result["remaining_seconds"], 12)
+
+    async def test_lifecycle_countdown_is_zero_after_watchdog_deadline(self):
+        self.guard.clock = lambda: 100
+        cap = await self.begin("TechnicalClosePending")
+        self.guard.clock = lambda: 881
+        result = await self.mcp.call_tool("browser_status", {"session_id": cap})
+        self.assertIn("auto_save_close_in_seconds", str(result))
+        self.assertEqual(self.guard.safe_sessions()[0]["remaining_seconds"], 0)
+        self.assertEqual(self.guard.safe_sessions()[0]["capability_expires_in_seconds"], 69)
+        self.assertEqual(self.manager.saved, [])
+
     async def test_one_writer_per_profile_even_if_slots_available(self):
         cap=await self.begin("Meta - Anita")
         with self.assertRaisesRegex(ToolError,"PARALLEL_PROFILE_BUSY"):
