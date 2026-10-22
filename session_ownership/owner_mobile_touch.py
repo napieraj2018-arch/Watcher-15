@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
-from urllib.parse import urlsplit
 
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
@@ -72,23 +71,21 @@ class NativeTouchController:
             token = self.guard.actor_session.set(sid)
             try:
                 page = self.guard.manager._session(sid).page
-                if not self._safe_facebook_page(page):
+                if not self._safe_login_page(page, rec):
                     return None
-                return await asyncio.wait_for(fn(page), limit)
+                return await asyncio.wait_for(fn(page, rec), limit)
             finally:
                 self.guard.actor_session.reset(token)
 
     @staticmethod
-    def _safe_facebook_page(page) -> bool:
-        # A password can only be sent to the exact HTTPS Facebook origin,
-        # never to a redirect to an arbitrary/phishing site or about:blank.
+    def _safe_login_page(page, record) -> bool:
+        # The scope comes from the server-owned service selected when this
+        # handoff was created. A trusted but unrelated service is still denied.
+        # Exact origins prevent suffix matches, userinfo and non-HTTPS input.
+        from owner_mobile_handoff import _https_origin
         try:
-            u=urlsplit(page.url)
-            host=u.hostname or ""
-            return (u.scheme=="https" and u.username is None
-                    and u.password is None and u.port in (None,443)
-                    and (host=="facebook.com" or host.endswith(".facebook.com")))
-        except (TypeError,ValueError):
+            return _https_origin(page.url) in record.allowed_origins
+        except Exception:
             return False
 
     @staticmethod
@@ -232,7 +229,7 @@ class NativeTouchController:
         )
 
     async def frame(self, request):
-        async def capture(page):
+        async def capture(page, _record):
             return await page.screenshot(type="jpeg", quality=65,
                                          full_page=False, timeout=10000)
         try:
@@ -293,7 +290,7 @@ class NativeTouchController:
             return JSONResponse({"error":"TOUCH_INVALID_ACTION"},
                                 status_code=400, headers=self._headers())
 
-        async def perform(page):
+        async def perform(page, record):
             if kind == "tap":
                 dimensions = page.viewport_size
                 if not isinstance(dimensions,dict):
@@ -312,7 +309,12 @@ class NativeTouchController:
                 # Only fill the *already focused* editable element.
                 # A password may NEVER be inserted into text/email fields.
                 # Never take a user-supplied CSS selector, script or URL.
-                field = page.locator(":focus")
+                # Pin the exact DOM element before inspecting it. A live
+                # locator could re-resolve after navigation and fill a field
+                # in a different document with the previously typed value.
+                field = await page.locator(":focus").element_handle(timeout=2000)
+                if field is None:
+                    return False
                 info = await field.evaluate("""el => ({
                     tag: el.tagName, type: el.type || "",
                     disabled: !!el.disabled, readOnly: !!el.readOnly
@@ -329,8 +331,11 @@ class NativeTouchController:
                         return False
                 elif inp_type not in ("text","email","search","tel","url",""):
                     return False
-                # Playwright locator.fill emits real input/change events,
-                # including for React-controlled forms.
+                if not self._safe_login_page(page, record):
+                    return False
+                # An element handle stays bound to the inspected document;
+                # navigation detaches it rather than retargeting the input.
+                # Playwright fill emits the events React-controlled forms need.
                 await field.fill(data["text"], timeout=7000)
             return True
         try:

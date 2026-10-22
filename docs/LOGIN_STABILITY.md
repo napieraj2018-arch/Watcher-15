@@ -1,6 +1,53 @@
-# AI Browser — trwałość logowania Meta / Instagram / Google
+# AI Browser — trwałość logowania i mobilne podłączenie kont
 
-**10.10.2026. Plan techniczny, bez zmiany haseł, cookies, IP i abonamentów.**
+**Aktualizacja kodu: 22.10.2026. Bez zmiany haseł, cookies, IP i abonamentów.**
+
+Opis poniżej dotyczy zachowania kodu i jego testów. Dostępność na produkcji
+trzeba potwierdzić zgodnością SHA aktywnego wdrożenia z wersją zawierającą
+poprawkę. Sama obecność dokumentu ani PASS testu lokalnego nie potwierdzają
+wdrożenia, zalogowania do serwisu ani działania na rzeczywistym iPhonie.
+
+## Czas zadania, zapis profilu i wznowienie
+
+W trybie pięciu równoległych sesji każde zadanie otrzymuje własny capability
+i blokadę profilu. Dwa czaty mogą pracować na różnych profilach, ale nie na
+tym samym profilu jednocześnie. Stan profilu nie zastępuje capability.
+
+| Zdarzenie | Obecny limit / znaczenie |
+| --- | --- |
+| Automatyczne zapisanie i zamknięcie przez owner guard | Zaczyna się po 780 sekundach (13 minutach) od przyznania sesji. |
+| Wygaśnięcie capability | 850 sekund; późniejszy limit nie daje dodatkowego czasu pracy po rozpoczęciu zamykania. |
+| Niższa warstwa runtime / provider | Runtime ma limit 870 sekund, a żądanie Steel timeout 900 sekund. Nie należy planować pracy do tych późniejszych terminów. |
+| Mobilne zaproszenie do logowania | Maksymalnie 600 sekund; domyślne 900 sekund starego klienta jest przyjmowane i ograniczane do 600. |
+| Wznowienie po restarcie procesu | Brak trwałego wznowienia capability i zadania. Zapisany profil może być użyty w nowym, osobno autoryzowanym zadaniu. |
+
+`browser_start`, właścicielskie `browser_status` i aktywne wiersze
+`browser_sessions` raportują `remaining_seconds` jako minimum czasu do
+780-sekundowego zamknięcia i krótszego czasu zgłaszanego przez niższą warstwę.
+Pola `auto_save_close_in_seconds`, `capability_expires_in_seconds` oraz
+`durable_resume_supported: false` ujawniają ten sam rzeczywisty zakres.
+Wcześniejsze raportowanie 870 sekund dawało do 90 sekund pozornego zapasu.
+Odczyt statusu nie przedłuża żadnego limitu.
+
+### Równoczesny odczyt podczas startu i zamknięcia
+
+Lista sesji rozróżnia `starting` i `closing`. Utworzenie rekordu managera
+poprzedza wydanie capability, a jego usunięcie może poprzedzać końcowe
+potwierdzenie zapisu profilu. Te krótkie, kontrolowane fazy nie oznaczają
+osieroconej sesji. Slot i blokada profilu pozostają zajęte do zakończenia
+odpowiedniej operacji. Nieudany, przerwany lub niepotwierdzony wynik nadal
+pozostawia stan wymagający odzyskiwania.
+
+Wcześniej współbieżne `browser_sessions` mogło w tym oknie ustawić trwałą
+globalną kwarantannę nawet po późniejszym poprawnym starcie lub pełnym
+zapisie i zamknięciu. Regresje odtwarzają odczyt dokładnie pomiędzy zmianą
+rekordu a zwróceniem wyniku. Poprawka nie czyści automatycznie istniejących
+flag i nie uznaje każdej nowej kwarantanny za ten historyczny wyścig.
+
+Długie zadanie wymaga zapisanego checkpointu przed zamknięciem. Obecny kod
+nie uruchamia automatycznie kolejnej sesji i nie odzyskuje zadania po
+restarcie. `profile_saved` ani `full_profile_saved` nie dowodzą aktualnej
+tożsamości w serwisie; tę trzeba odczytać w nowej sesji.
 
 ## Dlaczego powtarza się logowanie
 
@@ -33,7 +80,12 @@ Nie kupować adresu IP ani abonamentu na własną rękę. Jeśli przyszłe warun
 - Dwóch niezależnych klientów nie może współdzielić profilu ani IP przydzielonego komuś innemu.
 - Żadna próba nie tworzy powtarzanych loginów, wysyłek kodów, zmian haseł, żadnych nowych opłat bez zgody.
 
-**Stan: NIEZALICZONY** — testy dotyczące realnego profilu Meta wymagają bieżącego poprawnego odczytu i mogą nadal wymagać pojedynczej autoryzacji użytkownika. Problem #111 / #118 blokuje uznanie rozwiązania za wdrożone.
+**Zakres potwierdzenia:** syntetyczna poprawka trwałości #138 przeszła 11.10
+test nowej sesji i restartu Render, zgodnie z zapisem w `AGENTS.md`. To nie
+potwierdza zalogowania rzeczywistego konta Meta. Dla konkretnego konta nadal
+potrzebny jest bieżący odczyt właściwej tożsamości; może być wymagana
+pojedyncza autoryzacja użytkownika. Historyczne #111 / #118 opisują przyczyny
+i ograniczenia, a nie automatyczny dowód nowego incydentu w każdej sesji.
 
 ## Mobilne okno logowania — iPhone (poprawka 12.10.2026)
 
@@ -55,15 +107,64 @@ Ani nazwa profilu, ani link do obrazowego podglądu nie wystarczają do dowodu i
 Upstream Steel ma osobny [otwarty błąd iOS WebKit input](https://github.com/steel-dev/steel-browser/issues/270), dotyczący przede wszystkim klawiatury osadzonego iframe; u nas wykorzystujemy pełny ekran, ale dostawca może nadal mieć usterkę dotykową. Nie zastępować tej zależności niezweryfikowaną pętlą logowania ani wstrzykiwaniem haseł przez AI. Jeśli jawne włączenie `interactive` nie pomaga na prawdziwym telefonie, następny krok to diagnostyka tego konkretnego playera z dostawcą lub osobny, autoryzowany interfejs obsługi zdalnej sesji. **Nie deklarować naprawy dotyku wyłącznie na podstawie CI.**
 
 
-## iPhone — własny panel dotykowy bez WebRTC Steel (PROTOTYP, 12.10.2026)
+## iPhone — własny panel dotykowy bez WebRTC Steel (kod z 22.10.2026)
 
 Problem: oficjalny Steel WebRTC player wyświetla obraz na iPhonie, ale dotyk i/lub klawiatura nie reagują (upstream iOS/WebKit issue #270). Wymuszenie `debugConfig.interactive=true`, `systemCursor=true` i `interactive=true` w URL zostało wdrożone, **ale nie ma potwierdzonego PASS na prawdziwym iPhonie**.
 
-Opracowano alternatywę `session_ownership/owner_mobile_touch.py`:
+Alternatywę obsługują `session_ownership/owner_mobile_handoff.py` oraz
+`session_ownership/owner_mobile_touch.py`:
+
 - `GET /owner-mobile-login/touch` — natywny panel iPhone'a ze zrzutem strony i przyciskami, bez WebRTC/iframe i bez nowych haseł w ChatGPT;
 - `GET /owner-mobile-login/touch/frame` — świeży, ulotny JPEG tylko z aktualnej sesji przypisanej do uprzednio wydanego, jednorazowego setupu, nie jest zapisywany;
-- `POST /owner-mobile-login/touch/action` — ograniczone `tap`, `scroll`, `key` (`Enter`, `Tab`, `Backspace`) oraz `text` wyłącznie do realnego, zaznaczonego pola. Hasło wpisywane w panelu jest przesyłane HTTPS do serwera tylko na czas wykonania `locator.fill()`, bez zwracania treści do asystenta i bez rejestracji w logach. Hasło może trafić tylko do rzeczywistego pola typu `password` na stronie HTTPS w domenie `facebook.com`; pozostałe domeny odrzucane. Uwaga: to input **we własnym panelu**, nie w natywnym formularzu Facebooka; użytkownik musi być o tym wyraźnie poinformowany, jeśli ta wersja kiedykolwiek zostanie uruchomiona.
-- Wszystkie wejścia wymagają ważnego `__Host-aib-owner-login` (HttpOnly, SameSite Strict), dokładnie jednego lease guard, brak kwarantanny, dla mutacji POST dodatkowo zgodny `Origin`, `Content-Type`, walidowany JSON z limitami. Brak dowolnych URL, skryptów, dostępu do cudzych profili, odczytu haseł przez model, automatycznego publikowania lub automatycznego rozwiązania MFA.
+- `POST /owner-mobile-login/touch/action` — ograniczone `tap`, `scroll`, `key` (`Enter`, `Tab`, `Backspace`) oraz `text` wyłącznie do realnego, zaznaczonego pola. Hasło wpisywane w panelu jest przesyłane HTTPS do serwera na czas wykonania `fill()`, bez zwracania treści do asystenta i bez rejestracji w logach. Trafia wyłącznie do pola typu `password` na dokładnie dozwolonym originie wybranej usługi. Uchwyt pola jest związany z konkretnym dokumentem; ponowne sprawdzenie originu przed wypełnieniem chroni przed zmianą strony w trakcie operacji. To input **we własnym panelu**, o czym informuje jego interfejs.
+- Wszystkie wejścia wymagają ważnego `__Host-aib-owner-login` (HttpOnly, SameSite Strict), dokładnie przypisanej lease i capability oraz braku kwarantanny. Operacja używa blokady wyłącznie swojej sesji. Dla mutacji POST wymagane są dodatkowo zgodny `Origin`, `Content-Type` i walidowany JSON z limitami. Brak dowolnych URL, skryptów, dostępu do cudzych profili, odczytu haseł przez model, automatycznego publikowania lub automatycznego rozwiązania MFA.
 
-To **offline kandydat do wdrożenia**, nie sprawdzony zdalny panel. Nie wolno go wdrażać ani rozpoczynać nowej sesji w obecnym stanie `SteelSelfTest:recovery_required`. Zgłoszenie #148 wymaga niezależnej rekoncyliacji sesji Steel oraz statusu zapisu; sam release HTTP 200 nie zwalnia lokalnego lease. Po rozwiązaniu kwarantanny potrzebne są: QA na nieosobistym polu formularza, potem manualny test autoryzacji i zapis→stop→nowa sesja prawdziwej tożsamości. Nie używać prawdziwych haseł do testów aplikacyjnych.
+### Obsługiwane wejścia do logowania
 
+Serwer sam dobiera stałą stronę logowania i dozwolone originy. Nie przyjmuje
+listy originów od wywołującego. Ścieżka i parametry podanego `login_url` nie
+mogą zmienić strony docelowej. Rozpoznawane są wyłącznie jawnie zapisane
+hosty HTTPS; domena z podobnym sufiksem nie zostanie zaakceptowana.
+
+| Usługa | Początkowa strona logowania | Dozwolone dodatkowe przejścia w tej samej karcie |
+| --- | --- | --- |
+| Facebook | `https://www.facebook.com/login/` | Jawnie zapisane hosty Facebook: `facebook.com`, `www`, `m`, `business`, `web`. Istniejące wejście `m.facebook.com` zachowuje mobilną stronę główną. |
+| Instagram | `https://www.instagram.com/accounts/login/` | `instagram.com`, `www.instagram.com` i powyższe hosty Facebook dla SSO. |
+| ChatGPT | `https://chatgpt.com/auth/login` | `www.chatgpt.com`, `chat.openai.com`, `auth.openai.com`, `auth0.openai.com`, `setup.auth.openai.com` oraz `accounts.google.com`. |
+| Metricool | `https://app.metricool.com/login` | `accounts.google.com` i powyższe hosty Facebook dla SSO. |
+| Canva | `https://www.canva.com/login/` | `canva.com`, `accounts.google.com` i powyższe hosty Facebook dla SSO. |
+| Google | `https://accounts.google.com/ServiceLogin` | `myaccount.google.com`, `mail.google.com`. |
+| WordPress — Architekt | `https://architekt.radom.pl/poradnik/wp-login.php` | Wyłącznie `https://architekt.radom.pl`. |
+| WordPress — Napieraj i Synowie | `https://weterynarz.radom.pl/wp-login.php` | Wyłącznie `https://weterynarz.radom.pl`. |
+
+Zakres SSO przypisany jest do wybranej usługi: np. panel ChatGPT nie pozwala
+przejść do Metricool. Nie dodano automatycznego wybierania osobnego okna
+OAuth ani obsługi formularzy wewnątrz obcego iframe. Podane wejścia nie
+oznaczają obsługi każdego wariantu logowania oferowanego przez usługę.
+
+### Dowody i bramka wdrożenia
+
+Testy offline sprawdzają własność sesji, zakres originów, zmianę strony w
+trakcie wpisywania, błędne URL i zachowanie zapisu. Test Chromium korzysta
+z lokalnie podstawionych dokumentów pod tymi originami: sprawdza kliknięcia,
+pola i przejścia w tej samej karcie, ale nie jest logowaniem do realnych
+ośmiu usług ani testem rzeczywistego iPhone'a. Przed użyciem prawdziwego
+hasła potrzebny jest test dotyku na nieosobistym formularzu; tożsamość po
+autoryzacji trzeba potwierdzić w sekwencji zapis→stop→nowa sesja.
+
+Historyczny incident #148 nie pozostaje automatyczną blokadą: komentarz
+[6129272443](https://github.com/napieraj2018-arch/Watcher-15/issues/148#issuecomment-6129272443)
+odnotował niezależne, uwierzytelnione potwierdzenie `Completed` (32 sekundy)
+oraz poprawne zamknięcie własnej sesji administracyjnej. Nie zastępuje to
+kontroli stanu sesji aktywnych dziś.
+
+Przed wdrożeniem należy potwierdzić HEAD/CI i aktualny inwentarz. Aktywne
+zadania, także `read_only`, muszą zakończyć się przez własną ścieżkę zapisu
+i zamknięcia; nie wolno usuwać ich po nazwie ani przerywać wdrożeniem.
+`recovery_required`, `missing_session_quarantined` lub
+`provider_reconciliation_required` wymagają rozliczenia konkretnego,
+bieżącego stanu. Zwykły upływ czasu nie potwierdza zapisu profilu.
+Publiczne `/health/steel` ani samo HTTP 200 z release nie są niezależnym
+odczytem terminalnego stanu dokładnej sesji u providera. Nie należy jednak
+wymagać ponownego rozliczenia historycznego #148 jako nowego incydentu,
+jeśli nowe odczyty nie pokazują żadnej nierozliczonej sesji.

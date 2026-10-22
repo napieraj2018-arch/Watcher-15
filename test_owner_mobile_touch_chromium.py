@@ -134,6 +134,71 @@ class RealChromiumTouch(unittest.IsolatedAsyncioTestCase):
         after=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
         self.assertEqual(after.status_code,410)
 
+    async def test_multiservice_login_and_auth_redirects_with_real_chromium(self):
+        # No network is needed for any service. The hostnames exercise the
+        # production origin policy; every document below is synthetic.
+        paths = {
+            "https://chatgpt.com/auth/login",
+            "https://auth.openai.com/log-in",
+            "https://app.metricool.com/login",
+            "https://www.canva.com/login/",
+            "https://accounts.google.com/v3/signin/identifier",
+            "https://phishing.example/login",
+            "https://architekt.radom.pl/poradnik/wp-login.php",
+            "https://weterynarz.radom.pl/wp-login.php",
+        }
+        async def local_only(route):
+            if route.request.url in paths:
+                await route.fulfill(status=200,content_type="text/html",body=PAGE)
+            else:
+                await route.abort("blockedbyclient")
+        await self.context.route("**/*",local_only)
+        services = (
+            ("https://chatgpt.com/g/synthetic/project?tab=sources", (
+                "https://chatgpt.com/auth/login", "https://auth.openai.com/log-in",
+                "https://accounts.google.com/v3/signin/identifier")),
+            ("https://app.metricool.com/planner", (
+                "https://app.metricool.com/login", "https://accounts.google.com/v3/signin/identifier")),
+            ("https://www.canva.com/design/synthetic/edit", (
+                "https://www.canva.com/login/", "https://accounts.google.com/v3/signin/identifier")),
+            ("https://architekt.radom.pl/poradnik/wp-admin/", (
+                "https://architekt.radom.pl/poradnik/wp-login.php",)),
+            ("https://weterynarz.radom.pl/wp-admin/", (
+                "https://weterynarz.radom.pl/wp-login.php",)),
+        )
+        for supplied, expected_steps in services:
+            with self.subTest(service=supplied):
+                await self.handoff.cancel({"setup_id":self.setup["setup_id"]})
+                self.setup=await self.handoff.create({
+                    "profile":PROFILE,"login_url":supplied})
+                token=self.setup["setup_url"].split("#s=",1)[1]
+                claim=await self.handoff.claim(request(
+                    SETUP_PATH+"/claim","POST",{"token":token}))
+                self.assertEqual(claim.status_code,200)
+                self.cookie=claim.headers["set-cookie"].split(";",1)[0]
+                sid=next(iter(self.manager._sessions))
+                self.manager._sessions[sid].page=self.page
+                for step in expected_steps:
+                    await self.page.goto(step,wait_until="domcontentloaded")
+                    frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+                    self.assertEqual(frame.status_code,200)
+                    await self.tap("#password")
+                    sent=await self.touch.action(self.touch_request({
+                        "kind":"text","field":"password","text":"SYNTHETIC_SERVICE_VALUE"}))
+                    self.assertEqual(sent.status_code,200)
+                    self.assertEqual(await self.page.locator("#password").input_value(),
+                                     "SYNTHETIC_SERVICE_VALUE")
+                await self.page.goto("https://phishing.example/login")
+                await self.page.locator("#password").focus()
+                denied=await self.touch.action(self.touch_request({
+                    "kind":"text","field":"password","text":"MUST_NOT_SEND"}))
+                self.assertEqual(denied.status_code,409)
+                self.assertEqual(await self.page.locator("#password").input_value(),"")
+        finished=await self.handoff.finish(request(
+            SETUP_PATH+"/finish","POST",{},cookie=self.cookie))
+        self.assertEqual(finished.status_code,200)
+        self.assertEqual(self.guard.safe_sessions(),[])
+
 
 if __name__=="__main__":
     unittest.main(verbosity=2)

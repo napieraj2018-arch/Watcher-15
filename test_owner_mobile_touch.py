@@ -50,6 +50,9 @@ class FakeFocused:
         self.readonly=False
         self.fills=[]
 
+    async def element_handle(self,timeout=0):
+        return self
+
     async def evaluate(self,script):
         return {"tag":self.tag,"type":self.field_type,
                 "disabled":self.disabled,"readOnly":self.readonly}
@@ -235,6 +238,83 @@ class TouchTests(IsolatedAsyncioTestCase):
         denied_http=await self.touch.action(self.action_request({
             "kind":"tap","x":0.4,"y":0.4}))
         self.assertEqual(denied_http.status_code,409)
+        self.assertEqual(self.page.mouse.clicks,[])
+
+    async def test_supported_login_service_can_reach_only_its_scoped_origins(self):
+        cases = (
+            ("https://chatgpt.com/", (
+                "https://chatgpt.com/auth/login", "https://auth.openai.com/log-in",
+                "https://auth0.openai.com/u/login", "https://accounts.google.com/v3/signin"),
+                "https://app.metricool.com/login"),
+            ("https://app.metricool.com/planner", (
+                "https://app.metricool.com/login", "https://accounts.google.com/v3/signin",
+                "https://www.facebook.com/login/"), "https://www.canva.com/login/"),
+            ("https://www.canva.com/", (
+                "https://www.canva.com/login/", "https://accounts.google.com/v3/signin"),
+                "https://chatgpt.com/auth/login"),
+            ("https://www.instagram.com/", (
+                "https://www.instagram.com/accounts/login/", "https://www.facebook.com/login/"),
+                "https://accounts.google.com/ServiceLogin"),
+            ("https://architekt.radom.pl/poradnik/wp-admin/", (
+                "https://architekt.radom.pl/poradnik/wp-login.php",),
+                "https://weterynarz.radom.pl/wp-login.php"),
+            ("https://weterynarz.radom.pl/wp-admin/", (
+                "https://weterynarz.radom.pl/wp-login.php",),
+                "https://architekt.radom.pl/poradnik/wp-login.php"),
+        )
+        for supplied, allowed, denied in cases:
+            with self.subTest(supplied=supplied):
+                await self.handoff.cancel({"setup_id":self.setup["setup_id"]})
+                self.setup = await self.handoff.create({"profile":PROFILE,"login_url":supplied})
+                token = self.setup["setup_url"].split("#s=",1)[1]
+                claimed = await self.handoff.claim(request(
+                    SETUP_PATH+"/claim", "POST", {"token":token}))
+                self.cookie = claimed.headers["set-cookie"].split(";",1)[0]
+                sid = next(iter(self.manager._sessions))
+                self.page = FakePage()
+                self.page.focused.field_type = "password"
+                self.manager._sessions[sid].page = self.page
+                for url in allowed:
+                    self.page.url = url
+                    frame = await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+                    self.assertEqual(frame.status_code,200)
+                    typed = await self.touch.action(self.action_request({
+                        "kind":"text", "field":"password", "text":"SYNTHETIC_ONLY"}))
+                    self.assertEqual(typed.status_code,200)
+                count = len(self.page.focused.fills)
+                self.page.url = denied
+                frame = await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+                self.assertEqual(frame.status_code,410)
+                typed = await self.touch.action(self.action_request({
+                    "kind":"text", "field":"password", "text":"MUST_NOT_SEND"}))
+                self.assertEqual(typed.status_code,409)
+                self.assertEqual(len(self.page.focused.fills),count)
+
+    async def test_navigation_during_field_inspection_does_not_forward_input(self):
+        self.page.focused.field_type = "password"
+        original = self.page.focused.evaluate
+        async def navigate_during_inspection(script):
+            info = await original(script)
+            self.page.url = "https://phishing.example/"
+            return info
+        self.page.focused.evaluate = navigate_during_inspection
+        denied = await self.touch.action(self.action_request({
+            "kind":"text", "field":"password", "text":"MUST_NOT_SEND"}))
+        self.assertEqual(denied.status_code,409)
+        self.assertEqual(self.page.focused.fills,[])
+
+    async def test_invalid_page_origins_cannot_receive_input(self):
+        for url in (
+            "https://www.facebook.com./login", "https://www.facebook.com:444/login",
+            "https://evil@www.facebook.com/login", "https://www.facebook.com/\\evil.test",
+            "https://unknown.facebook.com/login", "https://www.facebook.com/ ",
+            "https://chatgpt.com/auth/login", "about:blank",
+        ):
+            with self.subTest(url=url):
+                self.page.url=url
+                denied=await self.touch.action(self.action_request({
+                    "kind":"tap","x":0.4,"y":0.4}))
+                self.assertEqual(denied.status_code,409)
         self.assertEqual(self.page.mouse.clicks,[])
 
     async def test_quarantine_fails_closed_without_remote_actions(self):

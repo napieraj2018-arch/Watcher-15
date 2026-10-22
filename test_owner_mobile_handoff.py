@@ -15,7 +15,7 @@ from starlette.routing import Route
 from test_owner_parallel_mcp import MultiManager
 from multi_capability_guard import MultiCapabilityGuard
 from owner_mobile_handoff import (
-    COOKIE, SETUP_ORIGIN, SETUP_PATH, _viewer_url, _login_url
+    COOKIE, SETUP_ORIGIN, SETUP_PATH, _viewer_url, _login_url, _https_origin
 )
 from capability_guard import OwnershipError
 from pathlib import Path
@@ -264,13 +264,97 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
                     "https://www.facebook.com./login/",
                     "https://www.facebook.com/\\nignored",
                     "https://www.facebook.com/login/ ",
-                    "https://www.instagram.com/accounts/login/",
+                    "https://login.openai.com/",
+                    "https://custom.canva.com/login/",
+                    "https://customer.metricool.com/login/",
                     "about:blank"):
             with self.subTest(raw=raw):
                 with self.assertRaisesRegex(OwnershipError,"MOBILE_LOGIN_ORIGIN_NOT_ALLOWED"):
                     await self.handoff.create({
                         "profile":PROFILE,"login_url":raw})
         self.assertEqual(self.manager._sessions,{})
+
+    async def test_service_login_deep_links_use_fixed_official_destinations(self):
+        cases = {
+            "https://chatgpt.com/g/g-example/project?tab=sources":
+                "https://chatgpt.com/auth/login",
+            "https://chat.openai.com/?next=https://evil.test/":
+                "https://chatgpt.com/auth/login",
+            "https://auth.openai.com/log-in?state=discarded":
+                "https://chatgpt.com/auth/login",
+            "https://auth0.openai.com/authorize?redirect_uri=https://evil.test/":
+                "https://chatgpt.com/auth/login",
+            "https://app.metricool.com/planner?next=https://evil.test/":
+                "https://app.metricool.com/login",
+            "https://www.metricool.com/": "https://app.metricool.com/login",
+            "https://www.canva.com/design/synthetic/edit?redirect=unsafe":
+                "https://www.canva.com/login/",
+            "https://canva.com/pl_pl/login/": "https://www.canva.com/login/",
+            "https://accounts.google.com/ServiceLogin?continue=https://evil.test/":
+                "https://accounts.google.com/ServiceLogin",
+            "https://mail.google.com/mail/u/0/#inbox":
+                "https://accounts.google.com/ServiceLogin",
+            "https://www.instagram.com/synthetic/":
+                "https://www.instagram.com/accounts/login/",
+            "https://architekt.radom.pl/poradnik/wp-admin/admin.php?page=wpcode":
+                "https://architekt.radom.pl/poradnik/wp-login.php",
+            "https://weterynarz.radom.pl/wp-admin/?redirect_to=https://evil.test/":
+                "https://weterynarz.radom.pl/wp-login.php",
+        }
+        for supplied, expected in cases.items():
+            with self.subTest(supplied=supplied):
+                self.assertEqual(_login_url(supplied), expected)
+
+    async def test_service_scope_is_bound_to_handoff_and_ui_names_service(self):
+        cases = (
+            ("ChatGPT", "https://chatgpt.com/g/synthetic", "https://chatgpt.com/auth/login"),
+            ("Metricool", "https://app.metricool.com/planner", "https://app.metricool.com/login"),
+            ("Canva", "https://www.canva.com/design/synthetic", "https://www.canva.com/login/"),
+            ("Google", "https://accounts.google.com/", "https://accounts.google.com/ServiceLogin"),
+            ("Instagram", "https://www.instagram.com/", "https://www.instagram.com/accounts/login/"),
+            ("WordPress — Architekt", "https://architekt.radom.pl/poradnik/wp-admin/",
+             "https://architekt.radom.pl/poradnik/wp-login.php"),
+            ("WordPress — Napieraj i Synowie", "https://weterynarz.radom.pl/wp-admin/",
+             "https://weterynarz.radom.pl/wp-login.php"),
+        )
+        for service, supplied, expected in cases:
+            with self.subTest(service=service):
+                setup = await self.begin(login_url=supplied)
+                self.assertEqual(self.manager.last_start_url, expected)
+                self.assertEqual(setup["service"], service)
+                self.assertEqual(setup["login_origin"], _https_origin(expected))
+                record = self.handoff.active
+                self.assertEqual(record.service_name, service)
+                self.assertIn(_https_origin(expected), record.allowed_origins)
+                self.assertIsInstance(record.allowed_origins, frozenset)
+                self.assertNotIn("https://evil.test", record.allowed_origins)
+                claimed = await self.claim(setup)
+                cookie = claimed.headers["set-cookie"].split(";", 1)[0]
+                view = await self.handoff.view(request(SETUP_PATH+"/view",cookie=cookie))
+                self.assertIn(("Logowanie — " + service).encode(), view.body)
+                self.assertNotIn(b"Logowanie Facebook", view.body)
+                receipt = await self.handoff.cancel({"setup_id":setup["setup_id"]})
+                self.assertTrue(receipt["profile_saved"])
+
+    async def test_untrusted_service_lookalikes_and_client_scope_are_rejected(self):
+        for supplied in (
+            "https://chatgpt.com.evil.test/", "https://evil-chatgpt.com/",
+            "https://auth.openai.com.evil.test/", "https://chatgpt.com./",
+            "https://chatgpt.com:444/", "https://evil@chatgpt.com/",
+            "https://app.metricool.com.evil.test/", "http://app.metricool.com/",
+            "https://www.canva.com/\\evil.test", "https://accounts.google.com/ ",
+            "https://accounts.google.com.evil.test/", "https://accounts.google.com@evil.test/",
+            "https://127.0.0.1/", "file:///etc/passwd", "javascript:alert(1)",
+            "https://architekt.radom.pl.evil.test/wp-login.php",
+            "https://other.architekt.radom.pl/wp-login.php", "https://radom.pl/wp-login.php",
+        ):
+            with self.subTest(supplied=supplied):
+                with self.assertRaisesRegex(OwnershipError, "MOBILE_LOGIN_ORIGIN_NOT_ALLOWED"):
+                    await self.begin(login_url=supplied)
+        with self.assertRaisesRegex(OwnershipError, "MOBILE_SETUP_PARAMETERS_INVALID"):
+            await self.begin(login_url="https://chatgpt.com/",
+                             allowed_origins=["https://evil.test"])
+        self.assertEqual(self.manager.counter, 0)
 
     async def test_steel_player_url_enables_real_input_without_leaking_token(self):
         # The live Steel player accepts video and can still be read-only
