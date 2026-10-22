@@ -46,6 +46,14 @@ class MultiCapabilityGuard:
         self.leases: dict[str, Lease] = {}
         self.by_profile: dict[str, str] = {}
         self.session_locks: dict[str, asyncio.Lock] = {}
+        # A stop may remove the manager record before profile READY/registry
+        # acknowledgement returns. Keep its exact record until that receipt;
+        # an in-flight close is neither a lost session nor a free slot.
+        self.closing: dict[str, object] = {}
+        # ContextVars authorize the start task, but an inventory task cannot
+        # see them. This admission-scoped phase explains at most one new
+        # manager record until the start result is checked and leased.
+        self.starting: tuple[str, frozenset[str]] | None = None
         self.pending_start = contextvars.ContextVar(
             "aib_multi_pending_start_profile", default=None)
         self.actor_session = contextvars.ContextVar(
@@ -60,13 +68,26 @@ class MultiCapabilityGuard:
     def sessions(self):
         return self.manager._sessions
 
+    def _starting_session_ids(self):
+        if self.starting is None:
+            return set()
+        profile, before = self.starting
+        candidates = set(self.sessions()) - before - set(self.leases)
+        if (len(candidates) == 1
+                and getattr(self.sessions()[next(iter(candidates))],
+                            "profile", None) == profile):
+            return candidates
+        return set()
+
     def _assess(self) -> None:
         actual = set(self.sessions())
         owned = set(self.leases)
-        if actual - owned:
+        if actual - owned - self._starting_session_ids():
             self.quarantined = True
             raise OwnershipError("UNMANAGED_SESSION_QUARANTINED")
         for sid in owned - actual:
+            if sid in self.closing:
+                continue
             self.leases[sid].recovery_required = True
             self.quarantined = True
 
@@ -217,6 +238,7 @@ class MultiCapabilityGuard:
                         raise OwnershipError("PARALLEL_PROFILE_UNMANAGED")
             prior = set(self.sessions())
             pending = self.pending_start.set(profile)
+            self.starting = (profile, frozenset(prior))
             try:
                 result = await fn(**args)
             except BaseException:
@@ -224,6 +246,9 @@ class MultiCapabilityGuard:
                     self.quarantined = True
                 raise
             finally:
+                # No await between clearing the phase and validating/minting
+                # the lease below; inventory runs on this same event loop.
+                self.starting = None
                 self.pending_start.reset(pending)
             sid = result.get("session_id") if isinstance(result, dict) else None
             if (not isinstance(sid, str) or not 1 <= len(sid) <= 128
@@ -276,6 +301,8 @@ class MultiCapabilityGuard:
                 self.quarantined = True
                 raise OwnershipError("SESSION_DISAPPEARED")
             actor = self.actor_session.set(sid)
+            if name == "browser_stop":
+                self.closing[sid] = self.sessions()[sid]
             try:
                 result = await fn(**{**args, "session_id": sid})
                 if name == "browser_stop":
@@ -300,6 +327,8 @@ class MultiCapabilityGuard:
                     self.quarantined = True
                 raise
             finally:
+                if name == "browser_stop":
+                    self.closing.pop(sid, None)
                 self.actor_session.reset(actor)
 
     async def watchdog(self, lease):
@@ -317,6 +346,7 @@ class MultiCapabilityGuard:
                     self.quarantined = True
                     return
                 actor = self.actor_session.set(sid)
+                self.closing[sid] = self.sessions()[sid]
                 try:
                     result = await self.manager.stop(sid)
                     if (isinstance(result, dict)
@@ -332,6 +362,7 @@ class MultiCapabilityGuard:
                     self.quarantined = True
                     raise
                 finally:
+                    self.closing.pop(sid, None)
                     self.actor_session.reset(actor)
         except asyncio.CancelledError:
             raise
@@ -352,9 +383,18 @@ class MultiCapabilityGuard:
             if str(exc) != "UNMANAGED_SESSION_QUARANTINED":
                 raise
         items = []
+        starting_ids = self._starting_session_ids()
         for sid, session in self.sessions().items():
             lease = self.leases.get(sid)
             if lease is None:
+                if sid in starting_ids:
+                    items.append({
+                        "session_id": "[redacted]",
+                        "profile": self.starting[0],
+                        "mode": getattr(session, "mode", "unknown"),
+                        "state": "starting",
+                    })
+                    continue
                 self.quarantined = True
                 items.append({
                     "session_id": "[redacted]",
@@ -366,6 +406,7 @@ class MultiCapabilityGuard:
             # Expired per-chat capabilities must never appear as healthy
             # active sessions. Do not auto-stop, renew or reveal the handle.
             state = ("recovery_required" if lease.recovery_required
+                     else "closing" if sid in self.closing
                      else "capability_expired"
                      if self.clock() - lease.started_at > CAPABILITY_LIFETIME_SECONDS
                      else "active")
@@ -377,12 +418,29 @@ class MultiCapabilityGuard:
             }
             items.append(self.with_lifecycle(item, lease)
                          if state == "active" else item)
+        if self.starting is not None and not starting_ids:
+            # A provider request can be in flight before a local record exists.
+            # Do not return an idle-looking [] during that admission window.
+            items.append({
+                "session_id": "[redacted]",
+                "profile": self.starting[0],
+                "mode": "unknown",
+                "state": "starting",
+            })
         # A failed saved-stop may remove the manager record before returning
         # an unverified receipt. The lease deliberately remains quarantined;
         # hiding it would make [] look like permission to deploy/restart.
         # Never infer provider closure or release a slot from a missing record.
         for sid, lease in self.leases.items():
             if sid not in self.sessions():
+                if sid in self.closing and not lease.recovery_required:
+                    items.append({
+                        "session_id": "[redacted]",
+                        "profile": lease.profile,
+                        "mode": getattr(self.closing[sid], "mode", "unknown"),
+                        "state": "closing",
+                    })
+                    continue
                 lease.recovery_required = True
                 self.quarantined = True
                 items.append({
@@ -400,7 +458,8 @@ class MultiCapabilityGuard:
         if engine is not None:
             remote = getattr(engine, "remote", None)
             bound = {id(getattr(session, "browser", None))
-                     for session in self.sessions().values()}
+                     for session in (*self.sessions().values(),
+                                     *self.closing.values())}
             provider_unconfirmed = (
                 bool(getattr(engine, "_quarantined", False))
                 or not isinstance(remote, dict)
@@ -462,16 +521,14 @@ class MultiCapabilityGuard:
                     return await self.action(_name, _fn, kw)
                 tool.fn = own_tool
             elif name == "browser_sessions":
-                if tool.is_async:
-                    async def list_sessions(*a, **kw):
-                        if a or kw:
-                            raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
-                        return self.safe_sessions()
-                else:
-                    def list_sessions(*a, **kw):
-                        if a or kw:
-                            raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
-                        return self.safe_sessions()
+                async def list_sessions(*a, **kw):
+                    if a or kw:
+                        raise OwnershipError("POSITIONAL_ARGS_UNSUPPORTED")
+                    return self.safe_sessions()
+                # SDK versions dispatch sync tools in a worker thread. Keep
+                # this non-awaiting snapshot on the same event loop as lease
+                # transitions, including when the original tool was sync.
+                tool.is_async = True
                 tool.fn = list_sessions
             elif name == "browser_recent_audit":
                 # The legacy audit endpoint may aggregate records from all

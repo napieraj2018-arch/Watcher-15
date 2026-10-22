@@ -94,6 +94,82 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.assertIsNotNone(match)
         return match.group(0)
 
+    async def paused_stop(self, outcome="saved", *, watchdog=False):
+        """Pause the real guard before removal and before the save receipt."""
+        cap = await self.begin("TechnicalClosing")
+        lease = self.guard.authorize(cap)
+        entered, allow_remove = asyncio.Event(), asyncio.Event()
+        removed, allow_receipt = asyncio.Event(), asyncio.Event()
+
+        async def staged_stop(session_id):
+            self.manager._session(session_id)
+            entered.set()
+            await allow_remove.wait()
+            self.manager._sessions.pop(session_id)
+            removed.set()
+            await allow_receipt.wait()
+            if outcome == "raise":
+                raise RuntimeError("SYNTHETIC_PERSISTENCE_ERROR")
+            return {"session_id": session_id, "profile_saved": True,
+                    "full_profile_saved": outcome == "saved"}
+
+        if watchdog:
+            async def immediate_sleep(_seconds):
+                return None
+            with patch.object(self.manager, "stop", new=staged_stop), patch(
+                    "multi_capability_guard.asyncio.sleep", new=immediate_sleep):
+                task = asyncio.create_task(self.guard.watchdog(lease))
+                await asyncio.wait_for(entered.wait(), 1.5)
+        else:
+            task = asyncio.create_task(self.guard.action(
+                "browser_stop", staged_stop, {"session_id": cap}))
+            await asyncio.wait_for(entered.wait(), 1.5)
+        return lease, task, allow_remove, removed, allow_receipt
+
+    async def observe_paused_close(self, lease, allow_remove, removed):
+        for after_removal in (False, True):
+            if after_removal:
+                allow_remove.set()
+                await asyncio.wait_for(removed.wait(), 1.5)
+            rows = self.guard.safe_sessions()
+            self.assertEqual([x["state"] for x in rows], ["closing"])
+            self.assertFalse(self.guard.quarantined)
+            self.assertFalse(lease.recovery_required)
+            self.assertIs(self.guard.leases[lease.internal_session_id], lease)
+            with self.assertRaisesRegex(ToolError, "PARALLEL_PROFILE_BUSY"):
+                await self.begin("TechnicalClosing")
+
+    async def assert_failed_close_retains_lease(self, lease):
+        self.assertTrue(self.guard.quarantined)
+        self.assertTrue(lease.recovery_required)
+        self.assertIs(self.guard.leases[lease.internal_session_id], lease)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                         ["missing_session_quarantined"])
+        with self.assertRaisesRegex(
+                ToolError, "PARALLEL_PROVIDER_RECONCILIATION_REQUIRED"):
+            await self.begin("TechnicalBlockedAfterFailure")
+
+    async def paused_start(self, *, outcome="saved", corrupt_profile=False):
+        entered, allow_register = asyncio.Event(), asyncio.Event()
+        registered, allow_result = asyncio.Event(), asyncio.Event()
+
+        async def staged_start(**args):
+            entered.set()
+            await allow_register.wait()
+            result = await self.manager.start(**args)
+            if corrupt_profile:
+                self.manager._sessions[result["session_id"]].profile = "PRIVATE_UNEXPECTED_PROFILE"
+            registered.set()
+            await allow_result.wait()
+            if outcome == "raise":
+                raise RuntimeError("SYNTHETIC_START_ERROR")
+            return result
+
+        task = asyncio.create_task(self.guard.start(staged_start, {
+            "profile": "TechnicalStarting", "start_url": "https://example.com/"}))
+        await asyncio.wait_for(entered.wait(), 1.5)
+        return task, allow_register, registered, allow_result
+
     async def test_five_different_chat_sessions_and_sixth_is_rejected(self):
         caps=await asyncio.gather(*(
             self.begin("Owner-Profile-"+str(i)) for i in range(1,6)))
@@ -340,6 +416,239 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.assertEqual(len(self.manager._sessions),2)
         with self.assertRaises(ToolError):
             await self.mcp.call_tool("browser_status",{"session_id":first})
+
+    async def test_inventory_during_successful_stop_does_not_quarantine(self):
+        cap = await self.begin("TechnicalClosing")
+        await self.begin("TechnicalOtherChat")
+        remote = SimpleNamespace(remote_id="PRIVATE_CLOSING_PROVIDER_ID")
+        self.manager._sessions["INTERNAL_SYNTHETIC_SESSION_1"].browser = remote
+        self.manager._steel_engine = SimpleNamespace(
+            remote={remote.remote_id: remote}, _quarantined=False)
+        entered, allow_remove = asyncio.Event(), asyncio.Event()
+        removed, allow_receipt = asyncio.Event(), asyncio.Event()
+
+        async def staged_stop(session_id):
+            self.manager._session(session_id)
+            entered.set()
+            await allow_remove.wait()
+            self.manager._sessions.pop(session_id)
+            removed.set()
+            # Production awaits profile READY and the registry acknowledgement
+            # here, after the browser record has already been removed.
+            await allow_receipt.wait()
+            self.manager._steel_engine.remote.pop(remote.remote_id)
+            return {"session_id": session_id, "profile_saved": True,
+                    "full_profile_saved": True}
+
+        task = asyncio.create_task(self.guard.action(
+            "browser_stop", staged_stop, {"session_id": cap}))
+        try:
+            await asyncio.wait_for(entered.wait(), 1.5)
+            self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                             ["closing", "active"])
+            self.assertFalse(self.guard.quarantined)
+            allow_remove.set()
+            await asyncio.wait_for(removed.wait(), 1.5)
+            rows = self.guard.safe_sessions()
+            self.assertEqual([x["state"] for x in rows], ["active", "closing"])
+            self.assertNotIn(remote.remote_id, str(rows))
+            self.assertFalse(self.guard.quarantined)
+            # Closing still reserves its profile and slot, while another
+            # independent chat may use capacity that was already available.
+            with self.assertRaisesRegex(ToolError, "PARALLEL_PROFILE_BUSY"):
+                await self.begin("TechnicalClosing")
+            await self.begin("TechnicalThirdChat")
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
+            await task
+        self.assertFalse(self.guard.quarantined)
+        self.assertEqual([x["profile"] for x in self.guard.safe_sessions()],
+                         ["TechnicalOtherChat", "TechnicalThirdChat"])
+        await self.begin("TechnicalNextChat")
+
+    async def test_inventory_during_failed_save_receipt_keeps_quarantine(self):
+        lease, task, allow_remove, removed, allow_receipt = await self.paused_stop("false")
+        try:
+            await self.observe_paused_close(lease, allow_remove, removed)
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
+            result = await task
+        self.assertIs(result["full_profile_saved"], False)
+        await self.assert_failed_close_retains_lease(lease)
+
+    async def test_inventory_during_stop_exception_keeps_quarantine(self):
+        lease, task, allow_remove, removed, allow_receipt = await self.paused_stop("raise")
+        try:
+            await self.observe_paused_close(lease, allow_remove, removed)
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
+            with self.assertRaisesRegex(RuntimeError, "SYNTHETIC_PERSISTENCE_ERROR"):
+                await task
+        await self.assert_failed_close_retains_lease(lease)
+
+    async def test_cancelled_close_after_record_removal_requires_recovery(self):
+        lease, task, allow_remove, removed, allow_receipt = await self.paused_stop()
+        try:
+            await self.observe_paused_close(lease, allow_remove, removed)
+        finally:
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        await self.assert_failed_close_retains_lease(lease)
+
+    async def test_inventory_during_watchdog_close_waits_for_full_receipt(self):
+        lease, task, allow_remove, removed, allow_receipt = await self.paused_stop(
+            watchdog=True)
+        try:
+            await self.observe_paused_close(lease, allow_remove, removed)
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
+            await task
+        self.assertEqual(self.guard.safe_sessions(), [])
+        self.assertFalse(self.guard.quarantined)
+        await self.begin("TechnicalAfterWatchdog")
+
+    async def test_failed_watchdog_receipt_after_inventory_still_blocks(self):
+        lease, task, allow_remove, removed, allow_receipt = await self.paused_stop(
+            "false", watchdog=True)
+        try:
+            await self.observe_paused_close(lease, allow_remove, removed)
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
+            await task
+        await self.assert_failed_close_retains_lease(lease)
+
+    async def test_successful_close_does_not_clear_preexisting_quarantine(self):
+        lease, task, allow_remove, removed, allow_receipt = await self.paused_stop()
+        try:
+            await self.observe_paused_close(lease, allow_remove, removed)
+            self.guard.quarantined = True
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
+            await task
+        self.assertNotIn(lease.internal_session_id, self.guard.leases)
+        self.assertTrue(self.guard.quarantined)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                         ["provider_reconciliation_required"])
+
+    async def test_closing_phase_does_not_hide_provider_quarantine_or_orphan(self):
+        lease, task, allow_remove, removed, allow_receipt = await self.paused_stop()
+        try:
+            await self.observe_paused_close(lease, allow_remove, removed)
+            engine = SimpleNamespace(remote={}, _quarantined=True)
+            self.manager._steel_engine = engine
+            self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                             ["closing", "provider_reconciliation_required"])
+            engine._quarantined = False  # synthetic test case, never production
+            engine.remote["PRIVATE_UNRELATED_PROVIDER_ID"] = object()
+            rows = self.guard.safe_sessions()
+            self.assertEqual([x["state"] for x in rows],
+                             ["closing", "provider_reconciliation_required"])
+            self.assertNotIn("PRIVATE_UNRELATED_PROVIDER_ID", str(rows))
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
+            await task
+        self.assertIn("PRIVATE_UNRELATED_PROVIDER_ID", engine.remote)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                         ["provider_reconciliation_required"])
+
+    async def test_inventory_during_successful_start_does_not_quarantine(self):
+        task, allow_register, registered, allow_result = await self.paused_start()
+        try:
+            self.assertEqual(self.manager._sessions, {})
+            self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                             ["starting"])
+            allow_register.set()
+            await asyncio.wait_for(registered.wait(), 1.5)
+            rows = self.guard.safe_sessions()
+            self.assertEqual([x["state"] for x in rows], ["starting"])
+            self.assertNotIn("INTERNAL_SYNTHETIC", str(rows))
+            self.assertEqual(self.guard.leases, {})
+            self.assertFalse(self.guard.quarantined)
+        finally:
+            allow_register.set()
+            allow_result.set()
+            result = await task
+        self.assertFalse(self.guard.quarantined)
+        self.assertIsNone(self.guard.starting)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()], ["active"])
+        self.guard.authorize(result["session_id"])
+        await self.begin("TechnicalNextChat")
+
+    async def test_failed_start_after_pending_inventory_remains_quarantined(self):
+        task, allow_register, registered, allow_result = await self.paused_start(outcome="raise")
+        try:
+            allow_register.set()
+            await asyncio.wait_for(registered.wait(), 1.5)
+            self.assertEqual([x["state"] for x in self.guard.safe_sessions()], ["starting"])
+            self.assertFalse(self.guard.quarantined)
+        finally:
+            allow_register.set()
+            allow_result.set()
+            with self.assertRaisesRegex(RuntimeError, "SYNTHETIC_START_ERROR"):
+                await task
+        self.assertIsNone(self.guard.starting)
+        self.assertTrue(self.guard.quarantined)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()], ["unmanaged_quarantined"])
+        self.assertEqual(self.guard.leases, {})
+        self.assertEqual(self.manager.saved, [])
+        with self.assertRaisesRegex(ToolError, "UNMANAGED_SESSION_QUARANTINED"):
+            await self.begin("TechnicalBlockedAfterStart")
+
+    async def test_cancelled_start_cannot_hide_its_unleased_record(self):
+        task, allow_register, registered, allow_result = await self.paused_start()
+        try:
+            allow_register.set()
+            await asyncio.wait_for(registered.wait(), 1.5)
+            self.assertEqual([x["state"] for x in self.guard.safe_sessions()], ["starting"])
+        finally:
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertIsNone(self.guard.starting)
+        self.assertTrue(self.guard.quarantined)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()], ["unmanaged_quarantined"])
+        self.assertEqual(self.guard.leases, {})
+        self.assertEqual(self.manager.saved, [])
+
+    async def test_start_phase_does_not_adopt_an_unexpected_profile(self):
+        task, allow_register, registered, allow_result = await self.paused_start(corrupt_profile=True)
+        try:
+            allow_register.set()
+            await asyncio.wait_for(registered.wait(), 1.5)
+            rows = self.guard.safe_sessions()
+            self.assertIn("unmanaged_quarantined", [x["state"] for x in rows])
+            self.assertNotIn("PRIVATE_UNEXPECTED_PROFILE", str(rows))
+            self.assertTrue(self.guard.quarantined)
+        finally:
+            allow_register.set()
+            allow_result.set()
+            with self.assertRaisesRegex(OwnershipError, "PARALLEL_START_NOT_VERIFIED"):
+                await task
+        self.assertIsNone(self.guard.starting)
+        self.assertEqual(self.guard.leases, {})
+        self.assertEqual(self.manager.saved, [])
+
+    async def test_original_sync_inventory_runs_on_guard_event_loop(self):
+        manager = MultiManager()
+        mcp = fake_mcp(manager)
+        tool = mcp._tool_manager._tools["browser_sessions"]
+        schema = tool.parameters.copy()
+        tool.is_async = False
+        tool.fn = lambda: []
+        guard = MultiCapabilityGuard(mcp, manager, capacity=5, watchdog_enabled=False)
+        guard.install()
+        self.assertTrue(tool.is_async)
+        self.assertEqual(tool.parameters, schema)
+        self.assertEqual(await tool.fn(), [])
+        await mcp.call_tool("browser_sessions", {})
 
     async def test_failed_full_profile_save_quarantines_all_new_starts(self):
         first=await self.begin("Meta - Anita")

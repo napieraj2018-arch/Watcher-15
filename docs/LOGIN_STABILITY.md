@@ -29,6 +29,21 @@ Pola `auto_save_close_in_seconds`, `capability_expires_in_seconds` oraz
 Wcześniejsze raportowanie 870 sekund dawało do 90 sekund pozornego zapasu.
 Odczyt statusu nie przedłuża żadnego limitu.
 
+### Równoczesny odczyt podczas startu i zamknięcia
+
+Lista sesji rozróżnia `starting` i `closing`. Utworzenie rekordu managera
+poprzedza wydanie capability, a jego usunięcie może poprzedzać końcowe
+potwierdzenie zapisu profilu. Te krótkie, kontrolowane fazy nie oznaczają
+osieroconej sesji. Slot i blokada profilu pozostają zajęte do zakończenia
+odpowiedniej operacji. Nieudany, przerwany lub niepotwierdzony wynik nadal
+pozostawia stan wymagający odzyskiwania.
+
+Wcześniej współbieżne `browser_sessions` mogło w tym oknie ustawić trwałą
+globalną kwarantannę nawet po późniejszym poprawnym starcie lub pełnym
+zapisie i zamknięciu. Regresje odtwarzają odczyt dokładnie pomiędzy zmianą
+rekordu a zwróceniem wyniku. Poprawka nie czyści automatycznie istniejących
+flag i nie uznaje każdej nowej kwarantanny za ten historyczny wyścig.
+
 Długie zadanie wymaga zapisanego checkpointu przed zamknięciem. Obecny kod
 nie uruchamia automatycznie kolejnej sesji i nie odzyskuje zadania po
 restarcie. `profile_saved` ani `full_profile_saved` nie dowodzą aktualnej
