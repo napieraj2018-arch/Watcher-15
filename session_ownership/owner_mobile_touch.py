@@ -26,6 +26,7 @@ MAX_REQUEST_BYTES = 900
 MAX_FIELD_CHARS = 250
 FRAME_TIMEOUT = 13
 ACTION_TIMEOUT = 15
+HISTORY_DETACH_TIMEOUT = 2
 
 
 class NativeTouchController:
@@ -91,6 +92,29 @@ class NativeTouchController:
             return _https_origin(page.url) in record.allowed_origins
         except Exception:
             return False
+
+    @staticmethod
+    async def _back_reaches_initial_blank(page) -> bool:
+        # The remote backend is Chromium. Read only this page's own history;
+        # never accept, return or log navigation entries through HTTP.
+        cdp = await page.context.new_cdp_session(page)
+        try:
+            history = await cdp.send("Page.getNavigationHistory")
+            if not isinstance(history,dict):
+                raise ValueError("TOUCH_HISTORY_INVALID")
+            index,entries = history.get("currentIndex"),history.get("entries")
+            if (type(index) is not int or not isinstance(entries,list)
+                    or not entries or not 0 <= index < len(entries)
+                    or any(not isinstance(entry,dict)
+                           or not isinstance(entry.get("url"),str)
+                           or not entry["url"] for entry in entries)
+                    or entries[index]["url"] != page.url):
+                raise ValueError("TOUCH_HISTORY_INVALID")
+            # Do not strand a still-authorized login on Chromium's initial
+            # blank document, which must remain outside the credential scope.
+            return index == 1 and entries[0]["url"] == "about:blank"
+        finally:
+            await asyncio.wait_for(cdp.detach(), HISTORY_DETACH_TIMEOUT)
 
     @staticmethod
     def _headers() -> dict[str, str]:
@@ -347,6 +371,13 @@ class NativeTouchController:
             elif kind == "key":
                 await page.keyboard.press(data["key"])
             elif kind in {"back","forward","reload"}:
+                if kind == "back":
+                    initial_blank = await self._back_reaches_initial_blank(page)
+                    # The page can redirect while CDP history/detach awaits.
+                    if not self._safe_login_page(page, record):
+                        return False
+                    if initial_blank:
+                        return True
                 navigation = {"back": page.go_back,
                               "forward": page.go_forward,
                               "reload": page.reload}[kind]

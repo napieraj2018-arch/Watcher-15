@@ -174,9 +174,22 @@ class RealChromiumTouch(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_history_and_reload_on_two_offline_pages(self):
         initial_url=self.page.url
+        # A new Chromium page may retain about:blank as an actual history
+        # entry. Explicitly establish the empty-history case on this offline
+        # fixture rather than assuming that the first goto erased it.
+        cdp=await self.context.new_cdp_session(self.page)
+        try:
+            await cdp.send("Page.resetNavigationHistory")
+            history=await cdp.send("Page.getNavigationHistory")
+            self.assertEqual(history["currentIndex"],0)
+            self.assertEqual([entry["url"] for entry in history["entries"]],
+                             [initial_url])
+        finally:
+            await cdp.detach()
         for kind in ("back","forward"):
             empty=await self.touch.action(self.touch_request({"kind":kind}))
-            self.assertEqual(empty.status_code,200)
+            self.assertEqual(empty.status_code,200,
+                             f"Empty-history {kind}: URL={self.page.url}")
             self.assertEqual(self.page.url,initial_url)
 
         first="https://www.facebook.com/synthetic-history-a"
@@ -212,6 +225,37 @@ class RealChromiumTouch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reload.status_code,200)
         self.assertEqual(loads[second],before+1)
         self.assertEqual(await self.page.locator("#visit").text_content(),str(before+1))
+
+    async def test_real_back_cannot_strand_login_on_initial_blank(self):
+        # Build exactly [about:blank, official fixture]. Navigating to blank
+        # after a loaded document avoids initial-document replacement rules.
+        await self.page.goto("about:blank",wait_until="domcontentloaded")
+        cdp=await self.context.new_cdp_session(self.page)
+        try:
+            await cdp.send("Page.resetNavigationHistory")
+            await self.page.goto(FACEBOOK,wait_until="domcontentloaded")
+            history=await cdp.send("Page.getNavigationHistory")
+            self.assertEqual(history["currentIndex"],1)
+            self.assertEqual([entry["url"] for entry in history["entries"]],
+                             ["about:blank",FACEBOOK])
+        finally:
+            await cdp.detach()
+
+        back=await self.touch.action(self.touch_request({"kind":"back"}))
+        self.assertEqual(back.status_code,200,
+                         f"Initial-blank back: URL={self.page.url}")
+        self.assertEqual(self.page.url,FACEBOOK)
+        forward=await self.touch.action(self.touch_request({"kind":"forward"}))
+        self.assertEqual(forward.status_code,200)
+        self.assertEqual(self.page.url,FACEBOOK)
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,200)
+        await self.tap("#email")
+        text="synthetic-still-active@example.invalid"
+        typed=await self.touch.action(self.touch_request({
+            "kind":"text","field":"text","text":text}))
+        self.assertEqual(typed.status_code,200)
+        self.assertEqual(await self.page.locator("#email").input_value(),text)
 
     async def test_real_history_cannot_return_an_out_of_scope_page_as_success(self):
         outside="https://phishing.example/synthetic-history"

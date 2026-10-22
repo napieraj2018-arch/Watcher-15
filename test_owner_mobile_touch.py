@@ -1,9 +1,11 @@
 """Isolated mobile screenshot/touch/keyboard bridge tests. No Meta or Steel I/O."""
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
 
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -61,6 +63,25 @@ class FakeFocused:
         self.fills.append((content,timeout))
 
 
+class FakeHistorySession:
+    def __init__(self,page):
+        self.page=page
+
+    async def send(self,method):
+        assert method == "Page.getNavigationHistory"
+        self.page.history_reads+=1
+        if self.page.history_error:
+            raise RuntimeError("SYNTHETIC_PRIVATE_HISTORY_ERROR")
+        return self.page.history
+
+    async def detach(self):
+        self.page.history_detaches+=1
+        if self.page.history_detach_blocked:
+            await asyncio.Event().wait()
+        if self.page.history_redirect is not None:
+            self.page.url=self.page.history_redirect
+
+
 class FakePage:
     viewport_size={"width":508,"height":1074}
 
@@ -72,6 +93,17 @@ class FakePage:
         self.screenshots=0
         self.navigations=[]
         self.navigation_target=None
+        self.history={"currentIndex":0,"entries":[{"url":self.url}]}
+        self.history_reads=0
+        self.history_detaches=0
+        self.history_error=False
+        self.history_redirect=None
+        self.history_detach_blocked=False
+        self.context=SimpleNamespace(new_cdp_session=self.new_cdp_session)
+
+    async def new_cdp_session(self,page):
+        assert page is self
+        return FakeHistorySession(self)
 
     async def screenshot(self,**kwargs):
         self.screenshots += 1
@@ -222,6 +254,72 @@ class TouchTests(IsolatedAsyncioTestCase):
         self.assertEqual([kind for kind,_ in self.page.navigations],
                          ["back","forward","reload"])
         self.assertEqual(self.page.mouse.clicks,[])
+
+    async def test_back_skips_only_entry_zero_exact_about_blank(self):
+        self.page.history={"currentIndex":1,"entries":[
+            {"url":"about:blank"},{"url":self.page.url}]}
+        result=await self.touch.action(self.action_request({"kind":"back"}))
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(self.page.navigations,[])
+        self.assertEqual(self.page.history_reads,1)
+        self.assertEqual(self.page.history_detaches,1)
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,200)
+
+        for index,urls in (
+            (1,["about:blank#fragment",self.page.url]),
+            (1,["https://www.facebook.com/previous",self.page.url]),
+            (2,["https://www.facebook.com/first","about:blank",self.page.url]),
+        ):
+            with self.subTest(index=index,previous=urls[index-1]):
+                self.page.history={"currentIndex":index,
+                                   "entries":[{"url":url} for url in urls]}
+                before=len(self.page.navigations)
+                result=await self.touch.action(self.action_request({"kind":"back"}))
+                self.assertEqual(result.status_code,200)
+                self.assertEqual(len(self.page.navigations),before+1)
+        self.assertEqual(self.page.history_reads,self.page.history_detaches)
+
+    async def test_unreadable_or_invalid_history_never_navigates_and_always_detaches(self):
+        bad_histories=(
+            None,{},
+            {"currentIndex":True,"entries":[{"url":self.page.url}]},
+            {"currentIndex":-1,"entries":[{"url":self.page.url}]},
+            {"currentIndex":1,"entries":[{"url":self.page.url}]},
+            {"currentIndex":0,"entries":[]},
+            {"currentIndex":0,"entries":["invalid"]},
+            {"currentIndex":0,"entries":[{"url":None}]},
+            {"currentIndex":0,"entries":[{"url":"https://www.facebook.com/changed"}]},
+        )
+        for history in bad_histories:
+            self.page.history=history
+            result=await self.touch.action(self.action_request({"kind":"back"}))
+            self.assertEqual(result.status_code,409)
+        self.page.history_error=True
+        failed=await self.touch.action(self.action_request({"kind":"back"}))
+        self.assertEqual(failed.status_code,409)
+        self.assertNotIn(b"SYNTHETIC_PRIVATE_HISTORY_ERROR",failed.body)
+        self.assertEqual(self.page.navigations,[])
+        self.assertEqual(self.page.history_reads,len(bad_histories)+1)
+        self.assertEqual(self.page.history_reads,self.page.history_detaches)
+
+    async def test_scope_is_rechecked_after_history_detach_before_back(self):
+        self.page.history_redirect="https://phishing.example/"
+        result=await self.touch.action(self.action_request({"kind":"back"}))
+        self.assertEqual(result.status_code,409)
+        self.assertEqual(self.page.history_reads,1)
+        self.assertEqual(self.page.history_detaches,1)
+        self.assertEqual(self.page.navigations,[])
+
+    async def test_stalled_history_detach_is_bounded_and_never_navigates(self):
+        self.page.history_detach_blocked=True
+        with patch("owner_mobile_touch.HISTORY_DETACH_TIMEOUT",0.01):
+            result=await asyncio.wait_for(self.touch.action(
+                self.action_request({"kind":"back"})),0.5)
+        self.assertEqual(result.status_code,409)
+        self.assertEqual(self.page.history_reads,1)
+        self.assertEqual(self.page.history_detaches,1)
+        self.assertEqual(self.page.navigations,[])
 
     async def test_navigation_leaving_service_scope_is_not_reported_as_success(self):
         self.page.navigation_target="https://phishing.example/"

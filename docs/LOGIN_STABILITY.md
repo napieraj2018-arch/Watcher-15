@@ -155,7 +155,10 @@ Panel ma stałe akcje Wstecz, Dalej i Przeładuj stronę. Są odrębne od
 odświeżenia samego obrazu. Nie przyjmują adresu URL ani skryptu od klienta,
 działają pod blokadą własnej sesji i zachowują kontrolę dozwolonego originu.
 Brak wcześniejszej lub następnej pozycji historii jest zwykłym wynikiem,
-a nie powodem do ponownego logowania.
+a nie powodem do ponownego logowania. Cofnięcie z pierwszej strony usługi
+do początkowego `about:blank` także jest pomijane, aby pusty ekran nie
+zablokował kontrolera. Ta granica jest sprawdzana w historii własnej karty;
+`about:blank` nie staje się dozwolonym originem logowania.
 
 ### Obsługiwane wejścia do logowania
 
