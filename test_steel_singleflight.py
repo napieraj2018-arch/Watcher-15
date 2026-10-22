@@ -4,9 +4,10 @@ from __future__ import annotations
 import asyncio
 import os
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
-from steel_runtime import Engine, SteelFailure
+from steel_runtime import Engine, RemoteBrowser, SteelFailure, install
 
 
 class FakeCDPBrowser:
@@ -181,7 +182,8 @@ class SteelSingleFlight(unittest.IsolatedAsyncioTestCase):
         engine.fail_release = True
         with self.assertRaises(SteelFailure):
             await remote.close()
-        await remote.close()
+        with self.assertRaisesRegex(SteelFailure, "STEEL_REMOTE_RELEASE_UNCONFIRMED"):
+            await remote.close()
         self.assertEqual(engine.releases, 2)
         self.assertTrue(engine._quarantined)
         self.assertIn(remote.remote_id, engine.remote)
@@ -217,6 +219,171 @@ class SteelSingleFlight(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(engine.releases, 1)
         self.assertEqual(chrome.connections[0].close_count, 1)
         self.assertEqual(engine.remote, {})
+
+
+class SteelCloseCancellation(unittest.IsolatedAsyncioTestCase):
+    """Exercise cancellation stages without a provider or browser connection."""
+
+    async def asyncSetUp(self):
+        self.engine = FakeEngine()
+        self.browser = FakeCDPBrowser()
+        self.remote = RemoteBrowser(self.engine, self.browser, "synthetic-owned")
+        self.other_browser = FakeCDPBrowser()
+        self.other = RemoteBrowser(self.engine, self.other_browser, "synthetic-other")
+        self.engine.remote.update({
+            self.remote.remote_id: self.remote,
+            self.other.remote_id: self.other,
+        })
+        self.engine.release = AsyncMock(wraps=self.engine.release)
+
+    def assert_other_untouched(self):
+        self.assertIs(self.engine.remote.get(self.other.remote_id), self.other)
+        self.assertEqual(self.other_browser.close_count, 0)
+        self.assertFalse(self.other.closed)
+
+    async def cancel_during_cdp_close(self, close=None):
+        entered = asyncio.Event()
+        original_close = self.browser.close
+
+        async def blocked_close():
+            await original_close()
+            entered.set()
+            await asyncio.Event().wait()
+
+        self.browser.close = blocked_close
+        task = asyncio.create_task((close or self.remote.close)())
+        await asyncio.wait_for(entered.wait(), 2)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+    async def test_cancel_before_release_allows_one_first_release_on_later_closes(self):
+        await self.cancel_during_cdp_close()
+        self.engine.release.assert_not_awaited()
+        self.assertIn(self.remote.remote_id, self.engine.remote)
+        self.assertTrue(self.engine._quarantined)
+
+        await asyncio.gather(self.remote.close(), self.remote.close())
+
+        self.engine.release.assert_awaited_once_with(self.remote.remote_id)
+        self.assertEqual(self.browser.close_count, 1)
+        self.assertNotIn(self.remote.remote_id, self.engine.remote)
+        self.assertTrue(self.engine._quarantined, "Close must not clear quarantine")
+        self.assert_other_untouched()
+
+    async def test_installed_stop_finally_releases_after_cancelled_cdp_close(self):
+        async def original_stop(sid):
+            await manager._sessions[sid].browser.close()
+
+        manager = SimpleNamespace(
+            portable_profiles=True,
+            _sessions={
+                "owned-session": SimpleNamespace(browser=self.remote),
+                "other-session": SimpleNamespace(browser=self.other),
+            },
+            _ensure_playwright=AsyncMock(),
+            start=AsyncMock(),
+            stop=AsyncMock(side_effect=original_stop),
+            status=AsyncMock(return_value={}),
+        )
+        original_stop_mock = manager.stop
+        mcp = SimpleNamespace(custom_route=lambda *_args, **_kwargs: lambda fn: fn)
+        ns = {"manager": manager, "mcp": mcp, "_SETUP_HTML": "",
+              "_setup_record": lambda _request: None}
+        with patch.dict(os.environ, {
+                "AI_BROWSER_ENGINE": "steel",
+                "AI_BROWSER_PARALLEL_SESSIONS": "1",
+                "AI_BROWSER_SESSION_GUARD": "0",
+        }), patch("steel_runtime.Engine", return_value=self.engine), patch("builtins.print"):
+            install(ns)
+
+        # Run the real installed wrapper: old_stop enters the cancelled close;
+        # its finally block must finish the never-started provider release.
+        await self.cancel_during_cdp_close(lambda: manager.stop("owned-session"))
+
+        original_stop_mock.assert_awaited_once_with("owned-session")
+        self.engine.release.assert_awaited_once_with(self.remote.remote_id)
+        self.assertEqual(self.browser.close_count, 1)
+        self.assertNotIn(self.remote.remote_id, self.engine.remote)
+        self.assertTrue(self.engine._quarantined)
+        self.assert_other_untouched()
+
+    async def test_cancel_during_release_never_resubmits_the_release(self):
+        self.engine.block_release = True
+        task = asyncio.create_task(self.remote.close())
+        await asyncio.wait_for(self.engine.release_entered.wait(), 2)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+        with self.assertRaisesRegex(SteelFailure, "^STEEL_REMOTE_RELEASE_UNCONFIRMED$"):
+            await self.remote.close()
+
+        self.engine.release.assert_awaited_once_with(self.remote.remote_id)
+        self.assertEqual(self.engine.releases, 1)
+        self.assertIn(self.remote.remote_id, self.engine.remote)
+        self.assertTrue(self.engine._quarantined)
+        self.assert_other_untouched()
+
+    async def test_cancel_waiting_for_close_lock_leaves_session_active(self):
+        await self.remote.close_lock.acquire()
+        try:
+            task = asyncio.create_task(self.remote.close())
+            await asyncio.sleep(0)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        finally:
+            self.remote.close_lock.release()
+
+        self.engine.release.assert_not_awaited()
+        self.assertEqual(self.browser.close_count, 0)
+        self.assertFalse(self.remote.closed)
+        self.assertFalse(self.engine._quarantined)
+        self.assertIs(self.engine.remote[self.remote.remote_id], self.remote)
+        self.assert_other_untouched()
+
+    async def test_unexpected_release_exception_is_redacted_and_not_retried(self):
+        self.engine.release.side_effect = RuntimeError("synthetic private provider detail")
+        for _ in range(2):
+            with self.assertRaisesRegex(SteelFailure, "^STEEL_REMOTE_RELEASE_UNCONFIRMED$"):
+                await self.remote.close()
+
+        self.engine.release.assert_awaited_once_with(self.remote.remote_id)
+        self.assertIn(self.remote.remote_id, self.engine.remote)
+        self.assertTrue(self.engine._quarantined)
+        self.assert_other_untouched()
+
+    async def test_failed_release_after_cancel_stays_unconfirmed(self):
+        await self.cancel_during_cdp_close()
+        self.engine.fail_release = True
+        for _ in range(2):
+            with self.assertRaisesRegex(SteelFailure, "^STEEL_REMOTE_RELEASE_UNCONFIRMED$"):
+                await self.remote.close()
+
+        self.engine.release.assert_awaited_once_with(self.remote.remote_id)
+        self.assertEqual(self.engine.releases, 2, "Existing bounded release policy is unchanged")
+        self.assertIn(self.remote.remote_id, self.engine.remote)
+        self.assertTrue(self.engine._quarantined)
+        self.assert_other_untouched()
+
+    async def test_cdp_exception_does_not_prevent_provider_release(self):
+        self.browser.close = AsyncMock(side_effect=RuntimeError("synthetic CDP failure"))
+        await self.remote.close()
+
+        self.engine.release.assert_awaited_once_with(self.remote.remote_id)
+        self.assertNotIn(self.remote.remote_id, self.engine.remote)
+        self.assertFalse(self.engine._quarantined)
+        self.assert_other_untouched()
+
+    async def test_close_does_not_remove_a_replaced_remote_reference(self):
+        replacement = object()
+        self.engine.remote[self.remote.remote_id] = replacement
+        await self.remote.close()
+
+        self.engine.release.assert_awaited_once_with(self.remote.remote_id)
+        self.assertIs(self.engine.remote[self.remote.remote_id], replacement)
+        self.assert_other_untouched()
 
 
 if __name__ == "__main__":

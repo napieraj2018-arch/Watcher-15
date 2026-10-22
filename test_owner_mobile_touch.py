@@ -70,6 +70,8 @@ class FakePage:
         self.keyboard=FakeKeyboard()
         self.focused=FakeFocused()
         self.screenshots=0
+        self.navigations=[]
+        self.navigation_target=None
 
     async def screenshot(self,**kwargs):
         self.screenshots += 1
@@ -80,6 +82,21 @@ class FakePage:
     def locator(self,selector):
         assert selector == ":focus"
         return self.focused
+
+    async def _navigate(self,kind,**kwargs):
+        self.navigations.append((kind,kwargs))
+        if self.navigation_target is not None:
+            self.url=self.navigation_target
+        return None
+
+    async def go_back(self,**kwargs):
+        return await self._navigate("back",**kwargs)
+
+    async def go_forward(self,**kwargs):
+        return await self._navigate("forward",**kwargs)
+
+    async def reload(self,**kwargs):
+        return await self._navigate("reload",**kwargs)
 
 
 class TouchTests(IsolatedAsyncioTestCase):
@@ -179,6 +196,57 @@ class TouchTests(IsolatedAsyncioTestCase):
         self.assertEqual(self.page.focused.fills,[(word,7000)])
         self.assertNotIn(word.encode(),resp.body)
 
+    async def test_textarea_accepts_text_but_never_password_or_readonly_write(self):
+        self.page.focused.tag="TEXTAREA"
+        self.page.focused.field_type="textarea"
+        text="SYNTHETIC FIRST LINE\nSYNTHETIC SECOND LINE"
+        filled=await self.touch.action(self.action_request({
+            "kind":"text","field":"text","text":text}))
+        self.assertEqual(filled.status_code,200)
+        self.assertEqual(self.page.focused.fills,[(text,7000)])
+        self.assertNotIn(text.encode(),filled.body)
+
+        password=await self.touch.action(self.action_request({
+            "kind":"text","field":"password","text":"SYNTHETIC_SECRET"}))
+        self.assertEqual(password.status_code,409)
+        self.page.focused.readonly=True
+        readonly=await self.touch.action(self.action_request({
+            "kind":"text","field":"text","text":"MUST_NOT_WRITE"}))
+        self.assertEqual(readonly.status_code,409)
+        self.assertEqual(self.page.focused.fills,[(text,7000)])
+
+    async def test_fixed_navigation_accepts_empty_history_without_url_argument(self):
+        for kind in ("back","forward","reload"):
+            result=await self.touch.action(self.action_request({"kind":kind}))
+            self.assertEqual(result.status_code,200)
+        self.assertEqual([kind for kind,_ in self.page.navigations],
+                         ["back","forward","reload"])
+        self.assertEqual(self.page.mouse.clicks,[])
+
+    async def test_navigation_leaving_service_scope_is_not_reported_as_success(self):
+        self.page.navigation_target="https://phishing.example/"
+        result=await self.touch.action(self.action_request({"kind":"back"}))
+        self.assertEqual(result.status_code,409)
+        self.assertEqual(len(self.page.navigations),1)
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,410)
+        for kind in ("back","forward","reload"):
+            blocked=await self.touch.action(self.action_request({"kind":kind}))
+            self.assertEqual(blocked.status_code,409)
+        self.assertEqual(len(self.page.navigations),1)
+        self.assertEqual(self.page.screenshots,0)
+
+    async def test_frame_redirect_cannot_return_an_out_of_scope_screenshot(self):
+        original=self.page.screenshot
+        async def redirected_capture(**kwargs):
+            result=await original(**kwargs)
+            self.page.url="https://phishing.example/"
+            return result
+        self.page.screenshot=redirected_capture
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,410)
+        self.assertEqual(frame.body,b"")
+
     async def test_readonly_or_disabled_focus_rejects_writes(self):
         self.page.focused.readonly=True
         denied=await self.touch.action(self.action_request({
@@ -205,6 +273,9 @@ class TouchTests(IsolatedAsyncioTestCase):
             {"kind":"key","key":"Control+V"},
             {"kind":"script","source":"alert(1)"},
             {"kind":"navigate","url":"https://evil.example"},
+            {"kind":"back","url":"https://evil.example"},
+            {"kind":"forward","steps":3},
+            {"kind":"reload","url":"https://evil.example"},
             {"kind":"text","field":"text","text":"X"*500},
         ]
         for item in invalid:

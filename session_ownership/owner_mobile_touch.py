@@ -3,8 +3,8 @@
 Only reachable after owner-issued mobile handoff has been claimed into a
 SameSite HttpOnly cookie. Images are ephemeral Playwright screenshots sent
 back to that same client. Input goes through a fixed allowlist of tap, scroll,
-field fill and Enter/Tab/Backspace. No arbitrary scripts, URLs, browser
-profiles or provider IDs are accepted from HTTP.
+field fill, Enter/Tab/Backspace and back/forward/reload. No arbitrary scripts,
+URLs, browser profiles or provider IDs are accepted from HTTP.
 
 The optional private keyboard sends a value from the user's phone to the
 exact selected remote field over HTTPS. We never persist, return, inspect or
@@ -73,7 +73,11 @@ class NativeTouchController:
                 page = self.guard.manager._session(sid).page
                 if not self._safe_login_page(page, rec):
                     return None
-                return await asyncio.wait_for(fn(page, rec), limit)
+                result = await asyncio.wait_for(fn(page, rec), limit)
+                # A click or history navigation can redirect while awaited.
+                # Never return an image or successful result for a page that
+                # has left this handoff's exact service scope.
+                return result if self._safe_login_page(page, rec) else None
             finally:
                 self.guard.actor_session.reset(token)
 
@@ -110,21 +114,26 @@ class NativeTouchController:
           const status = document.getElementById("touch-status");
           const value = document.getElementById("touch-value");
           const pass = document.getElementById("touch-password");
-          let busy = false, start = null, framePending = false;
+          let busy = false, start = null, framePending = false, editor = null;
           function announce(t) { status.textContent = t; }
-          async function command(payload) {
+          async function command(payload, followup = null) {
             if (busy) {
               announce("Trwa poprzednia operacja. Spróbuj za chwilę.");
               return false;
             }
             busy = true;
+            announce("Wykonuję…");
             try {
-              const response = await fetch("/owner-mobile-login/touch/action", {
-                method: "POST", credentials: "same-origin",
-                headers: {"Content-Type": "application/json"},
-                cache: "no-store", body: JSON.stringify(payload)
-              });
-              if (!response.ok) throw Error("unavailable");
+              // Keep one busy interval through text acknowledgement and
+              // Enter. A failed fill must never submit the old form value.
+              for (const action of followup ? [payload, followup] : [payload]) {
+                const response = await fetch("/owner-mobile-login/touch/action", {
+                  method: "POST", credentials: "same-origin",
+                  headers: {"Content-Type": "application/json"},
+                  cache: "no-store", body: JSON.stringify(action)
+                });
+                if (!response.ok) throw Error("unavailable");
+              }
               announce("Wykonano. Odświeżam widok…");
               refresh();
               return true;
@@ -162,22 +171,46 @@ class NativeTouchController:
             start = null;
           });
           shot.addEventListener("pointercancel", () => {start=null;});
-          const sendText = async (element, field) => {
+          const sendText = async (element, field, enter = false) => {
             const t=element.value;
-            if (!t) {announce("Najpierw wpisz tekst na klawiaturze.");return;}
-            const sent = await command({kind:"text", field, text:t});
+            if (!t) {
+              if (enter) return command({kind:"key",key:"Enter"});
+              announce("Najpierw wpisz tekst na klawiaturze.");
+              return false;
+            }
+            const sent = await command({kind:"text", field, text:t},
+              enter ? {kind:"key",key:"Enter"} : null);
             // Only clear sensitive input AFTER the remote browser reports
             // confirmed success. Busy, errors and disconnected sessions must
             // never silently discard a user's typed credentials.
             if (sent && element.value === t) element.value = "";
+            return sent;
           };
+          for (const [element, field] of [[value,"text"],[pass,"password"]]) {
+            // A button takes DOM focus on some phones. Remember only the
+            // local editor, never read back the remote field's contents.
+            const remember = () => { editor = {element,field}; };
+            element.addEventListener("focus", remember);
+            element.addEventListener("input", remember);
+            element.addEventListener("keydown", e => {
+              if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+              e.preventDefault();
+              if (!e.repeat) sendText(element,field,true);
+            });
+          }
           document.getElementById("touch-send").onclick =
             () => sendText(value,"text");
           document.getElementById("touch-send-password").onclick =
             () => sendText(pass,"password");
-          for (const key of ["Enter","Tab","Backspace"]) {
+          document.getElementById("touch-enter").onclick = () => editor
+            ? sendText(editor.element,editor.field,true)
+            : command({kind:"key",key:"Enter"});
+          for (const key of ["Tab","Backspace"]) {
             document.getElementById("touch-"+key.toLowerCase()).onclick =
               () => command({kind:"key",key});
+          }
+          for (const kind of ["back","forward","reload"]) {
+            document.getElementById("touch-"+kind).onclick = () => command({kind});
           }
           document.getElementById("touch-refresh").onclick=refresh;
           shot.addEventListener("load", () => {
@@ -199,6 +232,11 @@ class NativeTouchController:
             '<h1>Sterowanie dotykowe — iPhone</h1>'
             '<p>Dotknij miejsca na obrazie, aby kliknąć. Przesuń palcem '
             'po obrazie, aby przewinąć stronę.</p>'
+            '<div class="touch-keys">'
+            '<button type="button" id="touch-back">Wstecz</button>'
+            '<button type="button" id="touch-forward">Dalej</button>'
+            '<button type="button" id="touch-reload">Przeładuj stronę</button>'
+            '</div>'
             '<div class="touch-shell">'
             '<img id="touch-shot" alt="Widok Twojej zdalnej przeglądarki" '
             'draggable="false" referrerpolicy="no-referrer"></div>'
@@ -275,6 +313,9 @@ class NativeTouchController:
                 if set(data)!={"kind","key"} or data["key"] not in {
                     "Enter","Tab","Backspace"}:
                     raise ValueError()
+            elif kind in {"back","forward","reload"}:
+                if set(data)!={"kind"}:
+                    raise ValueError()
             elif kind == "text":
                 if set(data)!={"kind","field","text"}:
                     raise ValueError()
@@ -305,6 +346,13 @@ class NativeTouchController:
                 await page.mouse.wheel(0,round(data["delta"]))
             elif kind == "key":
                 await page.keyboard.press(data["key"])
+            elif kind in {"back","forward","reload"}:
+                navigation = {"back": page.go_back,
+                              "forward": page.go_forward,
+                              "reload": page.reload}[kind]
+                # None means there is no entry in that direction; this is a
+                # normal no-op. The enclosing guard rechecks the final origin.
+                await navigation(wait_until="domcontentloaded", timeout=10000)
             else:
                 # Only fill the *already focused* editable element.
                 # A password may NEVER be inserted into text/email fields.
@@ -329,7 +377,8 @@ class NativeTouchController:
                 if data["field"]=="password":
                     if tag!="INPUT" or inp_type!="password":
                         return False
-                elif inp_type not in ("text","email","search","tel","url",""):
+                elif (tag == "INPUT" and
+                      inp_type not in ("text","email","search","tel","url","")):
                     return False
                 if not self._safe_login_page(page, record):
                     return False

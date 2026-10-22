@@ -61,6 +61,8 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
         self.sample_image=await self.page.screenshot(type="jpeg",quality=50)
         self.assertTrue(self.sample_image.startswith(b"\xff\xd8"))
         self.events=[]
+        self.action_status=200
+        self.action_gate=None
 
         async def mock_requests(route):
             url=route.request.url
@@ -80,8 +82,12 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
             elif parsed.path==ACTION_PATH and route.request.method=="POST":
                 event=route.request.post_data_json
                 self.events.append(event)
-                await route.fulfill(status=200,content_type="application/json",
-                                    body='{"status":"ok"}')
+                if self.action_gate is not None:
+                    await self.action_gate.wait()
+                await route.fulfill(status=self.action_status,
+                                    content_type="application/json",
+                                    body='{"status":"ok"}' if self.action_status==200
+                                    else '{"error":"TOUCH_ACTION_FAILED"}')
             else:
                 await route.abort("blockedbyclient")
 
@@ -94,6 +100,8 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
             "document.querySelector('#touch-shot').naturalWidth > 0")
 
     async def asyncTearDown(self):
+        if self.action_gate is not None:
+            self.action_gate.set()
         await self.context.close()
         await self.browser.close()
         await self.browser_engine.stop()
@@ -144,6 +152,90 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             await self.page.locator("#touch-status").text_content(),
             "Wykonano. Odświeżam widok…")
+
+    async def test_native_enter_sends_current_text_or_password_before_enter(self):
+        for element_id,field,text in (
+            ("touch-value","text","synthetic@example.invalid"),
+            ("touch-password","password","SYNTHETIC_NOT_A_PASSWORD"),
+        ):
+            with self.subTest(field=field):
+                before=len(self.events)
+                element=self.page.locator("#"+element_id)
+                await element.fill(text)
+                await element.press("Enter")
+                await self.wait_for_events(before+2)
+                await self.page.wait_for_function(
+                    "id => document.getElementById(id).value === ''",arg=element_id)
+                self.assertEqual(self.events[before:],[
+                    {"kind":"text","field":field,"text":text},
+                    {"kind":"key","key":"Enter"},
+                ])
+
+    async def test_enter_button_remembers_last_local_editor_after_focus_moves(self):
+        await self.page.locator("#touch-value").fill("UNSENT_OTHER_FIELD")
+        await self.page.locator("#touch-password").fill("SYNTHETIC_CURRENT_FIELD")
+        button=self.page.locator("#touch-enter")
+        await button.focus()
+        self.assertEqual(await self.page.evaluate("document.activeElement.id"),"touch-enter")
+        await button.tap()
+        await self.wait_for_events(2)
+        await self.page.wait_for_function(
+            "document.getElementById('touch-password').value === ''")
+        self.assertEqual(self.events,[
+            {"kind":"text","field":"password","text":"SYNTHETIC_CURRENT_FIELD"},
+            {"kind":"key","key":"Enter"},
+        ])
+        self.assertEqual(await self.page.locator("#touch-value").input_value(),
+                         "UNSENT_OTHER_FIELD")
+
+    async def test_failed_text_keeps_local_value_and_never_submits(self):
+        self.action_status=409
+        element=self.page.locator("#touch-password")
+        await element.fill("SYNTHETIC_KEEP_ON_FAILURE")
+        await element.press("Enter")
+        await self.wait_for_events(1)
+        await self.page.wait_for_function(
+            "document.getElementById('touch-status').textContent.startsWith('Nie udało')")
+        self.assertEqual(self.events,[{
+            "kind":"text","field":"password","text":"SYNTHETIC_KEEP_ON_FAILURE"}])
+        self.assertEqual(await element.input_value(),"SYNTHETIC_KEEP_ON_FAILURE")
+
+    async def test_busy_enter_does_not_duplicate_text_or_submit(self):
+        self.action_gate=asyncio.Event()
+        element=self.page.locator("#touch-value")
+        await element.fill("synthetic@example.invalid")
+        await element.press("Enter")
+        await self.wait_for_events(1)
+        await self.page.locator("#touch-enter").tap()
+        self.assertEqual(len(self.events),1)
+        self.assertEqual(await element.input_value(),"synthetic@example.invalid")
+        self.assertIn("Trwa poprzednia operacja",
+                      await self.page.locator("#touch-status").text_content())
+        self.action_gate.set()
+        await self.wait_for_events(2)
+        await self.page.wait_for_function(
+            "document.getElementById('touch-value').value === ''")
+        self.assertEqual(self.events,[
+            {"kind":"text","field":"text","text":"synthetic@example.invalid"},
+            {"kind":"key","key":"Enter"},
+        ])
+
+    async def test_composing_or_repeated_enter_does_not_submit(self):
+        element=self.page.locator("#touch-value")
+        await element.fill("SYNTHETIC_COMPOSING")
+        await element.dispatch_event("keydown",{"key":"Enter","isComposing":True})
+        await element.dispatch_event("keydown",{"key":"Enter","repeat":True})
+        self.assertEqual(self.events,[])
+        self.assertEqual(await element.input_value(),"SYNTHETIC_COMPOSING")
+
+    async def test_navigation_buttons_send_only_fixed_actions(self):
+        for count,kind in enumerate(("back","forward","reload"),1):
+            await self.page.locator("#touch-"+kind).tap()
+            await self.wait_for_events(count)
+            await self.page.wait_for_function(
+                "document.getElementById('touch-status').textContent.startsWith('Wykonano')")
+        self.assertEqual(self.events,[
+            {"kind":"back"},{"kind":"forward"},{"kind":"reload"}])
 
 
 if __name__=="__main__":

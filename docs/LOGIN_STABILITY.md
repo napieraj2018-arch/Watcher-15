@@ -1,6 +1,6 @@
 # AI Browser — trwałość logowania i mobilne podłączenie kont
 
-**Aktualizacja kodu: 22.10.2026. Bez zmiany haseł, cookies, IP i abonamentów.**
+**Aktualizacja kodu: 23.10.2026. Bez zmiany haseł, cookies, IP i abonamentów.**
 
 Opis poniżej dotyczy zachowania kodu i jego testów. Dostępność na produkcji
 trzeba potwierdzić zgodnością SHA aktywnego wdrożenia z wersją zawierającą
@@ -15,19 +15,25 @@ tym samym profilu jednocześnie. Stan profilu nie zastępuje capability.
 
 | Zdarzenie | Obecny limit / znaczenie |
 | --- | --- |
-| Automatyczne zapisanie i zamknięcie przez owner guard | Zaczyna się po 780 sekundach (13 minutach) od przyznania sesji. |
+| Automatyczne zapisanie i zamknięcie przez owner guard | Najpóźniej 780 sekund (13 minut) od przyznania sesji; krócej, jeżeli uruchamianie zużyło część budżetu providera. Zachowuje 90 sekund zapasu przed terminem niższego runtime. |
 | Wygaśnięcie capability | 850 sekund; późniejszy limit nie daje dodatkowego czasu pracy po rozpoczęciu zamykania. |
 | Niższa warstwa runtime / provider | Runtime ma limit 870 sekund, a żądanie Steel timeout 900 sekund. Nie należy planować pracy do tych późniejszych terminów. |
 | Mobilne zaproszenie do logowania | Maksymalnie 600 sekund; domyślne 900 sekund starego klienta jest przyjmowane i ograniczane do 600. |
 | Wznowienie po restarcie procesu | Brak trwałego wznowienia capability i zadania. Zapisany profil może być użyty w nowym, osobno autoryzowanym zadaniu. |
 
-`browser_start`, właścicielskie `browser_status` i aktywne wiersze
-`browser_sessions` raportują `remaining_seconds` jako minimum czasu do
-780-sekundowego zamknięcia i krótszego czasu zgłaszanego przez niższą warstwę.
-Pola `auto_save_close_in_seconds`, `capability_expires_in_seconds` oraz
-`durable_resume_supported: false` ujawniają ten sam rzeczywisty zakres.
-Wcześniejsze raportowanie 870 sekund dawało do 90 sekund pozornego zapasu.
-Odczyt statusu nie przedłuża żadnego limitu.
+Przy udanym starcie guard ustala nieprzedłużalny termin jako
+`min(780, początkowe_remaining_seconds_runtime - 90)`. Gdy runtime nie
+udostępnia tego pomiaru, obowiązuje dotychczasowe maksimum 780 sekund.
+Budżet wyczerpany przed przyznaniem sesji uruchamia własną ścieżkę zapisu
+i zamknięcia zamiast wydania pozornie zdrowej capability.
+
+`browser_start`, właścicielskie `browser_status`, aktywne wiersze
+`browser_sessions` i faktyczny watchdog używają tego samego terminu.
+Pola `remaining_seconds`, `auto_save_close_in_seconds`,
+`capability_expires_in_seconds` oraz `durable_resume_supported: false`
+ujawniają rzeczywisty zakres. Odczyt statusu nie przedłuża żadnego limitu.
+Samo skrócenie liczby w statusie bez skrócenia watchdogu nie jest naprawą
+wolnego startu — regresja musi sprawdzać zaplanowane zamknięcie.
 
 ### Równoczesny odczyt podczas startu i zamknięcia
 
@@ -35,14 +41,30 @@ Lista sesji rozróżnia `starting` i `closing`. Utworzenie rekordu managera
 poprzedza wydanie capability, a jego usunięcie może poprzedzać końcowe
 potwierdzenie zapisu profilu. Te krótkie, kontrolowane fazy nie oznaczają
 osieroconej sesji. Slot i blokada profilu pozostają zajęte do zakończenia
-odpowiedniej operacji. Nieudany, przerwany lub niepotwierdzony wynik nadal
-pozostawia stan wymagający odzyskiwania.
+odpowiedniej operacji. Niepotwierdzony wynik nadal pozostawia stan
+wymagający odzyskiwania.
 
 Wcześniej współbieżne `browser_sessions` mogło w tym oknie ustawić trwałą
 globalną kwarantannę nawet po późniejszym poprawnym starcie lub pełnym
 zapisie i zamknięciu. Regresje odtwarzają odczyt dokładnie pomiędzy zmianą
 rekordu a zwróceniem wyniku. Poprawka nie czyści automatycznie istniejących
 flag i nie uznaje każdej nowej kwarantanny za ten historyczny wyścig.
+
+### Przerwany start i przerwane zamykanie
+
+Jeśli przerwany start pozostawi dokładnie jeden nowy rekord właściwego
+profilu z tej konkretnej próby, guard może dokończyć jego zapis i zamknięcie
+w ograniczonym czasie. Nie wybiera sesji po samej nazwie, nie dotyka rekordów
+obecnych przed startem i nie odzyskuje capability innego czatu. Powodzenie
+wymaga pełnych potwierdzeń zapisu oraz braku tego rekordu; niejasny kandydat,
+niepełny zapis lub timeout pozostawiają kwarantannę.
+
+Adapter Steel odróżnia zamknięcie połączenia CDP od rozpoczęcia i
+potwierdzenia zwolnienia zdalnej sesji. Anulowanie przed pierwszym release
+nie może sprawić, że kolejne własne zamknięcie pominie go na zawsze.
+Jeśli release już rozpoczęto, niepewny wynik nie daje prawa do kolejnego
+zapisu w ciemno ani zwolnienia slotu. Ta poprawka nie dodaje niezależnego
+terminalnego GET providera i nie czyści wcześniejszej kwarantanny.
 
 Długie zadanie wymaga zapisanego checkpointu przed zamknięciem. Obecny kod
 nie uruchamia automatycznie kolejnej sesji i nie odzyskuje zadania po
@@ -116,8 +138,24 @@ Alternatywę obsługują `session_ownership/owner_mobile_handoff.py` oraz
 
 - `GET /owner-mobile-login/touch` — natywny panel iPhone'a ze zrzutem strony i przyciskami, bez WebRTC/iframe i bez nowych haseł w ChatGPT;
 - `GET /owner-mobile-login/touch/frame` — świeży, ulotny JPEG tylko z aktualnej sesji przypisanej do uprzednio wydanego, jednorazowego setupu, nie jest zapisywany;
-- `POST /owner-mobile-login/touch/action` — ograniczone `tap`, `scroll`, `key` (`Enter`, `Tab`, `Backspace`) oraz `text` wyłącznie do realnego, zaznaczonego pola. Hasło wpisywane w panelu jest przesyłane HTTPS do serwera na czas wykonania `fill()`, bez zwracania treści do asystenta i bez rejestracji w logach. Trafia wyłącznie do pola typu `password` na dokładnie dozwolonym originie wybranej usługi. Uchwyt pola jest związany z konkretnym dokumentem; ponowne sprawdzenie originu przed wypełnieniem chroni przed zmianą strony w trakcie operacji. To input **we własnym panelu**, o czym informuje jego interfejs.
+- `POST /owner-mobile-login/touch/action` — ograniczone `tap`, `scroll`, `key` (`Enter`, `Tab`, `Backspace`), `back`, `forward`, `reload` oraz `text` wyłącznie do realnego, zaznaczonego pola. Hasło wpisywane w panelu jest przesyłane HTTPS do serwera na czas wykonania `fill()`, bez zwracania treści do asystenta i bez rejestracji w logach. Trafia wyłącznie do pola typu `password` na dokładnie dozwolonym originie wybranej usługi. Uchwyt pola jest związany z konkretnym dokumentem; ponowne sprawdzenie originu przed wypełnieniem chroni przed zmianą strony w trakcie operacji. To input **we własnym panelu**, o czym informuje jego interfejs.
 - Wszystkie wejścia wymagają ważnego `__Host-aib-owner-login` (HttpOnly, SameSite Strict), dokładnie przypisanej lease i capability oraz braku kwarantanny. Operacja używa blokady wyłącznie swojej sesji. Dla mutacji POST wymagane są dodatkowo zgodny `Origin`, `Content-Type` i walidowany JSON z limitami. Brak dowolnych URL, skryptów, dostępu do cudzych profili, odczytu haseł przez model, automatycznego publikowania lub automatycznego rozwiązania MFA.
+
+### Klawiatura i podstawowa nawigacja
+
+Tekst może trafić do zwykłego pola `input` oraz do `textarea`. Typ pola
+wielowierszowego nie jest porównywany z listą typów `input`. Natywny Enter
+oraz przycisk Enter najpierw przesyłają niewysłany tekst z ostatniego
+edytowanego lokalnego pola, a dopiero po potwierdzeniu zatwierdzają formularz.
+Błąd lub zajęty kontroler nie mogą zatwierdzić pustego/starego formularza
+ani usunąć niewysłanego tekstu. Enter klawiatury podczas kompozycji tekstu
+oraz powtórzone zdarzenie przytrzymanego Entera nie wysyłają formularza.
+
+Panel ma stałe akcje Wstecz, Dalej i Przeładuj stronę. Są odrębne od
+odświeżenia samego obrazu. Nie przyjmują adresu URL ani skryptu od klienta,
+działają pod blokadą własnej sesji i zachowują kontrolę dozwolonego originu.
+Brak wcześniejszej lub następnej pozycji historii jest zwykłym wynikiem,
+a nie powodem do ponownego logowania.
 
 ### Obsługiwane wejścia do logowania
 

@@ -98,17 +98,25 @@ Keep one writer per profile; do not clone live authenticated profiles just to
 obtain parallelism. Independent API work does not require a Steel slot.
 
 Plan work against the returned `remaining_seconds`, not a nominal provider
-session length. The owner watchdog starts saving and closing after 780 seconds
-(13 minutes) from the session grant; a later capability expiry gives no extra
-working time. A status read does not extend this deadline. Save the task's
-private checkpoint before closing starts, and finish through its own save/close
-path while ownership remains valid. Do not promise unattended multi-hour work
-from one short browser session.
+session length. The owner watchdog allows at most 780 seconds (13 minutes)
+after the session grant, and less when startup has already consumed the
+provider's budget. It reserves 90 seconds before the lower runtime deadline
+for saved close; status and watchdog use the same fixed deadline. A later
+capability expiry gives no extra working time, and a status read does not
+extend the deadline. Save the task's private checkpoint before closing starts,
+and finish through its own save/close path while ownership remains valid.
+Do not promise unattended multi-hour work from one short browser session.
 
 The current runtime has no durable task/capability resume after a process
 restart (`durable_resume_supported: false`). A saved browser profile is not a
 restored task or a recovered capability. A new authorized task may reuse that
 profile only after the previous session's save and closure are accounted for.
+
+An interrupted start can safely close only the exact new record created by
+that start, with verified full save; this cleanup is not task recovery or
+permission to adopt another chat's session. An exhausted startup budget must
+not be reported as a healthy new browser. Inspect the actual outcome before
+starting another session, and preserve any unresolved quarantine.
 
 If a start call is interrupted, or the capability is lost, use ONLY a deployed,
 verified, owner-authenticated resume mechanism. A draft implementation or SQL
