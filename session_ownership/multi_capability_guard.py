@@ -32,6 +32,8 @@ VERSION = "2026-10-10.multi-beta.1"
 READ_ONLY_ROUTES = frozenset({"/health", "/health/context", "/health/steel"})
 AUTO_SAVE_CLOSE_SECONDS = 780
 CAPABILITY_LIFETIME_SECONDS = 850
+UPSTREAM_SAVE_MARGIN_SECONDS = 90
+START_CLEANUP_TIMEOUT_SECONDS = 90
 
 
 class MultiCapabilityGuard:
@@ -46,6 +48,7 @@ class MultiCapabilityGuard:
         self.leases: dict[str, Lease] = {}
         self.by_profile: dict[str, str] = {}
         self.session_locks: dict[str, asyncio.Lock] = {}
+        self.close_deadlines: dict[str, float] = {}
         # A stop may remove the manager record before profile READY/registry
         # acknowledgement returns. Keep its exact record until that receipt;
         # an in-flight close is neither a lost session nor a free slot.
@@ -54,6 +57,8 @@ class MultiCapabilityGuard:
         # see them. This admission-scoped phase explains at most one new
         # manager record until the start result is checked and leased.
         self.starting: tuple[str, frozenset[str]] | None = None
+        self.start_cleanups: dict[str, object] = {}
+        self.cleanup_tasks: set[asyncio.Task] = set()
         self.pending_start = contextvars.ContextVar(
             "aib_multi_pending_start_profile", default=None)
         self.actor_session = contextvars.ContextVar(
@@ -82,7 +87,9 @@ class MultiCapabilityGuard:
     def _assess(self) -> None:
         actual = set(self.sessions())
         owned = set(self.leases)
-        if actual - owned - self._starting_session_ids():
+        cleaning = {sid for sid, record in self.start_cleanups.items()
+                    if self.sessions().get(sid) is record}
+        if actual - owned - self._starting_session_ids() - cleaning:
             self.quarantined = True
             raise OwnershipError("UNMANAGED_SESSION_QUARANTINED")
         for sid in owned - actual:
@@ -115,13 +122,15 @@ class MultiCapabilityGuard:
         """Describe this task's actual deadline, not just Steel's later timeout.
 
         No extension, renewal, or durable recovery is implied. The owner guard
-        starts saved-close at 780 seconds even though the upstream controller
-        may still advertise time until its own 870-second close.
+        keeps its 90-second save margin before the upstream close, including
+        time already spent starting the browser. Reading never renews it.
         """
         if not isinstance(output, dict):
             return output
         age = max(0, self.clock() - lease.started_at)
-        auto_close = max(0, int(AUTO_SAVE_CLOSE_SECONDS - age))
+        deadline = self.close_deadlines.get(
+            lease.internal_session_id, lease.started_at + AUTO_SAVE_CLOSE_SECONDS)
+        auto_close = max(0, int(deadline - self.clock()))
         upstream = output.get("remaining_seconds")
         remaining = auto_close
         if (type(upstream) in (int, float) and math.isfinite(upstream)):
@@ -134,6 +143,100 @@ class MultiCapabilityGuard:
                 0, int(CAPABILITY_LIFETIME_SECONDS - age)),
             "durable_resume_supported": False,
         }
+
+    @staticmethod
+    def _start_budget(result):
+        upstream = result.get("remaining_seconds")
+        if type(upstream) in (int, float) and math.isfinite(upstream):
+            return max(0, min(AUTO_SAVE_CLOSE_SECONDS,
+                              upstream - UPSTREAM_SAVE_MARGIN_SECONDS))
+        return AUTO_SAVE_CLOSE_SECONDS
+
+    async def _cleanup_started_record(self, profile, prior):
+        """Save-close only the unambiguous new record from this admission.
+
+        The caller still holds admission. Repeated request cancellations may
+        interrupt the wait, but cannot cancel or lose the tracked cleanup.
+        An uncertain timeout stays quarantined even if cleanup later ends.
+        """
+        created = set(self.sessions()) - prior
+        if not created:
+            return
+        if len(created) != 1:
+            self.quarantined = True
+            return
+        sid = next(iter(created))
+        record = self.sessions()[sid]
+        if sid in self.leases or getattr(record, "profile", None) != profile:
+            self.quarantined = True
+            return
+        self.start_cleanups[sid] = record
+        self.closing[sid] = record
+
+        async def saved_close():
+            actor = self.actor_session.set(sid)
+            try:
+                # The task starts at a later event-loop turn. Never close a
+                # replacement object, a prior session, or an ambiguous delta.
+                if (self.sessions().get(sid) is not record
+                        or getattr(record, "profile", None) != profile
+                        or set(self.sessions()) - prior != {sid}
+                        or sid in self.leases):
+                    self.quarantined = True
+                    return False
+                result = await self.manager.stop(sid)
+                confirmed = (isinstance(result, dict)
+                             and result.get("profile_saved") is True
+                             and result.get("full_profile_saved") is True
+                             and sid not in self.sessions())
+                if not confirmed:
+                    self.quarantined = True
+                return confirmed
+            except BaseException:
+                self.quarantined = True
+                raise
+            finally:
+                self.actor_session.reset(actor)
+                if self.closing.get(sid) is record:
+                    self.closing.pop(sid, None)
+                if self.start_cleanups.get(sid) is record:
+                    self.start_cleanups.pop(sid, None)
+
+        task = asyncio.create_task(saved_close())
+        self.cleanup_tasks.add(task)
+
+        def consume(done):
+            self.cleanup_tasks.discard(done)
+            if not done.cancelled():
+                done.exception()  # Also retrieve failures after a timed-out caller.
+
+        task.add_done_callback(consume)
+        deadline = asyncio.get_running_loop().time() + START_CLEANUP_TIMEOUT_SECONDS
+        while not task.done():
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                self.quarantined = True
+                task.cancel()
+                return
+            try:
+                await asyncio.wait_for(asyncio.shield(task), remaining)
+            except asyncio.CancelledError:
+                # The original request can be cancelled more than once. The
+                # exact record remains accounted for until cleanup finishes.
+                continue
+            except Exception:
+                if task.done():
+                    break
+                self.quarantined = True
+                task.cancel()
+                return
+        if task.cancelled():
+            self.quarantined = True
+        else:
+            try:
+                task.result()
+            except Exception:
+                self.quarantined = True
 
     def _approved_manager(self, sid) -> bool:
         if self.actor_session.get() == sid or self.internal_save.get() == sid:
@@ -240,41 +343,45 @@ class MultiCapabilityGuard:
             pending = self.pending_start.set(profile)
             self.starting = (profile, frozenset(prior))
             try:
-                result = await fn(**args)
-            except BaseException:
-                if set(self.sessions()) - prior:
+                try:
+                    result = await fn(**args)
+                except BaseException:
+                    await self._cleanup_started_record(profile, prior)
+                    raise
+                sid = result.get("session_id") if isinstance(result, dict) else None
+                if (not isinstance(sid, str) or not 1 <= len(sid) <= 128
+                        or set(self.sessions()) - prior != {sid}
+                        or getattr(self.sessions()[sid], "profile", None) != profile):
                     self.quarantined = True
-                raise
+                    raise OwnershipError("PARALLEL_START_NOT_VERIFIED")
+                budget = self._start_budget(result)
+                if budget <= 0:
+                    await self._cleanup_started_record(profile, prior)
+                    raise OwnershipError("START_SESSION_BUDGET_EXHAUSTED")
+                handle = "aib_" + secrets.token_urlsafe(32)
+                lease = Lease(
+                    internal_session_id=sid,
+                    capability_digest=hashlib.sha256(handle.encode("ascii")).digest(),
+                    profile=profile,
+                    started_at=self.clock(),
+                )
+                self.leases[sid] = lease
+                self.by_profile[profile] = sid
+                self.session_locks[sid] = asyncio.Lock()
+                self.close_deadlines[sid] = lease.started_at + budget
+                if self.watchdog_enabled:
+                    task = asyncio.create_task(self.watchdog(lease))
+                    self.watchdogs.add(task)
+                    task.add_done_callback(self.watchdogs.discard)
+                return scrub_result(self.with_lifecycle(result, lease), sid, handle)
             finally:
-                # No await between clearing the phase and validating/minting
-                # the lease below; inventory runs on this same event loop.
                 self.starting = None
                 self.pending_start.reset(pending)
-            sid = result.get("session_id") if isinstance(result, dict) else None
-            if (not isinstance(sid, str) or not 1 <= len(sid) <= 128
-                    or set(self.sessions()) - prior != {sid}
-                    or getattr(self.sessions()[sid], "profile", None) != profile):
-                self.quarantined = True
-                raise OwnershipError("PARALLEL_START_NOT_VERIFIED")
-            handle = "aib_" + secrets.token_urlsafe(32)
-            lease = Lease(
-                internal_session_id=sid,
-                capability_digest=hashlib.sha256(handle.encode("ascii")).digest(),
-                profile=profile,
-                started_at=self.clock(),
-            )
-            self.leases[sid] = lease
-            self.by_profile[profile] = sid
-            self.session_locks[sid] = asyncio.Lock()
-            if self.watchdog_enabled:
-                task = asyncio.create_task(self.watchdog(lease))
-                self.watchdogs.add(task)
-                task.add_done_callback(self.watchdogs.discard)
-            return scrub_result(self.with_lifecycle(result, lease), sid, handle)
 
     def _complete(self, lease):
         sid = lease.internal_session_id
         self.leases.pop(sid, None)
+        self.close_deadlines.pop(sid, None)
         self.session_locks.pop(sid, None)
         if self.by_profile.get(lease.profile) == sid:
             self.by_profile.pop(lease.profile, None)
@@ -333,7 +440,9 @@ class MultiCapabilityGuard:
 
     async def watchdog(self, lease):
         try:
-            await asyncio.sleep(AUTO_SAVE_CLOSE_SECONDS)
+            deadline = self.close_deadlines.get(
+                lease.internal_session_id, lease.started_at + AUTO_SAVE_CLOSE_SECONDS)
+            await asyncio.sleep(max(0, deadline - self.clock()))
             sid = lease.internal_session_id
             lock = self.session_locks.get(sid)
             if lock is None:
@@ -387,6 +496,14 @@ class MultiCapabilityGuard:
         for sid, session in self.sessions().items():
             lease = self.leases.get(sid)
             if lease is None:
+                if self.start_cleanups.get(sid) is session:
+                    items.append({
+                        "session_id": "[redacted]",
+                        "profile": getattr(session, "profile", "[redacted]"),
+                        "mode": getattr(session, "mode", "unknown"),
+                        "state": "recovery_required" if self.quarantined else "closing",
+                    })
+                    continue
                 if sid in starting_ids:
                     items.append({
                         "session_id": "[redacted]",
@@ -418,7 +535,7 @@ class MultiCapabilityGuard:
             }
             items.append(self.with_lifecycle(item, lease)
                          if state == "active" else item)
-        if self.starting is not None and not starting_ids:
+        if self.starting is not None and not starting_ids and not self.start_cleanups:
             # A provider request can be in flight before a local record exists.
             # Do not return an idle-looking [] during that admission window.
             items.append({
@@ -427,6 +544,14 @@ class MultiCapabilityGuard:
                 "mode": "unknown",
                 "state": "starting",
             })
+        for sid, record in self.start_cleanups.items():
+            if sid not in self.sessions():
+                items.append({
+                    "session_id": "[redacted]",
+                    "profile": getattr(record, "profile", "[redacted]"),
+                    "mode": getattr(record, "mode", "unknown"),
+                    "state": "recovery_required" if self.quarantined else "closing",
+                })
         # A failed saved-stop may remove the manager record before returning
         # an unverified receipt. The lease deliberately remains quarantined;
         # hiding it would make [] look like permission to deploy/restart.

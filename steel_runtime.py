@@ -209,7 +209,12 @@ class RemoteBrowser:
     def __init__(self, engine, browser, remote_id):
         self.engine, self.browser, self.remote_id = engine, browser, remote_id
         self.created_at = time.time()
+        # CDP shutdown and provider release are separate lifecycle stages.
+        # `closed` makes the connection unavailable once CDP close starts;
+        # it does not certify that a provider release was even attempted.
         self.closed = False
+        self._release_started = False
+        self._release_confirmed = False
         self.close_lock = asyncio.Lock()
 
     def __getattr__(self, name):
@@ -226,23 +231,36 @@ class RemoteBrowser:
 
     async def close(self, **_kwargs):
         async with self.close_lock:
-            if self.closed:
+            if self._release_confirmed:
                 return
-            self.closed = True
-            confirmed_released = False
             try:
-                with contextlib.suppress(Exception):
-                    await asyncio.wait_for(self.browser.close(), 5)
+                if not self.closed:
+                    self.closed = True
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(self.browser.close(), 5)
+                # A cancelled CDP close must not permanently skip a release
+                # that was never started (including install.stop's finally).
+                if self._release_started:
+                    # The earlier outcome is unknown. Do not repeat a write
+                    # or report success without independent reconciliation.
+                    raise SteelFailure('STEEL_REMOTE_RELEASE_UNCONFIRMED')
+                self._release_started = True
                 confirmed_released = await self.engine.release(self.remote_id)
+                if not confirmed_released:
+                    raise SteelFailure('STEEL_REMOTE_RELEASE_UNCONFIRMED')
+                self._release_confirmed = True
+                if self.engine.remote.get(self.remote_id) is self:
+                    self.engine.remote.pop(self.remote_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Never expose arbitrary provider exceptions or private URLs.
+                raise SteelFailure('STEEL_REMOTE_RELEASE_UNCONFIRMED') from None
             finally:
-                if confirmed_released:
-                    self.engine.remote.pop(self.remote_id, None)
-                else:
-                    # Preserve the remote reference; NEVER silently free the
-                    # single session slot on an uncertain provider response.
+                if not self._release_confirmed:
+                    # Cancellation and uncertain outcomes retain the reference.
+                    # A later successful close must never clear quarantine.
                     self.engine._quarantined = True
-            if not confirmed_released:
-                raise SteelFailure('STEEL_REMOTE_RELEASE_UNCONFIRMED')
 
 
 class RemoteChromium:

@@ -94,6 +94,14 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.assertIsNotNone(match)
         return match.group(0)
 
+    async def start_with_remaining(self, profile, remaining):
+        async def start_result(**args):
+            result = await self.manager.start(**args)
+            result["remaining_seconds"] = remaining
+            return result
+        return await self.guard.start(start_result, {
+            "profile": profile, "start_url": "https://example.com/"})
+
     async def paused_stop(self, outcome="saved", *, watchdog=False):
         """Pause the real guard before removal and before the save receipt."""
         cap = await self.begin("TechnicalClosing")
@@ -284,6 +292,71 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.assertEqual(result["auto_save_close_in_seconds"], 780)
         self.assertEqual(result["capability_expires_in_seconds"], 850)
         self.assertIs(result["durable_resume_supported"], False)
+
+    async def test_slow_start_keeps_save_margin_in_watchdog_and_diagnostics(self):
+        self.guard.clock = lambda: 100
+        result = await self.start_with_remaining("TechnicalSlowStart", 700)
+        lease = self.guard.authorize(result["session_id"])
+        self.assertEqual(result["remaining_seconds"], 610)
+        self.assertEqual(result["auto_save_close_in_seconds"], 610)
+        self.assertEqual(self.guard.close_deadlines[lease.internal_session_id], 710)
+
+        # Later observations cannot turn a new upstream countdown into a
+        # renewal. Both the public inventory and scheduled close use 710.
+        self.guard.clock = lambda: 120
+        async def renewed_upstream_status(session_id):
+            return {"session_id": session_id, "remaining_seconds": 870}
+        status = await self.guard.action("browser_status", renewed_upstream_status,
+                                        {"session_id": result["session_id"]})
+        self.assertEqual(status["auto_save_close_in_seconds"], 590)
+        self.assertEqual(self.guard.safe_sessions()[0]["remaining_seconds"], 590)
+        sleeps = []
+        async def capture_sleep(seconds):
+            sleeps.append(seconds)
+        with patch("multi_capability_guard.asyncio.sleep", new=capture_sleep):
+            await self.guard.watchdog(lease)
+        self.assertEqual(sleeps, [590])
+        self.assertEqual(self.manager.saved, [lease.internal_session_id])
+        self.assertNotIn(lease.internal_session_id, self.guard.close_deadlines)
+        self.assertEqual(self.guard.safe_sessions(), [])
+        self.assertFalse(self.guard.quarantined)
+
+    async def test_exhausted_start_saves_own_record_without_issuing_capability(self):
+        existing = await self.begin("TechnicalOtherChat")
+        prior_sid = self.guard.authorize(existing).internal_session_id
+        for remaining in (90, 5, 0):
+            with self.subTest(remaining=remaining):
+                with self.assertRaisesRegex(OwnershipError, "START_SESSION_BUDGET_EXHAUSTED"):
+                    await self.start_with_remaining("TechnicalExpiredStart", remaining)
+                self.assertEqual(set(self.manager._sessions), {prior_sid})
+                self.assertEqual(set(self.guard.leases), {prior_sid})
+                self.assertFalse(self.guard.watchdogs)
+                self.assertFalse(self.guard.start_cleanups)
+                self.assertFalse(self.guard.quarantined)
+        self.assertEqual(len(self.manager.saved), 3)
+        self.assertNotIn(prior_sid, self.manager.saved)
+        await self.begin("TechnicalAfterExhaustedStart")
+
+    async def test_exhausted_start_with_failed_save_stays_quarantined(self):
+        self.manager.broken_save = True
+        with self.assertRaisesRegex(OwnershipError, "START_SESSION_BUDGET_EXHAUSTED"):
+            await self.start_with_remaining("TechnicalUnsavedExpiredStart", 90)
+        self.assertEqual(self.guard.leases, {})
+        self.assertEqual(self.guard.close_deadlines, {})
+        self.assertTrue(self.guard.quarantined)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                         ["provider_reconciliation_required"])
+
+    async def test_invalid_upstream_countdown_never_extends_default_budget(self):
+        self.guard.clock = lambda: 100
+        for remaining in (None, "700", True, float("nan"), float("inf"), 2000):
+            with self.subTest(remaining=remaining):
+                result = await self.start_with_remaining("TechnicalLegacyStart", remaining)
+                lease = self.guard.authorize(result["session_id"])
+                self.assertEqual(result["auto_save_close_in_seconds"], 780)
+                self.assertEqual(self.guard.close_deadlines[lease.internal_session_id], 880)
+                await self.mcp.call_tool("browser_stop", {"session_id": result["session_id"]})
+                self.assertEqual(self.guard.close_deadlines, {})
 
     async def test_status_and_inventory_share_actual_countdown_without_renewal(self):
         self.guard.clock = lambda: 100
@@ -582,7 +655,7 @@ class MultiMcp(IsolatedAsyncioTestCase):
         self.guard.authorize(result["session_id"])
         await self.begin("TechnicalNextChat")
 
-    async def test_failed_start_after_pending_inventory_remains_quarantined(self):
+    async def test_failed_start_saves_its_new_record_and_preserves_original_error(self):
         task, allow_register, registered, allow_result = await self.paused_start(outcome="raise")
         try:
             allow_register.set()
@@ -595,28 +668,220 @@ class MultiMcp(IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeError, "SYNTHETIC_START_ERROR"):
                 await task
         self.assertIsNone(self.guard.starting)
-        self.assertTrue(self.guard.quarantined)
-        self.assertEqual([x["state"] for x in self.guard.safe_sessions()], ["unmanaged_quarantined"])
+        self.assertFalse(self.guard.quarantined)
+        self.assertEqual(self.guard.safe_sessions(), [])
         self.assertEqual(self.guard.leases, {})
-        self.assertEqual(self.manager.saved, [])
-        with self.assertRaisesRegex(ToolError, "UNMANAGED_SESSION_QUARANTINED"):
-            await self.begin("TechnicalBlockedAfterStart")
+        self.assertEqual(self.manager.saved, ["INTERNAL_SYNTHETIC_SESSION_1"])
+        await self.begin("TechnicalAfterFailedStart")
 
-    async def test_cancelled_start_cannot_hide_its_unleased_record(self):
+    async def test_cancelled_start_saves_only_its_new_record_and_frees_own_slot(self):
+        previous = await self.begin("TechnicalOtherChat")
+        prior_sid = self.guard.authorize(previous).internal_session_id
+        prior_record = self.manager._sessions[prior_sid]
         task, allow_register, registered, allow_result = await self.paused_start()
         try:
             allow_register.set()
             await asyncio.wait_for(registered.wait(), 1.5)
-            self.assertEqual([x["state"] for x in self.guard.safe_sessions()], ["starting"])
+            self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                             ["active", "starting"])
         finally:
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
         self.assertIsNone(self.guard.starting)
+        self.assertFalse(self.guard.quarantined)
+        self.assertEqual(set(self.guard.leases), {prior_sid})
+        self.assertEqual(set(self.manager._sessions), {prior_sid})
+        self.assertIs(self.manager._sessions[prior_sid], prior_record)
+        self.assertEqual(self.manager.saved, ["INTERNAL_SYNTHETIC_SESSION_2"])
+        self.assertFalse(self.guard.watchdogs)
+        self.assertFalse(self.guard.start_cleanups)
+        self.guard.authorize(previous)
+        await self.begin("TechnicalStarting")
+
+    async def test_interrupted_start_with_false_save_receipt_remains_quarantined(self):
+        self.manager.broken_save = True
+        task, allow_register, registered, _ = await self.paused_start()
+        allow_register.set()
+        await asyncio.wait_for(registered.wait(), 1.5)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
         self.assertTrue(self.guard.quarantined)
-        self.assertEqual([x["state"] for x in self.guard.safe_sessions()], ["unmanaged_quarantined"])
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                         ["provider_reconciliation_required"])
         self.assertEqual(self.guard.leases, {})
+        with self.assertRaisesRegex(ToolError, "PARALLEL_PROVIDER_RECONCILIATION_REQUIRED"):
+            await self.begin("TechnicalBlockedAfterStart")
+
+    async def test_interrupted_start_cleanup_exception_keeps_record_visible(self):
+        async def failed_stop(sid):
+            self.assertEqual(self.guard.actor_session.get(), sid)
+            self.manager._session(sid)
+            raise RuntimeError("SYNTHETIC_CLEANUP_ERROR")
+        with patch.object(self.manager, "stop", new=failed_stop):
+            task, allow_register, registered, _ = await self.paused_start()
+            allow_register.set()
+            await asyncio.wait_for(registered.wait(), 1.5)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertTrue(self.guard.quarantined)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                         ["unmanaged_quarantined"])
         self.assertEqual(self.manager.saved, [])
+
+    async def test_second_cancellation_keeps_cleanup_owned_until_full_receipt(self):
+        previous = await self.begin("TechnicalOtherChat")
+        prior_sid = self.guard.authorize(previous).internal_session_id
+        entered, allow_remove = asyncio.Event(), asyncio.Event()
+        removed, allow_receipt = asyncio.Event(), asyncio.Event()
+        original_stop = self.manager.stop
+
+        async def paused_cleanup(sid):
+            self.assertEqual(self.guard.actor_session.get(), sid)
+            self.manager._session(sid)
+            entered.set()
+            await allow_remove.wait()
+            receipt = await original_stop(sid)
+            removed.set()
+            await allow_receipt.wait()
+            return receipt
+
+        with patch.object(self.manager, "stop", new=paused_cleanup):
+            task, allow_register, registered, _ = await self.paused_start()
+            try:
+                allow_register.set()
+                await asyncio.wait_for(registered.wait(), 1.5)
+                task.cancel()
+                await asyncio.wait_for(entered.wait(), 1.5)
+                for after_removal in (False, True):
+                    if after_removal:
+                        allow_remove.set()
+                        await asyncio.wait_for(removed.wait(), 1.5)
+                        task.cancel()  # Cancellation of the same request again.
+                        await asyncio.sleep(0)
+                    self.assertFalse(task.done())
+                    self.assertTrue(self.guard.admission.locked())
+                    self.assertEqual(len(self.guard.cleanup_tasks), 1)
+                    self.assertEqual(len(self.guard.start_cleanups), 1)
+                    self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                                     ["active", "closing"])
+                    self.assertFalse(self.guard.quarantined)
+                    self.assertIn(prior_sid, self.manager._sessions)
+            finally:
+                allow_register.set()
+                allow_remove.set()
+                allow_receipt.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+        await asyncio.sleep(0)
+        self.assertEqual(self.guard.start_cleanups, {})
+        self.assertEqual(self.guard.cleanup_tasks, set())
+        self.assertEqual(self.guard.closing, {})
+        self.assertEqual(set(self.manager._sessions), {prior_sid})
+        self.assertEqual(self.manager.saved, ["INTERNAL_SYNTHETIC_SESSION_2"])
+        self.assertFalse(self.guard.quarantined)
+        await self.begin("TechnicalAfterTwiceCancelledStart")
+
+    async def test_cleanup_timeout_tracks_pending_finalizer_and_blocks_admission(self):
+        entered, cancelled, finish = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        original_stop = self.manager.stop
+
+        async def delayed_cleanup(sid):
+            self.assertEqual(self.guard.actor_session.get(), sid)
+            receipt = await original_stop(sid)
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                await finish.wait()
+                # Even a late complete receipt must not clear the flag set
+                # when the bounded caller could not establish completion.
+                return receipt
+
+        with patch.object(self.manager, "stop", new=delayed_cleanup), patch(
+                "multi_capability_guard.START_CLEANUP_TIMEOUT_SECONDS", .03):
+            task, allow_register, registered, _ = await self.paused_start()
+            try:
+                allow_register.set()
+                await asyncio.wait_for(registered.wait(), 1.5)
+                task.cancel()
+                await asyncio.wait_for(entered.wait(), 1.5)
+                with self.assertRaises(asyncio.CancelledError):
+                    await asyncio.wait_for(asyncio.shield(task), 1.5)
+                await asyncio.wait_for(cancelled.wait(), 1.5)
+                self.assertTrue(self.guard.quarantined)
+                self.assertEqual(self.guard.leases, {})
+                self.assertEqual(self.manager._sessions, {})
+                self.assertEqual(len(self.guard.cleanup_tasks), 1)
+                self.assertEqual(len(self.guard.start_cleanups), 1)
+                self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                                 ["recovery_required"])
+                with self.assertRaisesRegex(ToolError, "PARALLEL_PROVIDER_RECONCILIATION_REQUIRED"):
+                    await self.begin("TechnicalBlockedDuringFinalizer")
+            finally:
+                finish.set()
+                await asyncio.gather(*tuple(self.guard.cleanup_tasks), return_exceptions=True)
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        self.assertEqual(self.guard.cleanup_tasks, set())
+        self.assertEqual(self.guard.start_cleanups, {})
+        self.assertTrue(self.guard.quarantined)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                         ["provider_reconciliation_required"])
+
+    async def test_cleanup_does_not_stop_a_same_id_replacement_object(self):
+        replacements = []
+        async def replaced_start(**args):
+            result = await self.manager.start(**args)
+            replacement = SimpleNamespace(profile=args["profile"], mode="read_only")
+            replacements.append(replacement)
+            # This runs after cleanup captures the original object but before
+            # its shielded task can execute manager.stop.
+            asyncio.get_running_loop().call_soon(
+                self.manager._sessions.__setitem__, result["session_id"], replacement)
+            raise RuntimeError("SYNTHETIC_START_ERROR")
+        with self.assertRaisesRegex(RuntimeError, "SYNTHETIC_START_ERROR"):
+            await self.guard.start(replaced_start, {"profile": "TechnicalReplacement"})
+        self.assertIs(self.manager._sessions["INTERNAL_SYNTHETIC_SESSION_1"], replacements[0])
+        self.assertEqual(self.manager.saved, [])
+        self.assertTrue(self.guard.quarantined)
+
+    async def test_cleanup_does_not_stop_an_ambiguous_delta_or_wrong_profile(self):
+        for unexpected in ("extra_record", "wrong_profile"):
+            with self.subTest(unexpected=unexpected):
+                manager = MultiManager()
+                guard = MultiCapabilityGuard(fake_mcp(manager), manager,
+                                             capacity=5, watchdog_enabled=False)
+                guard.install()
+                async def failed_start(**args):
+                    result = await manager.start(**args)
+                    if unexpected == "extra_record":
+                        await manager.start(**args)
+                    else:
+                        manager._sessions[result["session_id"]].profile = "PRIVATE_UNEXPECTED"
+                    raise RuntimeError("SYNTHETIC_START_ERROR")
+                with self.assertRaisesRegex(RuntimeError, "SYNTHETIC_START_ERROR"):
+                    await guard.start(failed_start, {"profile": "TechnicalAmbiguous"})
+                self.assertTrue(guard.quarantined)
+                self.assertTrue(manager._sessions)
+                self.assertEqual(manager.saved, [])
+                self.assertEqual(guard.leases, {})
+
+    async def test_successful_start_cleanup_does_not_clear_existing_quarantine(self):
+        task, allow_register, registered, _ = await self.paused_start()
+        allow_register.set()
+        await asyncio.wait_for(registered.wait(), 1.5)
+        self.guard.quarantined = True
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(self.manager._sessions, {})
+        self.assertEqual(self.manager.saved, ["INTERNAL_SYNTHETIC_SESSION_1"])
+        self.assertTrue(self.guard.quarantined)
 
     async def test_start_phase_does_not_adopt_an_unexpected_profile(self):
         task, allow_register, registered, allow_result = await self.paused_start(corrupt_profile=True)

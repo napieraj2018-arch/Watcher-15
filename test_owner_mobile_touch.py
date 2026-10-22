@@ -1,9 +1,11 @@
 """Isolated mobile screenshot/touch/keyboard bridge tests. No Meta or Steel I/O."""
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
 
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -61,6 +63,25 @@ class FakeFocused:
         self.fills.append((content,timeout))
 
 
+class FakeHistorySession:
+    def __init__(self,page):
+        self.page=page
+
+    async def send(self,method):
+        assert method == "Page.getNavigationHistory"
+        self.page.history_reads+=1
+        if self.page.history_error:
+            raise RuntimeError("SYNTHETIC_PRIVATE_HISTORY_ERROR")
+        return self.page.history
+
+    async def detach(self):
+        self.page.history_detaches+=1
+        if self.page.history_detach_blocked:
+            await asyncio.Event().wait()
+        if self.page.history_redirect is not None:
+            self.page.url=self.page.history_redirect
+
+
 class FakePage:
     viewport_size={"width":508,"height":1074}
 
@@ -70,6 +91,19 @@ class FakePage:
         self.keyboard=FakeKeyboard()
         self.focused=FakeFocused()
         self.screenshots=0
+        self.navigations=[]
+        self.navigation_target=None
+        self.history={"currentIndex":0,"entries":[{"url":self.url}]}
+        self.history_reads=0
+        self.history_detaches=0
+        self.history_error=False
+        self.history_redirect=None
+        self.history_detach_blocked=False
+        self.context=SimpleNamespace(new_cdp_session=self.new_cdp_session)
+
+    async def new_cdp_session(self,page):
+        assert page is self
+        return FakeHistorySession(self)
 
     async def screenshot(self,**kwargs):
         self.screenshots += 1
@@ -80,6 +114,21 @@ class FakePage:
     def locator(self,selector):
         assert selector == ":focus"
         return self.focused
+
+    async def _navigate(self,kind,**kwargs):
+        self.navigations.append((kind,kwargs))
+        if self.navigation_target is not None:
+            self.url=self.navigation_target
+        return None
+
+    async def go_back(self,**kwargs):
+        return await self._navigate("back",**kwargs)
+
+    async def go_forward(self,**kwargs):
+        return await self._navigate("forward",**kwargs)
+
+    async def reload(self,**kwargs):
+        return await self._navigate("reload",**kwargs)
 
 
 class TouchTests(IsolatedAsyncioTestCase):
@@ -179,6 +228,123 @@ class TouchTests(IsolatedAsyncioTestCase):
         self.assertEqual(self.page.focused.fills,[(word,7000)])
         self.assertNotIn(word.encode(),resp.body)
 
+    async def test_textarea_accepts_text_but_never_password_or_readonly_write(self):
+        self.page.focused.tag="TEXTAREA"
+        self.page.focused.field_type="textarea"
+        text="SYNTHETIC FIRST LINE\nSYNTHETIC SECOND LINE"
+        filled=await self.touch.action(self.action_request({
+            "kind":"text","field":"text","text":text}))
+        self.assertEqual(filled.status_code,200)
+        self.assertEqual(self.page.focused.fills,[(text,7000)])
+        self.assertNotIn(text.encode(),filled.body)
+
+        password=await self.touch.action(self.action_request({
+            "kind":"text","field":"password","text":"SYNTHETIC_SECRET"}))
+        self.assertEqual(password.status_code,409)
+        self.page.focused.readonly=True
+        readonly=await self.touch.action(self.action_request({
+            "kind":"text","field":"text","text":"MUST_NOT_WRITE"}))
+        self.assertEqual(readonly.status_code,409)
+        self.assertEqual(self.page.focused.fills,[(text,7000)])
+
+    async def test_fixed_navigation_accepts_empty_history_without_url_argument(self):
+        for kind in ("back","forward","reload"):
+            result=await self.touch.action(self.action_request({"kind":kind}))
+            self.assertEqual(result.status_code,200)
+        self.assertEqual([kind for kind,_ in self.page.navigations],
+                         ["back","forward","reload"])
+        self.assertEqual(self.page.mouse.clicks,[])
+
+    async def test_back_skips_only_entry_zero_exact_about_blank(self):
+        self.page.history={"currentIndex":1,"entries":[
+            {"url":"about:blank"},{"url":self.page.url}]}
+        result=await self.touch.action(self.action_request({"kind":"back"}))
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(self.page.navigations,[])
+        self.assertEqual(self.page.history_reads,1)
+        self.assertEqual(self.page.history_detaches,1)
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,200)
+
+        for index,urls in (
+            (1,["about:blank#fragment",self.page.url]),
+            (1,["https://www.facebook.com/previous",self.page.url]),
+            (2,["https://www.facebook.com/first","about:blank",self.page.url]),
+        ):
+            with self.subTest(index=index,previous=urls[index-1]):
+                self.page.history={"currentIndex":index,
+                                   "entries":[{"url":url} for url in urls]}
+                before=len(self.page.navigations)
+                result=await self.touch.action(self.action_request({"kind":"back"}))
+                self.assertEqual(result.status_code,200)
+                self.assertEqual(len(self.page.navigations),before+1)
+        self.assertEqual(self.page.history_reads,self.page.history_detaches)
+
+    async def test_unreadable_or_invalid_history_never_navigates_and_always_detaches(self):
+        bad_histories=(
+            None,{},
+            {"currentIndex":True,"entries":[{"url":self.page.url}]},
+            {"currentIndex":-1,"entries":[{"url":self.page.url}]},
+            {"currentIndex":1,"entries":[{"url":self.page.url}]},
+            {"currentIndex":0,"entries":[]},
+            {"currentIndex":0,"entries":["invalid"]},
+            {"currentIndex":0,"entries":[{"url":None}]},
+            {"currentIndex":0,"entries":[{"url":"https://www.facebook.com/changed"}]},
+        )
+        for history in bad_histories:
+            self.page.history=history
+            result=await self.touch.action(self.action_request({"kind":"back"}))
+            self.assertEqual(result.status_code,409)
+        self.page.history_error=True
+        failed=await self.touch.action(self.action_request({"kind":"back"}))
+        self.assertEqual(failed.status_code,409)
+        self.assertNotIn(b"SYNTHETIC_PRIVATE_HISTORY_ERROR",failed.body)
+        self.assertEqual(self.page.navigations,[])
+        self.assertEqual(self.page.history_reads,len(bad_histories)+1)
+        self.assertEqual(self.page.history_reads,self.page.history_detaches)
+
+    async def test_scope_is_rechecked_after_history_detach_before_back(self):
+        self.page.history_redirect="https://phishing.example/"
+        result=await self.touch.action(self.action_request({"kind":"back"}))
+        self.assertEqual(result.status_code,409)
+        self.assertEqual(self.page.history_reads,1)
+        self.assertEqual(self.page.history_detaches,1)
+        self.assertEqual(self.page.navigations,[])
+
+    async def test_stalled_history_detach_is_bounded_and_never_navigates(self):
+        self.page.history_detach_blocked=True
+        with patch("owner_mobile_touch.HISTORY_DETACH_TIMEOUT",0.01):
+            result=await asyncio.wait_for(self.touch.action(
+                self.action_request({"kind":"back"})),0.5)
+        self.assertEqual(result.status_code,409)
+        self.assertEqual(self.page.history_reads,1)
+        self.assertEqual(self.page.history_detaches,1)
+        self.assertEqual(self.page.navigations,[])
+
+    async def test_navigation_leaving_service_scope_is_not_reported_as_success(self):
+        self.page.navigation_target="https://phishing.example/"
+        result=await self.touch.action(self.action_request({"kind":"back"}))
+        self.assertEqual(result.status_code,409)
+        self.assertEqual(len(self.page.navigations),1)
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,410)
+        for kind in ("back","forward","reload"):
+            blocked=await self.touch.action(self.action_request({"kind":kind}))
+            self.assertEqual(blocked.status_code,409)
+        self.assertEqual(len(self.page.navigations),1)
+        self.assertEqual(self.page.screenshots,0)
+
+    async def test_frame_redirect_cannot_return_an_out_of_scope_screenshot(self):
+        original=self.page.screenshot
+        async def redirected_capture(**kwargs):
+            result=await original(**kwargs)
+            self.page.url="https://phishing.example/"
+            return result
+        self.page.screenshot=redirected_capture
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,410)
+        self.assertEqual(frame.body,b"")
+
     async def test_readonly_or_disabled_focus_rejects_writes(self):
         self.page.focused.readonly=True
         denied=await self.touch.action(self.action_request({
@@ -205,6 +371,9 @@ class TouchTests(IsolatedAsyncioTestCase):
             {"kind":"key","key":"Control+V"},
             {"kind":"script","source":"alert(1)"},
             {"kind":"navigate","url":"https://evil.example"},
+            {"kind":"back","url":"https://evil.example"},
+            {"kind":"forward","steps":3},
+            {"kind":"reload","url":"https://evil.example"},
             {"kind":"text","field":"text","text":"X"*500},
         ]
         for item in invalid:
