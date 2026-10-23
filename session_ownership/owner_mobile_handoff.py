@@ -19,6 +19,7 @@ import hashlib
 import hmac
 import html
 import json
+import math
 import secrets
 import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
@@ -34,6 +35,9 @@ SETUP_ORIGIN = "https://ai-browser-cloud.onrender.com"
 COOKIE = "__Host-aib-owner-login"
 MAX_TTL = 600
 MIN_TTL = 120
+RECEIPT_RETENTION_SECONDS = 300
+STATUS_TIMEOUT_SECONDS = 5
+AUTH_EVIDENCE_SECONDS = 15
 
 
 @dataclass
@@ -49,6 +53,16 @@ class Handoff:
     cookie_digest: bytes | None = None
     claimed: bool = False
     finished: bool = False
+    lease: object | None = None
+    receipt_expires_at: float = 0
+    receipt: dict | None = None
+    saving: bool = False
+    save_unconfirmed: bool = False
+    last_successful_backup_at: int | None = None
+    backup_ok: bool | None = None
+    authentication_stage: str = "unverified"
+    auth_verified: bool = False
+    auth_checked_at: float | None = None
 
 
 def _digest(text: str) -> bytes:
@@ -196,7 +210,7 @@ def _headers(csp: str | None = None) -> dict[str, str]:
     return values
 
 
-def _page(body: str, script: str = "") -> HTMLResponse:
+def _page(body: str, script: str = "", *, extra_style: str = "") -> HTMLResponse:
     nonce = secrets.token_urlsafe(16)
     style = """
     body{font:16px system-ui,-apple-system,sans-serif;color:#172b3d;
@@ -240,9 +254,9 @@ def _page(body: str, script: str = "") -> HTMLResponse:
            f" script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}';"
            " frame-ancestors 'none'")
     doc = ('<!doctype html><html lang="pl"><head><meta charset="utf-8">'
-           '<meta name="viewport" content="width=device-width,initial-scale=1">'
+           '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
            '<title>AI Browser — bezpieczne logowanie</title>'
-           f'<style nonce="{nonce}">{style}</style></head><body>'
+           f'<style nonce="{nonce}">{style}{extra_style}</style></head><body>'
            f'<main>{body}</main>'
            + (f'<script nonce="{nonce}">{script}</script>' if script else "")
            + '</body></html>')
@@ -250,8 +264,9 @@ def _page(body: str, script: str = "") -> HTMLResponse:
 
 
 class OwnerMobileHandoff:
-    def __init__(self, guard, *, clock=time.monotonic, origin=SETUP_ORIGIN):
-        self.guard, self.clock = guard, clock
+    def __init__(self, guard, *, clock=time.monotonic, wall_clock=time.time,
+                 origin=SETUP_ORIGIN):
+        self.guard, self.clock, self.wall_clock = guard, clock, wall_clock
         if origin != SETUP_ORIGIN:
             raise OwnershipError("MOBILE_ORIGIN_UNTRUSTED")
         self.origin = origin
@@ -266,6 +281,7 @@ class OwnerMobileHandoff:
             Route(SETUP_PATH, self.home, methods=["GET"]),
             Route(SETUP_PATH + "/claim", self.claim, methods=["POST"]),
             Route(SETUP_PATH + "/view", self.view, methods=["GET"]),
+            Route(SETUP_PATH + "/status", self.status, methods=["GET"]),
             Route(SETUP_PATH + "/finish", self.finish, methods=["POST"]),
             *self.touch.routes(),
         ]
@@ -373,7 +389,10 @@ class OwnerMobileHandoff:
             setup_id = secrets.token_urlsafe(32)
             self.active = Handoff(profile, handle, viewer, _digest(token),
                                   _digest(setup_id), issued_at + ttl,
-                                  service.name, service.allowed_origins)
+                                  service.name, service.allowed_origins,
+                                  lease=lease,
+                                  receipt_expires_at=(issued_at + available + 90
+                                                      + RECEIPT_RETENTION_SECONDS))
             # Fragment is never sent to Render/Steel access logs or Referer.
             return {
                 "status": "ready_for_human_login",
@@ -388,7 +407,7 @@ class OwnerMobileHandoff:
             }
 
     async def cancel(self, args: dict) -> dict:
-        """Stop only the session minted for this owner-issued setup ID."""
+        """End this setup with a saved close; cancellation never deletes a profile."""
         if set(args) != {"setup_id"}:
             raise OwnershipError("MOBILE_CANCEL_PARAMETERS_INVALID")
         identifier = args.get("setup_id")
@@ -401,18 +420,152 @@ class OwnerMobileHandoff:
             raise OwnershipError("MOBILE_SETUP_ID_REQUIRED") from None
         async with self.lock:
             r = self.active
-            if (r is None or r.finished
+            if (r is None
                     or not hmac.compare_digest(digest,r.setup_id_digest)):
                 raise OwnershipError("MOBILE_SETUP_ID_NOT_OWNED")
-            result = await self.guard.action(
-                "browser_stop", self.original_stop,
-                {"session_id":r.handle})
-            if (not isinstance(result,dict) or
-                    result.get("profile_saved") is not True or
-                    result.get("full_profile_saved") is not True):
+            return {"cancelled": True, **await self._finish_record(r, "cancelled")}
+
+    def _owned_close_complete(self, r):
+        lease = r.lease
+        if lease is None or lease.recovery_required:
+            return False
+        sid = lease.internal_session_id
+        return (sid not in self.guard.leases and sid not in self.guard.sessions()
+                and sid not in self.guard.closing and sid not in self.guard.close_tasks
+                and self.guard.by_profile.get(r.profile) != sid)
+
+    def _mark_saved(self, r, source):
+        if r.receipt is None:
+            r.receipt = {"status": "saved_and_closed", "profile_saved": True,
+                         "full_profile_saved": True,
+                         "save_confirmed_at": round(self.wall_clock()),
+                         "completion_source": source}
+        r.finished, r.save_unconfirmed = True, False
+        r.viewer_url = ""
+        # A durable profile receipt does not certify authentication. Keep the
+        # final outcome explicit even if an earlier live probe was positive.
+        r.auth_verified, r.authentication_stage = False, "unverified"
+
+    def _observe_completed(self, r):
+        if r.receipt is not None:
+            return
+        # The exact in-memory lease is removed only after the guard verifies
+        # both receipts and release. A missing manager record alone is never
+        # evidence. This also observes watchdog/cancelled-caller completion;
+        # it neither starts a second close nor clears any quarantine.
+        try:
+            self.guard._assess()
+        except OwnershipError:
+            return
+        if not self.guard.quarantined and self._owned_close_complete(r):
+            self._mark_saved(r, "owner_guard")
+
+    def _snapshot(self, r):
+        self._observe_completed(r)
+        lifecycle = (self.guard.with_lifecycle({}, r.lease)
+                     if r.lease is not None and not r.finished else {})
+        until_close = lifecycle.get("auto_save_close_in_seconds", 0)
+        remaining = max(0, min(int(r.expires_at + 90 - self.clock()), until_close))
+        sid = getattr(r.lease, "internal_session_id", None)
+        if r.receipt is not None:
+            state = r.receipt["status"]
+        elif r.save_unconfirmed or getattr(r.lease, "recovery_required", False) or self.guard.quarantined:
+            state = "save_unconfirmed"
+        elif r.saving or sid in self.guard.closing or sid in self.guard.close_tasks:
+            state = "saving"
+        else:
+            state = "active" if remaining > 0 else "expired"
+        fresh_auth = (not r.finished and r.auth_checked_at is not None
+                      and self.clock() - r.auth_checked_at <= AUTH_EVIDENCE_SECONDS)
+        return {"status": state, "remaining_seconds": remaining,
+                "auto_save_close_in_seconds": until_close,
+                "profile_saved": r.receipt is not None,
+                "full_profile_saved": r.receipt is not None,
+                "save_confirmed_at": (r.receipt or {}).get("save_confirmed_at"),
+                "completion_source": (r.receipt or {}).get("completion_source"),
+                "last_successful_backup_at": r.last_successful_backup_at,
+                "portable_backup_ok": r.backup_ok,
+                "auth_verified": bool(fresh_auth and r.auth_verified),
+                "authentication_stage": r.authentication_stage if fresh_auth else "unverified"}
+
+    async def _refresh_live_state(self, r):
+        if (r.finished or r.saving or r.lease is None
+                or self.clock() > r.expires_at + 90
+                or self.guard.leases.get(r.lease.internal_session_id) is not r.lease
+                or r.lease.recovery_required or self.guard.quarantined
+                or r.lease.internal_session_id in self.guard.closing):
+            return
+
+        async def read(session_id):
+            return await self.guard.manager.status(session_id)
+
+        try:
+            result = await asyncio.wait_for(self.guard.action(
+                "browser_status", read, {"session_id": r.handle}), STATUS_TIMEOUT_SECONDS)
+        except Exception:
+            r.auth_verified, r.authentication_stage = False, "temporarily_unavailable"
+            r.auth_checked_at = self.clock()
+            return
+        if not isinstance(result, dict):
+            return
+        backup = result.get("portable_backup")
+        if isinstance(backup, dict):
+            r.backup_ok = backup.get("ok") if type(backup.get("ok")) is bool else None
+            saved_at = backup.get("saved_at")
+            if (r.backup_ok is True and type(saved_at) in (int, float)
+                    and math.isfinite(saved_at) and saved_at > 0):
+                r.last_successful_backup_at = int(saved_at)
+        auth = result.get("authentication")
+        auth = auth if isinstance(auth, dict) else {}
+        stages = {"authenticated", "unverified", "session_present_unverified",
+                  "not_authenticated", "login_form", "verification_required",
+                  "expired", "temporarily_unavailable"}
+        stage = auth.get("stage")
+        r.authentication_stage = stage if isinstance(stage, str) and stage in stages else "unverified"
+        # SSO account authentication cannot certify the destination service.
+        try:
+            origin = _https_origin(result.get("url", ""))
+            service = (_LOGIN_BY_HOST.get(urlsplit(origin).hostname)
+                       if origin in r.allowed_origins else None)
+        except (ValueError, TypeError, OwnershipError):
+            service = None
+        r.auth_verified = (auth.get("authenticated") is True
+                           and r.authentication_stage == "authenticated"
+                           and service is not None and service.name == r.service_name)
+        if r.authentication_stage == "authenticated" and not r.auth_verified:
+            r.authentication_stage = "unverified"
+        r.auth_checked_at = self.clock()
+
+    async def _finish_record(self, r, source):
+        self._observe_completed(r)
+        if r.receipt is not None:
+            return self._snapshot(r)
+        if r.finished or r.save_unconfirmed:
+            raise OwnershipError("MOBILE_SAVE_UNCONFIRMED")
+        r.saving = True
+        try:
+            result = await self.guard.action("browser_stop", self.original_stop,
+                                             {"session_id": r.handle})
+            if (not isinstance(result, dict) or result.get("profile_saved") is not True
+                    or result.get("full_profile_saved") is not True
+                    or not self._owned_close_complete(r)):
+                r.save_unconfirmed = True
                 raise OwnershipError("MOBILE_SAVE_UNCONFIRMED")
-            r.finished = True
-            return {"cancelled":True, "profile_saved":True}
+            self._mark_saved(r, source)
+        except BaseException as failure:
+            self._observe_completed(r)
+            if (r.receipt is None and (not isinstance(failure, asyncio.CancelledError)
+                    or getattr(r.lease, "recovery_required", False)
+                    or self.guard.quarantined)):
+                r.save_unconfirmed = True
+            elif isinstance(failure, Exception):
+                # A watchdog can complete while our stop waits for its lock.
+                # Its verified result is enough; never call stop a second time.
+                return self._snapshot(r)
+            raise
+        finally:
+            r.saving = False
+        return self._snapshot(r)
 
     def _get_record(self, token: str) -> Handoff | None:
         r = self.active
@@ -429,18 +582,28 @@ class OwnerMobileHandoff:
             return None
         return r
 
-    def _cookie_record(self, request) -> Handoff | None:
+    def _receipt_record(self, request) -> Handoff | None:
+        """Authenticate bounded result readback, without browser authority."""
         r = self.active
         supplied = request.cookies.get(COOKIE, "")
-        if (r is None or r.finished or not r.claimed
-                or self.clock() > r.expires_at + 90
+        if (r is None or not r.claimed
+                or self.clock() > r.receipt_expires_at
                 or r.cookie_digest is None or not 30 <= len(supplied) <= 128):
             return None
         try:
             if not hmac.compare_digest(r.cookie_digest, _digest(supplied)):
                 return None
+        except (UnicodeError, ValueError):
+            return None
+        return r
+
+    def _cookie_record(self, request) -> Handoff | None:
+        r = self._receipt_record(request)
+        if r is None or r.finished or self.clock() > r.expires_at + 90:
+            return None
+        try:
             lease = self.guard.authorize(r.handle)
-            if lease.profile != r.profile:
+            if lease is not r.lease or lease.profile != r.profile:
                 return None
         except (UnicodeError, ValueError, OwnershipError):
             return None
@@ -456,9 +619,12 @@ class OwnerMobileHandoff:
         # iPhone Back / reopening the same link must resume ONLY the
         # already-claimed browser session authenticated by its HttpOnly
         # cookie, not try to claim the fragment bearer a second time.
-        if self._cookie_record(request) is not None:
-            return RedirectResponse(SETUP_PATH + "/view", status_code=303,
+        active = self._cookie_record(request)
+        if active is not None and self._snapshot(active)["status"] == "active":
+            return RedirectResponse(SETUP_PATH + "/touch", status_code=303,
                                     headers=_headers())
+        if self._receipt_record(request) is not None:
+            return await self.view(request)
         script = """
         (async () => {
           const m = location.hash.match(/^#s=([A-Za-z0-9_-]{30,100})$/);
@@ -472,7 +638,7 @@ class OwnerMobileHandoff:
               body:JSON.stringify({token:m[1]})
             });
             if(!r.ok) throw Error("claim");
-            location.replace("/owner-mobile-login/view");
+            location.replace("/owner-mobile-login/touch");
           } catch (_) {
             document.getElementById("status").textContent =
               "Nie udało się otworzyć sesji. Link mógł wygasnąć.";
@@ -506,19 +672,81 @@ class OwnerMobileHandoff:
             cookie = secrets.token_urlsafe(32)
             r.cookie_digest, r.claimed = _digest(cookie), True
             reply = JSONResponse({"status":"ready"}, headers=_headers())
-            reply.set_cookie(COOKIE, cookie, path="/", max_age=MAX_TTL + 90,
+            # Longer cookie retention only permits this setup's readback or
+            # saved close. _cookie_record keeps the original control deadline.
+            reply.set_cookie(COOKIE, cookie, path="/",
+                             max_age=max(1, int(r.receipt_expires_at - self.clock())),
                              secure=True, httponly=True, samesite="strict")
             return reply
 
+    async def status(self, request):
+        r = self._receipt_record(request)
+        if r is None:
+            return JSONResponse({"error": "MOBILE_SESSION_UNAVAILABLE"},
+                                status_code=410, headers=_headers())
+        self._observe_completed(r)
+        await self._refresh_live_state(r)
+        return JSONResponse(self._snapshot(r), headers=_headers())
+
     async def view(self, request):
-        r = self._cookie_record(request)
+        r = self._receipt_record(request)
         if r is None:
             return _page('<h1>Sesja niedostępna</h1>'
                          '<p>Otwórz ważny link logowania lub zakończ sesję w czacie.</p>')
+        snapshot = self._snapshot(r)
         script = """
         const button = document.getElementById("finish");
-        button.onclick = async () => {
+        const status = document.getElementById("status");
+        let pending = false, finished = false;
+        const stamp = value => new Date(value * 1000).toLocaleTimeString();
+        function show(data) {
+          const saved = data.status === "saved_and_closed" &&
+            data.profile_saved === true && data.full_profile_saved === true;
+          document.getElementById("countdown").textContent = saved ? "" :
+            "Pozostały czas sterowania: " + Math.max(0,data.remaining_seconds) + " s";
+          document.getElementById("backup").textContent = saved ?
+            "Pełny zapis potwierdzony: " + stamp(data.save_confirmed_at) :
+            data.last_successful_backup_at ?
+              "Ostatnia kopia bezpieczeństwa: " + stamp(data.last_successful_backup_at) :
+              "Pełny profil zostanie zapisany przy zakończeniu.";
+          document.getElementById("authentication").textContent =
+            data.auth_verified === true ? "Serwis potwierdził bieżące zalogowanie." :
+            data.authentication_stage === "verification_required" ?
+              "Serwis wymaga kodu lub potwierdzenia. Dokończ je w oknie logowania." :
+              "Stan zalogowania nie został potwierdzony.";
+          if (saved) {
+            finished = true;
+            for (const id of ["fullscreen","touch","finish"])
+              document.getElementById(id)?.remove();
+            status.textContent = "Profil zapisany i sesja zamknięta. Wróć do rozmowy.";
+          } else if (data.status === "saving") {
+            status.textContent = "Zapisuję pełny profil. Czekam na potwierdzenie…";
+            if (button) button.disabled = true;
+          } else if (data.status === "save_unconfirmed") {
+            status.textContent = "Zapisu nie potwierdzono. Wróć do rozmowy, aby sprawdzić tę sesję.";
+            if (button) button.disabled = true;
+          } else {
+            if (button) button.disabled = false;
+            status.textContent = data.status === "expired" ?
+              "Czas sterowania minął. Czekam na automatyczny zapis; możesz też zakończyć przyciskiem." :
+              "Możesz przejść do poczty i wrócić tutaj przed końcem czasu. Ukrycie strony nie kończy sesji.";
+          }
+        }
+        async function refreshStatus() {
+          if (pending || finished || document.visibilityState !== "visible") return;
+          pending = true;
+          try {
+            const response = await fetch("/owner-mobile-login/status", {
+              credentials:"same-origin",cache:"no-store"});
+            if (!response.ok) throw Error("unavailable");
+            show(await response.json());
+          } catch (_) {
+            status.textContent = "Nie mogę teraz odczytać potwierdzenia. Wróć do rozmowy, aby sprawdzić zapis.";
+          } finally { pending = false; }
+        }
+        if (button) button.onclick = async () => {
           button.disabled = true;
+          status.textContent = "Zapisuję pełny profil. Czekam na potwierdzenie…";
           try {
             const r = await fetch("/owner-mobile-login/finish", {
               method:"POST",credentials:"same-origin",
@@ -526,42 +754,44 @@ class OwnerMobileHandoff:
               body:"{}"
             });
             if(!r.ok) throw Error("not-saved");
-            document.getElementById("fullscreen").remove();
-            document.getElementById("touch").remove();
-            button.remove();
-            document.getElementById("status").textContent =
-              "Sesja zamknięta i profil zapisany. Wróć do rozmowy.";
+            const data = await r.json();
+            if(data.profile_saved !== true || data.full_profile_saved !== true ||
+               data.status !== "saved_and_closed") throw Error("not-saved");
+            show(data);
           } catch (_) {
-            document.getElementById("status").textContent =
-              "Zapisu nie potwierdzono. Nie uruchamiaj kolejnego logowania.";
-            button.disabled = false;
+            status.textContent = "Sprawdzam wynik zapisu…";
+            await refreshStatus();
           }
         };
+        refreshStatus();
+        setInterval(refreshStatus,5000);
+        document.addEventListener("visibilitychange",refreshStatus);
+        window.addEventListener("pageshow",refreshStatus);
         """
         url = html.escape(r.viewer_url, quote=True)
         profile = html.escape(r.profile, quote=True)
         service = html.escape(r.service_name, quote=True)
+        controls = ""
+        if self._cookie_record(request) is not None and snapshot["status"] == "active":
+            controls = ('<a id="touch" class="open-fullscreen" '
+                        'href="/owner-mobile-login/touch">'
+                        'Sterowanie dotykowe — iPhone</a>'
+                        f'<a id="fullscreen" class="open-fullscreen" href="{url}" '
+                        'rel="noreferrer">Alternatywa: podgląd Steel</a>')
+        if r.receipt is None:
+            controls += '<button id="finish" type="button">Zapisz profil i zakończ</button>'
+        initial_status = ("Profil zapisany i sesja zamknięta. Wróć do rozmowy."
+                          if r.receipt is not None else "Sprawdzam stan zapisu…")
         return _page(
             f'<h1>Logowanie — {service}</h1>'
             f'<p class="status">Osobny profil: <strong>{profile}</strong></p>'
-            '<div class="steps">'
-            '<p><strong>1.</strong> Otwórz sterowanie dotykowe.</p>'
-            f'<p><strong>2.</strong> Zaloguj się do {service}. '
-            'Hasło i kod wpisujesz tam, nie w czacie.</p>'
-            '<p><strong>3.</strong> Wróć strzałką Wstecz do tej strony, '
-            'a następnie wybierz „Zapisz profil i zakończ”.</p>'
-            '</div>'
-            '<div class="actions">'
-            '<a id="touch" class="open-fullscreen" '
-            'href="/owner-mobile-login/touch">'
-            'Sterowanie dotykowe — iPhone</a>'
-            f'<a id="fullscreen" class="open-fullscreen" href="{url}" '
-            'rel="noreferrer">Alternatywa: podgląd Steel</a>'
-            '<button id="finish" type="button">Zapisz profil i zakończ</button>'
-            '</div>'
-            '<p id="status" class="status">Możesz wrócić do tej strony '
-            'w tej samej przeglądarce bez ponownego użycia zaproszenia. '
-            'Sesja logowania jest krótkotrwała.</p>',
+            '<p>Zakończ logowanie w oknie przeglądarki. '
+            'Po zapisaniu profilu tutaj znajdziesz potwierdzenie.</p>'
+            f'<div class="actions">{controls}</div>'
+            '<p id="countdown" class="status"></p>'
+            '<p id="backup" class="status"></p>'
+            '<p id="authentication" class="status">Stan zalogowania nie został potwierdzony.</p>'
+            f'<p id="status" class="status">{initial_status}</p>',
             script)
 
     async def finish(self, request):
@@ -569,25 +799,15 @@ class OwnerMobileHandoff:
             return JSONResponse({"error":"MOBILE_REQUEST_DENIED"}, status_code=403,
                                 headers=_headers())
         async with self.lock:
-            r = self._cookie_record(request)
+            r = self._receipt_record(request)
             if r is None:
                 return JSONResponse({"error":"MOBILE_SESSION_UNAVAILABLE"},
                                     status_code=410, headers=_headers())
             try:
-                receipt = await self.guard.action("browser_stop",
-                                                  self.original_stop,
-                                                  {"session_id":r.handle})
+                receipt = await self._finish_record(r, "finished")
             except Exception:
                 return JSONResponse({"error":"MOBILE_SAVE_UNCONFIRMED"},
                                     status_code=503, headers=_headers())
-            if (not isinstance(receipt, dict) or
-                    receipt.get("profile_saved") is not True or
-                    receipt.get("full_profile_saved") is not True):
-                return JSONResponse({"error":"MOBILE_SAVE_UNCONFIRMED"},
-                                    status_code=503, headers=_headers())
-            r.finished = True
-            reply = JSONResponse({"status":"saved_and_closed"},
-                                 headers=_headers())
-            reply.delete_cookie(COOKIE, path="/", secure=True, httponly=True,
-                                samesite="strict")
-            return reply
+            # Keep the bounded HttpOnly cookie for this receipt only. A lost
+            # HTTP response or phone Back must not invite a duplicate stop.
+            return JSONResponse(receipt, headers=_headers())

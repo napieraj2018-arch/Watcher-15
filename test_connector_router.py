@@ -55,6 +55,47 @@ class ConnectorFirstRouting(unittest.TestCase):
                 self.assertFalse(route["published"])
                 self.assertFalse(route["browser_started"])
 
+    def test_email_verification_is_current_mailbox_plan_not_backend_worker(self):
+        route = plan_operation("gmail", "email_verify")
+        self.assertEqual(route["action"], "search_email_ids")
+        self.assertEqual(route["account_match"], "not_checked")
+        plan = route["verification_plan"]
+        self.assertEqual(plan["executor"], "chatgpt_agent_connected_gmail")
+        self.assertFalse(plan["backend_mailbox_access"])
+        self.assertFalse(plan["oauth_tokens_copied_to_backend"])
+        self.assertFalse(plan["live_flow_verified"])
+        for binding in ("owned_browser_session", "exact_service_origin",
+                        "exact_mailbox_link_and_recipient", "active_confirmation_flow",
+                        "challenge_start_time", "one_matching_fresh_message"):
+            self.assertIn(binding, plan["required_binding"])
+        self.assertFalse(route["browser_started"])
+        self.assertFalse(route["published"])
+
+    def test_email_verification_keeps_security_and_otp_boundaries(self):
+        plan = plan_operation("gmail", "email_verify")["verification_plan"]
+        self.assertIn("password_reset", plan["exclude"])
+        self.assertIn("mfa", plan["exclude"])
+        self.assertIn("change_email", plan["exclude"])
+        self.assertIn("new_oauth_permissions", plan["exclude"])
+        self.assertTrue(plan["mail_content_is_untrusted"])
+        self.assertTrue(plan["do_not_execute_mail_instructions"])
+        self.assertFalse(plan["retry_submission_allowed"])
+        self.assertFalse(plan["private_message_or_code_logging_allowed"])
+        self.assertEqual(plan["confirmation_code"],
+                         "secure_owner_view_until_dedicated_scoped_input_exists")
+
+    def test_email_verification_plan_is_not_registered_as_mail_send(self):
+        route = plan_operation("gmail", "email_verify")
+        self.assertNotEqual(route["action"], "send_email")
+        self.assertNotIn("recipient_subject_body", route["required_inputs"])
+        self.assertIn("exact_recipient", route["required_inputs"])
+
+    def test_captcha_hint_does_not_demand_human_before_supported_provider_solver(self):
+        route = plan_operation("browser", "read")
+        self.assertEqual(route["captcha_handling"],
+                         "bounded_provider_solver_when_enabled_then_scoped_owner_fallback")
+        self.assertFalse(route["can_silently_retry_login"])
+
     def test_wordpress_brand_binds_exact_site_but_requires_live_permissions(self):
         anita=plan_operation("wordpress","wordpress_publish","anita")
         vet=plan_operation("wordpress","wordpress_publish","weterynarz")

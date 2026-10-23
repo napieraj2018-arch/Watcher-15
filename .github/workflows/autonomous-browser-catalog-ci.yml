@@ -16,6 +16,8 @@ on:
       - "operator_catalog.py"
       - "connector_router.py"
       - "test_connector_router.py"
+      - "verification_status.py"
+      - "test_verification_status.py"
       - "test_connector_read_recovery.py"
       - "review_dedupe.py"
       - "test_review_dedupe.py"
@@ -29,6 +31,8 @@ on:
     paths:
       - "connector_router.py"
       - "operator_catalog.py"
+      - "verification_status.py"
+      - "test_verification_status.py"
       - "test_connector_read_recovery.py"
       - ".github/workflows/autonomous-browser-catalog-ci.yml"
   workflow_dispatch:

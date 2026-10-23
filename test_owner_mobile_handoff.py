@@ -4,6 +4,7 @@ All sessions are synthetic. No Steel API, Meta login, passwords or real
 profile data are used. These tests exercise the ACTUAL 51-tool MCP 2.3 guard.
 """
 from __future__ import annotations
+import asyncio
 import json
 import re
 from types import SimpleNamespace
@@ -83,6 +84,7 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         self.assertEqual(self.guard.install(),51)
         self.handoff = self.guard.mobile_handoff
         self.handoff.clock=lambda:100
+        self.handoff.wall_clock=lambda:1700000100
 
     async def begin(self, **kw):
         return await self.handoff.create(
@@ -216,7 +218,11 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         setup=await self.begin()
         self.assertEqual(len(self.manager._sessions),2)
         receipt=await self.handoff.cancel({"setup_id":setup["setup_id"]})
-        self.assertEqual(receipt,{"cancelled":True,"profile_saved":True})
+        self.assertTrue(receipt["cancelled"])
+        self.assertTrue(receipt["profile_saved"])
+        self.assertTrue(receipt["full_profile_saved"])
+        self.assertEqual(receipt["status"],"saved_and_closed")
+        self.assertFalse(receipt["auth_verified"])
         self.assertEqual(len(self.manager._sessions),1)
         self.assertEqual(next(iter(self.manager._sessions.values())).profile,
                          "Meta - Other-Synthetic")
@@ -236,6 +242,7 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         self.assertNotIn(b"synthetic-valid-debug",home.body)
         self.assertNotIn(setup["setup_url"].split("#s=")[-1].encode(),home.body)
         self.assertIn(b"location.hash",home.body)
+        self.assertIn(b'location.replace("/owner-mobile-login/touch")',home.body)
         claim=await self.claim(setup)
         self.assertEqual(claim.status_code,200)
         cookie=claim.headers["set-cookie"].split(";",1)[0]
@@ -276,7 +283,7 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         cookie=first.headers["set-cookie"].split(";",1)[0]
         home=await self.handoff.home(request(SETUP_PATH,cookie=cookie))
         self.assertEqual(home.status_code,303)
-        self.assertEqual(home.headers["location"],SETUP_PATH+"/view")
+        self.assertEqual(home.headers["location"],SETUP_PATH+"/touch")
         self.assertEqual(len(self.manager._sessions),1)
         self.assertNotIn(GOOD_URL,str(home.headers))
         # No cookie: same one-use invitation cannot be claimed again.
@@ -617,6 +624,272 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         self.assertNotIn("app.steel.dev",json.dumps(r))
         self.assertEqual(r["password_collected_by_chat"],False)
         self.assertEqual(r["browser_session_started"],True)
+
+    async def claimed_setup(self, **kwargs):
+        setup = await self.begin(**kwargs)
+        reply = await self.claim(setup)
+        return setup, reply.headers["set-cookie"].split(";", 1)[0]
+
+    async def read_status(self, cookie):
+        reply = await self.handoff.status(request(SETUP_PATH + "/status", cookie=cookie))
+        self.assertEqual(reply.status_code, 200)
+        return json.loads(reply.body)
+
+    async def test_lost_finish_response_can_be_read_and_repeated_without_second_stop(self):
+        setup, cookie = await self.claimed_setup()
+        first = await self.handoff.finish(request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        self.assertEqual(first.status_code, 200)
+        receipt = json.loads(first.body)
+        self.assertTrue(receipt["profile_saved"])
+        self.assertTrue(receipt["full_profile_saved"])
+        self.assertEqual(receipt["save_confirmed_at"], 1700000100)
+        self.assertFalse(receipt["auth_verified"])
+        self.assertNotIn("set-cookie", first.headers)
+        self.assertIsNone(self.handoff._cookie_record(request(SETUP_PATH, cookie=cookie)))
+        self.assertEqual(await self.read_status(cookie), receipt)
+        repeated = await self.handoff.finish(request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        self.assertEqual(json.loads(repeated.body), receipt)
+        self.assertEqual(self.manager.saved, ["INTERNAL_SYNTHETIC_SESSION_1"])
+        home = await self.handoff.home(request(SETUP_PATH, cookie=cookie))
+        self.assertIn("Profil zapisany".encode(), home.body)
+        self.assertNotIn(GOOD_URL.encode(), home.body)
+        self.assertEqual((await self.claim(setup)).status_code, 410)
+
+    async def test_cancel_has_saved_semantics_and_is_idempotent(self):
+        setup, cookie = await self.claimed_setup()
+        first = await self.handoff.cancel({"setup_id": setup["setup_id"]})
+        second = await self.handoff.cancel({"setup_id": setup["setup_id"]})
+        self.assertEqual(first, second)
+        self.assertEqual(first["completion_source"], "cancelled")
+        self.assertTrue(first["full_profile_saved"])
+        self.assertEqual(len(self.manager.saved), 1)
+        self.assertEqual((await self.read_status(cookie))["status"], "saved_and_closed")
+
+    async def test_cancelled_http_finish_keeps_confirmed_receipt_for_phone_return(self):
+        _, cookie = await self.claimed_setup()
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = self.handoff.original_stop
+
+        async def delayed_stop(**kwargs):
+            entered.set()
+            await release.wait()
+            return await original(**kwargs)
+
+        self.handoff.original_stop = delayed_stop
+        task = asyncio.create_task(self.handoff.finish(request(
+            SETUP_PATH + "/finish", "POST", {}, cookie=cookie)))
+        await asyncio.wait_for(entered.wait(), 1)
+        task.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        status = await self.read_status(cookie)
+        self.assertEqual(status["status"], "saved_and_closed")
+        self.assertTrue(status["full_profile_saved"])
+        self.assertFalse(self.guard.quarantined)
+        repeated = await self.handoff.finish(request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(len(self.manager.saved), 1)
+
+    async def test_status_does_not_claim_save_before_full_receipt_after_record_removal(self):
+        _, cookie = await self.claimed_setup()
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = self.handoff.original_stop
+
+        async def delayed_receipt(**kwargs):
+            receipt = await original(**kwargs)
+            entered.set()
+            await release.wait()
+            return receipt
+
+        self.handoff.original_stop = delayed_receipt
+        task = asyncio.create_task(self.handoff.finish(request(
+            SETUP_PATH + "/finish", "POST", {}, cookie=cookie)))
+        await asyncio.wait_for(entered.wait(), 1)
+        self.assertEqual(self.manager._sessions, {})
+        try:
+            pending = await self.read_status(cookie)
+            self.assertEqual(pending["status"], "saving")
+            self.assertFalse(pending["profile_saved"])
+            self.assertFalse(pending["full_profile_saved"])
+            self.assertIsNone(pending["save_confirmed_at"])
+            self.assertEqual(len(self.guard.leases), 1)
+            home = await self.handoff.home(request(SETUP_PATH, cookie=cookie))
+            self.assertEqual(home.status_code, 200)
+            self.assertNotIn(GOOD_URL.encode(), home.body)
+            self.assertNotIn(b'id="touch"', home.body)
+        finally:
+            release.set()
+            await task
+        self.assertTrue((await self.read_status(cookie))["full_profile_saved"])
+
+    async def test_receipt_flags_without_released_lease_never_report_finished(self):
+        _, cookie = await self.claimed_setup()
+
+        async def incomplete_close(**kwargs):
+            return {"profile_saved": True, "full_profile_saved": True}
+
+        self.handoff.original_stop = incomplete_close
+        reply = await self.handoff.finish(request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        self.assertEqual(reply.status_code, 503)
+        self.assertFalse(self.handoff.active.finished)
+        self.assertTrue(self.guard.quarantined)
+        self.assertEqual(len(self.guard.leases), 1)
+        status = await self.read_status(cookie)
+        self.assertEqual(status["status"], "save_unconfirmed")
+        self.assertFalse(status["full_profile_saved"])
+
+    async def test_failed_save_readback_never_retries_close_or_clears_quarantine(self):
+        _, cookie = await self.claimed_setup()
+        self.manager.broken_save = True
+        for _ in range(2):
+            reply = await self.handoff.finish(request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+            self.assertEqual(reply.status_code, 503)
+        self.assertEqual(len(self.manager.saved), 1)
+        self.assertTrue(self.guard.quarantined)
+        self.assertEqual((await self.read_status(cookie))["status"], "save_unconfirmed")
+        self.assertFalse(self.handoff.active.finished)
+
+    async def test_watchdog_result_survives_control_expiry_without_changing_deadline(self):
+        now = [100.0]
+        self.guard.clock = self.handoff.clock = lambda: now[0]
+        setup, cookie = await self.claimed_setup()
+        lease = self.handoff.active.lease
+        deadline = self.guard.close_deadlines[lease.internal_session_id]
+        self.assertEqual(deadline, 880)
+        self.assertEqual((await self.read_status(cookie))["remaining_seconds"], 690)
+        now[0] = 800
+        expired = await self.read_status(cookie)
+        self.assertEqual(expired["status"], "expired")
+        self.assertFalse(expired["profile_saved"])
+        self.assertEqual(expired["auto_save_close_in_seconds"], 80)
+        self.assertEqual(self.guard.close_deadlines[lease.internal_session_id], deadline)
+        self.assertEqual(self.manager.saved, [])
+        self.assertIsNone(self.handoff._cookie_record(request(SETUP_PATH, cookie=cookie)))
+        now[0] = 880
+        await self.guard.watchdog(lease)
+        saved = await self.read_status(cookie)
+        self.assertEqual(saved["status"], "saved_and_closed")
+        self.assertEqual(saved["completion_source"], "owner_guard")
+        self.assertTrue(saved["full_profile_saved"])
+        repeated = await self.handoff.finish(request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(len(self.manager.saved), 1)
+
+    async def test_elapsed_time_alone_and_missing_manager_record_are_not_receipts(self):
+        now = [100.0]
+        self.guard.clock = self.handoff.clock = lambda: now[0]
+        _, cookie = await self.claimed_setup()
+        lease = self.handoff.active.lease
+        self.manager._sessions.pop(lease.internal_session_id)
+        now[0] = 900
+        status = await self.read_status(cookie)
+        self.assertEqual(status["status"], "save_unconfirmed")
+        self.assertFalse(status["full_profile_saved"])
+        self.assertIsNone(status["save_confirmed_at"])
+        self.assertFalse(self.handoff.active.finished)
+        self.assertEqual(len(self.guard.leases), 1)
+        self.assertTrue(self.guard.quarantined)
+
+    async def test_finish_racing_watchdog_reports_one_verified_close(self):
+        now = [100.0]
+        self.guard.clock = self.handoff.clock = lambda: now[0]
+        _, cookie = await self.claimed_setup()
+        entered, release = asyncio.Event(), asyncio.Event()
+        original_stop = self.manager.stop
+        calls = []
+
+        async def delayed_stop(sid):
+            calls.append(sid)
+            receipt = await original_stop(sid)
+            entered.set()
+            await release.wait()
+            return receipt
+
+        self.manager.stop = delayed_stop
+        now[0] = 880
+        watchdog = asyncio.create_task(self.guard.watchdog(self.handoff.active.lease))
+        await asyncio.wait_for(entered.wait(), 1)
+        finish = asyncio.create_task(self.handoff.finish(request(
+            SETUP_PATH + "/finish", "POST", {}, cookie=cookie)))
+        await asyncio.sleep(0)
+        self.assertTrue(self.handoff.active.saving)
+        release.set()
+        await watchdog
+        reply = await finish
+        self.assertEqual(reply.status_code, 200)
+        self.assertTrue(json.loads(reply.body)["full_profile_saved"])
+        self.assertEqual(calls, ["INTERNAL_SYNTHETIC_SESSION_1"])
+        self.assertFalse(self.guard.quarantined)
+
+    async def test_result_cookie_cannot_access_new_session_or_outlive_readback_window(self):
+        _, cookie = await self.claimed_setup()
+        await self.handoff.finish(request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        other = await self.guard.start(self.handoff.original_start, {
+            "profile": PROFILE, "start_url": "https://example.com/"})
+        lease = self.guard.authorize(other["session_id"])
+        self.assertIsNone(self.handoff._cookie_record(request(SETUP_PATH, cookie=cookie)))
+        self.assertEqual((await self.read_status(cookie))["status"], "saved_and_closed")
+        await self.handoff.finish(request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        self.assertIn(lease.internal_session_id, self.manager._sessions)
+        self.assertEqual(len(self.manager.saved), 1)
+        self.handoff.clock = lambda: self.handoff.active.receipt_expires_at + 1
+        denied = await self.handoff.status(request(SETUP_PATH + "/status", cookie=cookie))
+        self.assertEqual(denied.status_code, 410)
+        wrong = await self.handoff.status(request(SETUP_PATH + "/status", cookie=COOKIE + "=" + "Z" * 43))
+        self.assertEqual(wrong.status_code, 410)
+        self.assertIn(lease.internal_session_id, self.manager._sessions)
+
+    async def test_status_exposes_only_safe_backup_and_live_authentication_evidence(self):
+        _, cookie = await self.claimed_setup(login_url="https://myaccount.google.com/")
+        backup = {"ok": True, "saved_at": 1700000000}
+
+        async def metadata(sid):
+            self.manager._session(sid)
+            return {"url": "https://myaccount.google.com/?private=DO_NOT_RETURN",
+                    "portable_backup": backup,
+                    "authentication": {"stage": "authenticated", "authenticated": True,
+                                       "private_identity": "DO_NOT_RETURN"},
+                    "secret": "DO_NOT_RETURN"}
+
+        self.manager.status = metadata
+        active = await self.read_status(cookie)
+        self.assertEqual(active["last_successful_backup_at"], 1700000000)
+        self.assertTrue(active["portable_backup_ok"])
+        self.assertFalse(active["profile_saved"])
+        self.assertFalse(active["full_profile_saved"])
+        self.assertTrue(active["auth_verified"])
+        self.assertNotIn("DO_NOT_RETURN", json.dumps(active))
+        backup.update({"ok": False, "saved_at": 1700000050})
+        failed_backup = await self.read_status(cookie)
+        self.assertEqual(failed_backup["last_successful_backup_at"], 1700000000)
+        self.assertFalse(failed_backup["portable_backup_ok"])
+        receipt = await self.handoff.finish(request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        saved = json.loads(receipt.body)
+        self.assertTrue(saved["full_profile_saved"])
+        self.assertFalse(saved["auth_verified"])
+        self.assertEqual(saved["authentication_stage"], "unverified")
+
+    async def test_sso_account_status_does_not_confirm_destination_login(self):
+        _, cookie = await self.claimed_setup(login_url="https://chatgpt.com/")
+
+        async def google_identity(sid):
+            return {"url": "https://accounts.google.com/",
+                    "authentication": {"stage": "authenticated", "authenticated": True}}
+
+        self.manager.status = google_identity
+        status = await self.read_status(cookie)
+        self.assertFalse(status["auth_verified"])
+        self.assertEqual(status["authentication_stage"], "unverified")
+
+    async def test_own_confirmed_close_does_not_clear_another_session_quarantine(self):
+        _, cookie = await self.claimed_setup()
+        self.guard.quarantined = True
+        reply = await self.handoff.finish(request(SETUP_PATH + "/finish", "POST", {}, cookie=cookie))
+        self.assertEqual(reply.status_code, 200)
+        self.assertTrue(json.loads(reply.body)["full_profile_saved"])
+        self.assertTrue(self.guard.quarantined)
 
 
 if __name__=="__main__":

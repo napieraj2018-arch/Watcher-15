@@ -9,8 +9,9 @@ never authorizes publication, confirms authentication or submits a form.
 from __future__ import annotations
 
 from copy import deepcopy
+from verification_status import email_confirmation_plan
 
-ROUTER_VERSION = "2026-10-10.2"
+ROUTER_VERSION = "2026-10-23.1"
 BRANDS = frozenset(("", "anita", "weterynarz"))
 SERVICES = frozenset((
     "instagram", "facebook", "gmail", "wordpress", "google_business",
@@ -18,7 +19,7 @@ SERVICES = frozenset((
 ))
 OPERATIONS = frozenset((
     "read", "post", "image_post", "reel", "story", "carousel",
-    "highlights", "reviews", "email_read", "email_draft", "email_send",
+    "highlights", "reviews", "email_read", "email_draft", "email_send", "email_verify",
     "wordpress_read", "wordpress_draft", "wordpress_publish",
     "business_reviews", "business_post", "analytics",
 ))
@@ -64,6 +65,9 @@ API_ROUTE = {
                                   ("image_upload_and_photo_id",)),
     ("gmail", "email_read"): ("Gmail", "gmail", "search_emails",
                               ("current_mailbox_identity",)),
+    ("gmail", "email_verify"): ("Gmail", "gmail", "search_email_ids",
+                                ("verified_mailbox_link", "exact_recipient",
+                                 "authorized_current_confirmation_flow", "challenge_start_time")),
     ("gmail", "email_draft"): ("Gmail", "gmail", "create_draft",
                                ("recipient_subject_body",)),
     ("gmail", "email_send"): ("Gmail", "gmail", "send_email",
@@ -176,7 +180,7 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
         "requires_exact_account_match":True,
         "requires_concrete_content_for_write":operation in WRITES,
         "can_silently_retry_login":False,
-        "captcha_handling":"human_verification_required_if_present",
+        "captcha_handling":"bounded_provider_solver_when_enabled_then_scoped_owner_fallback",
         "privacy":"never_request_password_or_otp_in_chat",
         "access_recovery":{key: plan_access_recovery(key) for key in ACCESS_RECOVERY},
     }
@@ -200,7 +204,7 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
         result["requires_live_connector_probe"]=False
         return result
 
-    if service=="gmail" and operation not in {"email_read","email_draft","email_send"}:
+    if service=="gmail" and operation not in {"email_read","email_draft","email_send","email_verify"}:
         result["status"]="unsupported_action"
         result["reason"]="select_a_known_gmail_operation"
         return result
@@ -226,6 +230,9 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
     result["action"]=action
     result["required_inputs"]=list(requirements)
     result["next_step"]="probe_connector_account_and_action_permissions"
+    if service == "gmail" and operation == "email_verify":
+        result["verification_plan"] = email_confirmation_plan()
+        result["next_step"] = "bind_current_confirmation_flow_to_exact_connected_mailbox"
     if service in {"instagram", "facebook", "google_business"} and operation == "read":
         # Provider-supported business fields, not private groups or Highlights.
         result["read_scope"] = "business_account_supported_fields_only"

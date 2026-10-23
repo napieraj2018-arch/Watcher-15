@@ -6,7 +6,7 @@ import json
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 import auth_status_v052 as app
 
 
@@ -133,6 +133,30 @@ class ConfigAndLogging(unittest.TestCase):
 
 
 class Lifecycle(unittest.IsolatedAsyncioTestCase):
+    async def test_challenge_budget_uses_only_exact_current_owner_lease(self):
+        owned, other = session(), session()
+        noop = AsyncMock(return_value={})
+        manager = types.SimpleNamespace(_sessions={'internal': owned},
+            status=noop, start=noop, stop=noop)
+        core = types.SimpleNamespace()
+        ns = {'manager': manager}
+        modules = {'steel_context_fix': core, 'steel_runtime': types.SimpleNamespace()}
+        with patch.dict(sys.modules, modules), patch.dict(os.environ, {'AI_BROWSER_ENGINE':'steel'}):
+            app.install(ns)
+            # The guard is installed later in bootstrap; the closure must see it.
+            lease = object()
+            ns['_AIB_OWNER_PARALLEL_GUARD'] = types.SimpleNamespace(
+                actor_session=types.SimpleNamespace(get=lambda: 'internal'),
+                leases={'internal': lease},
+                with_lifecycle=lambda result, current: {'remaining_seconds': 7}
+                if current is lease else {})
+            with patch.object(app, 'inspect_session', AsyncMock(return_value={})) as inspect:
+                await core.auth_probe(owned)
+                inspect.assert_awaited_once_with(owned, remaining_seconds=7)
+                inspect.reset_mock()
+                await core.auth_probe(other)
+                inspect.assert_awaited_once_with(other, remaining_seconds=None)
+
     async def test_close_and_start_serialized_without_account_writes(self):
         events = []
         class Manager:

@@ -94,7 +94,7 @@ class SteelSingleFlight(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(request["debugConfig"]["systemCursor"], True)
             self.assertEqual(request["dimensions"], {"width": 508, "height": 1074})
             self.assertIs(request["headless"], False)
-            self.assertIs(request["solveCaptcha"], False)
+            self.assertIs(request["solveCaptcha"], True)
         finally:
             await browser.close()
 

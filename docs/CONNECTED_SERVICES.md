@@ -39,9 +39,10 @@ i właściwe konto sprawdzaj bezpośrednio przed użyciem:
 Jeżeli aplikacja ChatGPT nie obsługuje danego kroku lub nie ma
 prawidłowego uprawnienia, dopiero wtedy AI Browser z właściwym
 trwałym profilem; odczytaj bieżący stan autoryzacji. Nazwa profilu
-ani zapisany cookie nie są dowodem zalogowania. Nie próbuj
-automatycznie omijać reCAPTCHA/2FA; zleć tylko potrzebną
-weryfikację użytkownikowi i wróć do ostatniego bezpiecznego kroku.
+ani zapisany cookie nie są dowodem zalogowania. Przy CAPTCHA odczytaj stan
+wbudowanej obsługi Steel i odczekaj wyłącznie jej ograniczony budżet.
+Wymagane osobiste MFA lub nieobsłużone wyzwanie wykonuje użytkownik
+w mobilnym oknie, po czym agent odczytuje bieżący stan.
 Nie przenoś tokenów z połączonych aplikacji ChatGPT do publicznego
 repozytorium, Render environment ani logów.
 
@@ -64,6 +65,11 @@ katalogiem opcji, np.:
   że opublikowano również Reel w Instagramie.
 - Gmail: `gmail`, `email_read`, bez marki →
   podłączona aplikacja `Gmail/search_emails`, bez hasła browsera.
+- Zwykłe potwierdzenie e-mail: `gmail`, `email_verify`, bez marki →
+  połączony Gmail wybranego właściciela. Agent sprawdza bieżący flow,
+  adresata, czas, nadawcę oraz dokładną domenę i cel odnośnika przed
+  pojedynczym otwarciem we własnej sesji. Ta trasa nie czyta poczty
+  samodzielnie i nie kopiuje OAuth do Rendera.
 - WordPress: `wordpress`, `wordpress_publish`, `anita` →
   WPVibe `discover_abilities` i dopiero po weryfikacji właściwej
   witryny dostępna funkcja zapisu lub publikacji.
@@ -102,7 +108,9 @@ Nowy błąd zapisu, utrata lease lub niepewne zwolnienie providera nadal
 wymagają sprawdzenia przed ponownym startem albo wdrożeniem; nie czyść
 kwarantanny restartem. Kontynuuj niezależne autoryzowane prace API.
 
-CAPTCHA lub wymagane ludzkie MFA zatrzymują zależny krok do potwierdzenia
-użytkownika. Nie wykonuj ślepych prób logowania ani nie rozszerzaj zakresu
-mobilnego handoff. Hasła, kody i tokeny nie trafiają do czatu. Zapisany profil
-nie jest trwałym wznowieniem zadania z poprzedniej rozmowy.
+Właściciel 23.10.2026 zlecił obsługę zwykłych potwierdzeń e-mail oraz
+wspieranych CAPTCHA bez ponownego pytania o ten sam zakres. Nie zatwierdzaj
+przez to resetu hasła, odzyskiwania, zmiany adresu, nowych uprawnień OAuth
+ani niepowiązanego logowania. Nie wykonuj ślepych ponowień i nie rozszerzaj
+originów mobilnego handoff. Hasła, kody i tokeny nie trafiają do czatu ani
+publicznego repo. Zapisany profil nie jest trwałym wznowieniem zadania.
