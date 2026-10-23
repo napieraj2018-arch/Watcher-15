@@ -20,7 +20,22 @@ class CaptchaCreateContract(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         self.env.stop()
 
-    async def test_confirmed_feature_never_changes_proxy_or_profile_device(self):
+    async def test_unset_configuration_disables_feature_without_status_request(self):
+        with patch.dict(os.environ):
+            os.environ.pop('AI_BROWSER_CAPTCHA_AUTOMATION', None)
+            engine = FakeEngine()
+        remote = await engine.launch(FakeChromium())
+        try:
+            self.assertIs(engine.last_create_body['solveCaptcha'], False)
+            self.assertEqual(remote.captcha_configuration(), {
+                'requested': False, 'provider_confirmed': False, 'availability': 'disabled'})
+            # FakeEngine rejects any CAPTCHA status GET: disabled is local.
+            self.assertEqual((await remote.captcha_status('https://example.test/'))['status'], 'disabled')
+            self.assertEqual(engine.creates, 1)
+        finally:
+            await remote.close()
+
+    async def test_explicit_opt_in_never_changes_proxy_or_profile_device(self):
         engine = FakeEngine()
         original = engine.request
         async def request(method, path, body=None, timeout=25):
@@ -32,6 +47,7 @@ class CaptchaCreateContract(unittest.IsolatedAsyncioTestCase):
         remote = await engine.launch(FakeChromium())
         self.assertEqual(remote.captcha_configuration(), {
             'requested': True, 'provider_confirmed': True, 'availability': 'enabled'})
+        self.assertIs(engine.last_create_body['solveCaptcha'], True)
         self.assertIs(engine.last_create_body['useProxy'], False)
         self.assertNotIn('stealthConfig', engine.last_create_body)
         self.assertEqual(engine.last_create_body['deviceConfig'], {'device': 'mobile'})
@@ -67,9 +83,13 @@ class CaptchaCreateContract(unittest.IsolatedAsyncioTestCase):
         await remote.close()
 
     async def test_invalid_configuration_fails_before_provider_access(self):
-        with patch.dict(os.environ, {'AI_BROWSER_CAPTCHA_AUTOMATION': 'yes'}):
-            with self.assertRaisesRegex(app.SteelFailure, '^STEEL_CAPTCHA_CONFIG_INVALID$'):
-                FakeEngine()
+        for value in ('', 'yes', 'true', 'false', '01', ' 1', '1 ', '2'):
+            with self.subTest(value=value), patch.dict(os.environ, {
+                    'AI_BROWSER_CAPTCHA_AUTOMATION': value}), \
+                    patch.object(app.httpx, 'AsyncClient') as client:
+                with self.assertRaisesRegex(app.SteelFailure, '^STEEL_CAPTCHA_CONFIG_INVALID$'):
+                    app.Engine()
+                client.assert_not_called()
 
     async def test_exact_payment_rejection_drops_feature_once_same_requested_id(self):
         engine = FakeEngine()
@@ -151,6 +171,39 @@ class CaptchaCreateContract(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(app.SteelFailure) as other:
                     await engine.request(method, path, body)
                 self.assertNotIsInstance(other.exception, app.SteelCaptchaNotAvailable)
+
+    async def test_transport_403_with_release_404_never_retries_or_clears_quarantine(self):
+        client_type = httpx.AsyncClient
+        calls = []
+
+        async def respond(request):
+            calls.append(request)
+            if request.method == 'POST' and request.url.path == '/v1/sessions':
+                return httpx.Response(403, json={
+                    'message': 'SYNTHETIC_PRIVATE_PROVIDER_MESSAGE'})
+            if request.method == 'POST' and request.url.path.endswith('/release'):
+                return httpx.Response(404, json={'message': 'Session not found'})
+            raise AssertionError('Unexpected provider request')
+
+        transport = httpx.MockTransport(respond)
+        with patch.object(app.httpx, 'AsyncClient',
+                          side_effect=lambda **kw: client_type(transport=transport, **kw)):
+            engine, chromium = app.Engine(), FakeChromium()
+            with self.assertRaisesRegex(app.SteelFailure, '^STEEL_HTTP_403$') as caught:
+                await engine.launch(chromium)
+            self.assertNotIsInstance(caught.exception, app.SteelCaptchaNotAvailable)
+            self.assertEqual(len(calls), 2)
+            create = json.loads(calls[0].content)
+            self.assertIs(create['solveCaptcha'], True)
+            self.assertIs(create['useProxy'], False)
+            self.assertEqual(calls[1].url.path,
+                             '/v1/sessions/' + create['sessionId'] + '/release')
+            self.assertEqual(chromium.attempts, 0)
+            self.assertTrue(engine._quarantined)
+            self.assertEqual(engine.remote, {})
+            with self.assertRaisesRegex(app.SteelFailure, '^STEEL_SESSION_QUARANTINED$'):
+                await engine.launch(chromium)
+            self.assertEqual(len(calls), 2)
 
 
 class CaptchaProgress(unittest.IsolatedAsyncioTestCase):
