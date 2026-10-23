@@ -435,6 +435,45 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
             self.assertGreaterEqual(box["y"], 0)
             self.assertLessEqual(box["y"]+box["height"], 391)
 
+    async def test_editor_crop_keeps_tap_anchor_and_coordinates_after_keyboard_and_pan(self):
+        source = await self.page.locator("#touch-shot").bounding_box()
+        await self.page.touchscreen.tap(source["x"]+source["width"]*.5,
+                                        source["y"]+source["height"]*.4)
+        await self.wait_for_events(1)
+        await expect(self.page.locator("#touch-status")).to_have_text(re.compile(r"^Wykonano"))
+        anchor = self.events[0]
+        await self.open_editor("touch-password")
+        await self.page.evaluate("""() => {
+            const viewport = window.visualViewport;
+            Object.defineProperty(viewport, 'height', {configurable: true, get: () => 390});
+            viewport.dispatchEvent(new Event('resize'));
+        }""")
+        await expect(self.page.locator("#touch-app")).to_have_css("height", "390px")
+        area = await self.page.locator("#touch-viewport").bounding_box()
+        image = await self.page.locator("#touch-shot").bounding_box()
+        self.assertAlmostEqual(image["width"], 390, delta=1)
+        self.assertGreater(image["height"], area["height"]*3)
+        x, y = area["x"]+area["width"]/2, area["y"]+area["height"]/2
+        # The source point tapped before opening the keyboard stays centered.
+        self.assertAlmostEqual(image["y"]+image["height"]*anchor["y"], y, delta=2)
+        await self.page.touchscreen.tap(x, y)
+        await self.wait_for_events(2)
+        self.assertAlmostEqual(self.events[1]["x"], anchor["x"], delta=.01)
+        self.assertAlmostEqual(self.events[1]["y"], anchor["y"], delta=.01)
+        await expect(self.page.locator("#touch-status")).to_have_text(re.compile(r"^Wykonano"))
+        await self.page.mouse.move(x, y)
+        await self.page.mouse.down()
+        await self.page.mouse.move(x, y+40, steps=4)
+        await self.page.mouse.up()
+        self.assertEqual(len(self.events), 2)  # Local crop pan, no remote wheel.
+        panned = await self.page.locator("#touch-shot").bounding_box()
+        self.assertAlmostEqual(panned["y"]-image["y"], 40, delta=2)
+        await self.page.touchscreen.tap(x, y)
+        await self.wait_for_events(3)
+        self.assertEqual(self.events[2]["kind"], "tap")
+        self.assertAlmostEqual(self.events[2]["x"], (x-panned["x"])/panned["width"], delta=.01)
+        self.assertAlmostEqual(self.events[2]["y"], anchor["y"]-40/image["height"], delta=.01)
+
     async def test_uncertain_login_response_still_refreshes_code_screen_without_replay(self):
         self.action_status = 503
         self.action_progression = True
@@ -445,10 +484,30 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.locator("#touch-shot")).to_have_js_property("naturalHeight", 760)
         await expect(self.page.locator("#touch-field-hint")).to_have_text("Kod jednorazowy")
         await expect(password).to_have_value("SYNTHETIC_UNCONFIRMED")
-        await expect(self.page.locator("#touch-status")).to_have_text(re.compile(r"^Nie udało"))
+        await expect(password).to_be_hidden()
+        code = self.page.locator("#touch-code")
+        await expect(code).to_be_visible()
+        await expect(code).to_have_value("")
+        await expect(self.page.locator("#touch-mode-code")).to_have_attribute("aria-pressed", "true")
+        await expect(self.page.locator("#touch-status")).to_have_text(re.compile(r"^Strona prosi teraz o kod"))
         self.assertEqual(self.events, [{
             "kind": "text", "field": "password", "text": "SYNTHETIC_UNCONFIRMED"}])
         await self.artifact("iphone-login-to-code-after-uncertain-response.png")
+        self.action_status = 200
+        await self.page.locator("#touch-enter").tap()
+        await self.wait_for_events(2)
+        await expect(self.page.locator("#touch-status")).to_have_text(re.compile(r"^Wykonano"))
+        self.assertEqual(self.events[1], {"kind": "key", "key": "Enter"})
+        await expect(password).to_have_value("SYNTHETIC_UNCONFIRMED")
+        await code.fill("012345")
+        await code.press("Enter")
+        await self.wait_for_events(4)
+        await expect(code).to_have_value("")
+        self.assertEqual(self.events[2:], [
+            {"kind": "text", "field": "text", "text": "012345"},
+            {"kind": "key", "key": "Enter"},
+        ])
+        await expect(password).to_have_value("SYNTHETIC_UNCONFIRMED")
 
     async def test_repeated_refresh_has_only_one_image_request_in_flight(self):
         await self.open_more()
@@ -466,6 +525,26 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.max_active_frames, 1)
         self.frame_gate.set()
         await expect(self.page.locator("#touch-app")).to_have_attribute("data-image", "ready")
+
+    async def test_confirmed_password_send_advances_to_empty_code_without_replay(self):
+        self.action_progression = True
+        password = await self.open_editor("touch-password")
+        await password.fill("SYNTHETIC_CONFIRMED")
+        await password.press("Enter")
+        await self.wait_for_events(2)
+        await expect(password).to_have_value("")
+        await expect(password).to_be_hidden()
+        await expect(self.page.locator("#touch-code")).to_be_visible()
+        await expect(self.page.locator("#touch-code")).to_have_value("")
+        await expect(self.page.locator("#touch-mode-code")).to_have_attribute("aria-pressed", "true")
+        await expect(self.page.locator("#touch-status")).to_have_text(re.compile(r"^Strona prosi teraz o kod"))
+        self.assertEqual(self.events, [
+            {"kind": "text", "field": "password", "text": "SYNTHETIC_CONFIRMED"},
+            {"kind": "key", "key": "Enter"},
+        ])
+        await self.page.locator("#touch-enter").tap()
+        await self.wait_for_events(3)
+        self.assertEqual(self.events[2], {"kind": "key", "key": "Enter"})
 
     async def test_finish_waits_for_full_receipt_and_clears_private_editor(self):
         password = await self.open_editor("touch-password")

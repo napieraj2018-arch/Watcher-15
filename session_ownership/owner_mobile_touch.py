@@ -366,10 +366,12 @@ class NativeTouchController:
           let framePending = false, frameWanted = false, frameAbort = null;
           let tabsPending = false, statePending = false, tabsSignature = "";
           let currentRef = null, displayedRef = null, editor = null;
+          let submittedEditor = null;
           let mode = "text", focusKind = null, noticeKind = "connection";
           let lastFrame = 0, lastTabs = 0, lastState = 0, deferredImage = null;
           let zoom = 1, panX = 0, panY = 0, gesture = null, pinching = false;
           let imageWidth = 508, imageHeight = 1074;
+          let layoutStamp = "", keyboardAnchor = {x:0.5,y:0.4};
           const visible = () => document.visibilityState === "visible";
           function announce(text, kind = "info") {
             status.textContent = text;
@@ -389,9 +391,17 @@ class NativeTouchController:
               app.style.top = visual.offsetTop + "px";
             }
             const width = viewport.clientWidth, height = viewport.clientHeight;
-            const fit = Math.min(width / imageWidth, height / imageHeight);
+            // Keep fields readable above the phone keyboard. Crop the image
+            // around the owner's last tap instead of shrinking the full page.
+            const fit = keyboard.hidden ? Math.min(width / imageWidth, height / imageHeight) : width / imageWidth;
             const w = Math.max(1, imageWidth * fit * zoom);
             const h = Math.max(1, imageHeight * fit * zoom);
+            const stamp = [keyboard.hidden,width,height,imageWidth,imageHeight,zoom].join(":");
+            if (!keyboard.hidden && stamp !== layoutStamp) {
+              panX = (0.5-keyboardAnchor.x)*w;
+              panY = (0.5-keyboardAnchor.y)*h;
+            }
+            layoutStamp = stamp;
             panX = Math.max(-Math.max(0,(w-width)/2), Math.min(Math.max(0,(w-width)/2),panX));
             panY = Math.max(-Math.max(0,(h-height)/2), Math.min(Math.max(0,(h-height)/2),panY));
             stage.style.width = w + "px";
@@ -443,6 +453,19 @@ class NativeTouchController:
             const labels = {text:"Pole tekstowe",email:"E-mail / login",password:"Pole hasła",
               code:"Kod jednorazowy",tel:"Numer telefonu",number:"Pole liczbowe"};
             byId("touch-field-hint").textContent = labels[focusKind] || "Najpierw wybierz pole na stronie";
+            if (focusKind === "code" && submittedEditor && submittedEditor.ref === currentRef &&
+                submittedEditor.element !== code && !code.value) {
+              // Both confirmed and ambiguous responses can advance to code
+              // verification. Never let Enter reuse the old editor on the
+              // newly observed field, or adopt a nonempty local code.
+              const unconfirmed = submittedEditor.unconfirmed;
+              if (document.activeElement === submittedEditor.element) document.activeElement.blur();
+              editor = null; submittedEditor = null;
+              setMode("code");
+              announce(unconfirmed ?
+                "Strona prosi teraz o kod. Wpisz go poniżej. Poprzedni wpis pozostał na telefonie; nie wysyłam go ponownie." :
+                "Strona prosi teraz o kod. Wpisz go poniżej i wybierz Wpisz i Enter.");
+            }
             if (focusKind && !Object.values(fields).some(field => field.value)) {
               const next = focusKind === "password" ? "password" :
                 ["code","number"].includes(focusKind) ? "code" : "text";
@@ -465,7 +488,7 @@ class NativeTouchController:
               return await response.json();
             } finally { clearTimeout(timer); }
           }
-          async function command(payload, followup = null) {
+          async function command(payload, followup = null, sourceEditor = null) {
             if (busy) {
               announce("Trwa poprzednia operacja. Spróbuj za chwilę.");
               return false;
@@ -487,8 +510,10 @@ class NativeTouchController:
                 });
               }
               announce("Wykonano. Odświeżam widok…");
+              if (sourceEditor) submittedEditor = {element:sourceEditor,ref:boundRef,unconfirmed:false};
               return true;
             } catch (_) {
+              if (sourceEditor) submittedEditor = {element:sourceEditor,ref:boundRef,unconfirmed:true};
               announce("Nie udało się potwierdzić czynności. Sprawdź obraz. Wpisany tekst został na telefonie.","error");
               return false;
             } finally {
@@ -575,7 +600,9 @@ class NativeTouchController:
                 currentRef = selected;
                 displayedRef = null;
                 editor = null;
+                submittedEditor = null;
                 deferredImage = null;
+                keyboardAnchor = {x:0.5,y:0.4}; layoutStamp = "";
                 zoom = 1; panX = panY = 0;
                 byId("touch-zoom").setAttribute("aria-pressed","false");
                 byId("touch-zoom-label").textContent = "Powiększ";
@@ -635,13 +662,16 @@ class NativeTouchController:
               return false;
             }
             const sent = await command({kind:"text",field,text},
-              enter ? {kind:"key",key:"Enter"} : null);
+              enter ? {kind:"key",key:"Enter"} : null,element);
             if (sent && element.value === text) element.value = "";
             return sent;
           };
           for (const [name,element] of Object.entries(fields)) {
             const field = name === "password" ? "password" : "text";
-            element.addEventListener("focus",() => { editor = {element,field,ref:currentRef}; });
+            element.addEventListener("focus",() => {
+              submittedEditor = null;
+              editor = {element,field,ref:currentRef};
+            });
             // Keep a pending editor bound to the tab explicitly focused by
             // its owner. A background tab change never rebinds secret input.
             element.addEventListener("keydown",e => {
@@ -702,7 +732,7 @@ class NativeTouchController:
               byId("touch-zoom").setAttribute("aria-pressed",String(zoom > 1));
               byId("touch-zoom-label").textContent = zoom.toFixed(1).replace(".",",")+"×";
               layout();
-            } else if (!pinching && zoom > 1) {
+            } else if (!pinching && (zoom > 1 || !keyboard.hidden)) {
               panX = gesture.panX+e.clientX-gesture.x; panY = gesture.panY+e.clientY-gesture.y; layout();
             }
           });
@@ -716,8 +746,13 @@ class NativeTouchController:
                 const dx = e.clientX-start.x, dy = e.clientY-start.y;
                 const box = shot.getBoundingClientRect();
                 if (Math.abs(dx)<12 && Math.abs(dy)<12) {
-                  command({kind:"tap",x:fraction(e.clientX,box.left,box.width),
-                    y:fraction(e.clientY,box.top,box.height)});
+                  keyboardAnchor = {x:fraction(e.clientX,box.left,box.width),
+                    y:fraction(e.clientY,box.top,box.height)};
+                  command({kind:"tap",...keyboardAnchor});
+                } else if (!keyboard.hidden) {
+                  const area = viewport.getBoundingClientRect();
+                  keyboardAnchor = {x:fraction(area.left+area.width/2,box.left,box.width),
+                    y:fraction(area.top+area.height/2,box.top,box.height)};
                 } else if (zoom === 1 && Math.abs(dy)>25) {
                   command({kind:"scroll",delta:Math.max(-950,Math.min(950,-dy*2))});
                 }
@@ -744,7 +779,7 @@ class NativeTouchController:
             ended = true; ending = false; controlAllowed = false;
             if (frameAbort) frameAbort.abort();
             for (const element of Object.values(fields)) element.value = "";
-            editor = null; deferredImage = null;
+            editor = null; submittedEditor = null; deferredImage = null;
             shot.removeAttribute("src");
             for (const id of ["touch-viewport","touch-livebar","touch-profile-state","touch-notice","touch-editor","touch-menu","touch-dock"])
               byId(id).hidden = true;

@@ -1,7 +1,8 @@
 # Mobilne logowanie, zapis i weryfikacja — 23.10.2026
 
-Ten dokument opisuje zakres poprawki po wdrożeniu #155. Za potwierdzenie
-LIVE służy dopiero odbiór dokładnego SHA i deployu zapisany w jej PR.
+Ten dokument opisuje zakres poprawki [#156](https://github.com/napieraj2018-arch/Watcher-15/pull/156)
+po wdrożeniu #155. Za potwierdzenie LIVE służy dopiero odbiór dokładnego SHA
+i deployu zapisany w sekcji Acceptance tego PR; sprawdź ją przy wznowieniu pracy.
 Nie utożsamiaj przejścia testu neutralnego z zalogowaniem rzeczywistego konta.
 
 ## Telefon

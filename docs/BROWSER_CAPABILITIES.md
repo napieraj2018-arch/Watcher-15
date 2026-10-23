@@ -1,6 +1,9 @@
 # AI Browser — verified capabilities and gaps (2026-10-23)
 
 The live baseline for this update is PR #155, commit `47fbb0ce`.
+The newer login/save repair is tracked in [PR #156](https://github.com/napieraj2018-arch/Watcher-15/pull/156).
+Its Acceptance section records its own CI, exact deployed SHA and live readback;
+consult that receipt before treating the baseline below as the latest deployment.
 Render deploy `dep-dbddnfd9fdbs73ap9mcg` became live on 23 October at
 06:01 Europe/Warsaw. At 06:05, the real Steel acceptance passed restored
 cookie/localStorage from before deployment, text/textarea, tabs, reload,
