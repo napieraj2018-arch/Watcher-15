@@ -35,7 +35,7 @@ class DiagnosticPrivacy(unittest.TestCase):
         output = io.StringIO()
         with patch("core_restore_diagnostic.inspect.getsource", side_effect=ValueError("synthetic-private")):
             with contextlib.redirect_stdout(output):
-                emit(FixtureManager)
+                emit(FixtureManager())
         self.assertNotIn("synthetic-private", output.getvalue())
         self.assertIn("inspection_unavailable", output.getvalue())
 
@@ -43,6 +43,21 @@ class DiagnosticPrivacy(unittest.TestCase):
         source = "class Huge:\n def navigate(self):\n" + "  self.some_call()\n" * 1000
         with patch("core_restore_diagnostic.inspect.getsource", return_value=source):
             self.assertEqual(describe(FixtureManager), [{"status": "source_exceeds_bound"}])
+
+    def test_callable_wrapper_chain_never_exports_private_closure(self):
+        manager = FixtureManager()
+        original = manager.navigate
+        private = {"cookie": "synthetic-private-runtime-value"}
+        async def wrapped(url):
+            if private:
+                return await original(url)
+        manager.navigate = wrapped
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            emit(manager)
+        value = output.getvalue()
+        self.assertNotIn("synthetic-private", value)
+        self.assertIn("navigate.original", value)
 
 
 if __name__ == "__main__":

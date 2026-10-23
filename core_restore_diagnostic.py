@@ -26,7 +26,7 @@ def describe(manager_type):
             continue
         original = ast.unparse(node)
         selected = (node.name in {"start", "navigate", "flush_profile", "stop"}
-                    or any(word in node.name.lower() for word in ("restore", "storage")))
+                    or any(word in node.name.lower() for word in ("restore", "storage", "portable_state")))
         if not selected:
             continue
         flags = {word: word in original for word in (
@@ -42,9 +42,39 @@ def describe(manager_type):
     return records
 
 
-def emit(manager_type):
+def describe_callable(fn):
+    if inspect.ismethod(fn):
+        fn = fn.__func__
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn.__code__)))
+    flags = {word: word in ast.unparse(tree) for word in (
+        "add_init_script", "localStorage", "setItem", "storage_state")}
+    text = ast.unparse(Redact().visit(tree))
+    if len(text) > 16000:
+        return {"status": "source_exceeds_bound"}
+    return {"flags": flags, "flow": text}
+
+
+def emit(manager):
     try:
-        records = describe(manager_type)
+        records = describe(type(manager))
+        # Only inspect callable source and callable closure links. Non-callable
+        # cells are never serialized, traversed or represented in diagnostics.
+        seen = set()
+        queue = [(name, getattr(manager, name, None), 0) for name in (
+            "start", "navigate", "_save_portable_state", "_load_portable_state")]
+        while queue and len(seen) < 24:
+            label, fn, depth = queue.pop(0)
+            if inspect.ismethod(fn):
+                fn = fn.__func__
+            if not inspect.isfunction(fn) or id(fn) in seen:
+                continue
+            seen.add(id(fn))
+            records.append({"binding": label, **describe_callable(fn)})
+            if depth < 4:
+                for name, cell in zip(fn.__code__.co_freevars, fn.__closure__ or ()):
+                    value = cell.cell_contents
+                    if inspect.isfunction(value) or inspect.ismethod(value):
+                        queue.append((label + "." + name, value, depth + 1))
     except Exception:
         # Exception text or repr could contain paths or private application data.
         records = [{"status": "inspection_unavailable"}]
