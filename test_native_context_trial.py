@@ -27,12 +27,11 @@ class Trial(unittest.TestCase):
         self.assertEqual(value, {**before, 'sessionContext': {}})
         self.assertEqual(self.payload, before)
 
-    def test_verified_native_profiles_keep_all_admission_settings(self):
+    def test_real_profiles_never_receive_experimental_context_override(self):
         for profile in ['WordPress - Napieraj i Synowie', 'Google - Weterynarz',
                         'Meta - Anita', 'Acceptance-20261023-R158',
                         'Acceptance-20261023-Rollback-other']:
-            self.assertEqual(policy(self.payload, profile, self.binding),
-                             {**self.payload, 'sessionContext': {}})
+            self.assertEqual(policy(self.payload, profile, self.binding), self.payload)
 
     def test_special_fixture_and_invalid_names_unchanged(self):
         for profile in ['SteelSelfTest', '../profile', '', None]:

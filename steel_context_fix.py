@@ -67,16 +67,16 @@ def preserve_verified_native_hydration(binding, profile_id):
 
 
 def native_context_trial_payload(payload, profile, binding):
-    """Use the verified native profile without replaying its startup context.
+    """Disposable canary only: isolate provider navigation-context replay.
 
     Steel documents request-level sessionContext as replacing profile context.
     Its public frame-navigation handler replays that context on each visit.
-    The neutral LIVE canary proved preserved cookies/localStorage/IndexedDB and
-    changed-value reload/reopen. Keep the historical special fixture isolated.
+    Neutral LIVE preserves cookies/localStorage/IndexedDB and changed values,
+    but real WordPress did not preserve login under this policy. Never apply
+    the experiment to customer profiles; their existing context is retained.
     """
     result = copy.deepcopy(payload)
-    if (isinstance(profile, str) and PROFILE_RE.fullmatch(profile)
-            and profile != 'SteelSelfTest'
+    if (profile == 'Acceptance-20261023-Rollback'
             and binding.get('hydrated') is True
             and binding.get('profile_id')):
         if 'sessionContext' in result:
