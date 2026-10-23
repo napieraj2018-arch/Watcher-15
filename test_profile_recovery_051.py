@@ -19,8 +19,9 @@ class Failure(RuntimeError):
 sys.modules['steel_runtime'] = types.SimpleNamespace(SteelFailure=Failure)
 source = pathlib.Path(__file__).with_name('steel_context_fix.py').read_text()
 tree = ast.parse(source)
-names = {'native_context', 'safe_route', 'exact_origin', 'merge_profile_state', 'synthetic_fixture_evidence', 'synthetic_fixture_exact_evidence', 'select_coherent_fixture_pair'}
-tree.body = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
+names = {'native_context', 'safe_route', 'exact_origin', 'merge_profile_state', 'synthetic_fixture_evidence', 'synthetic_fixture_exact_evidence', 'select_coherent_fixture_pair', 'import_portable_state', 'preserve_verified_native_hydration'}
+classes = {'ReliabilityError', 'ProfileRestoreOriginBlocked'}
+tree.body = [n for n in tree.body if (isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names) or (isinstance(n, ast.ClassDef) and n.name in classes)]
 ns = {'Path': pathlib.Path, 'json': json, 'deque': collections.deque,
       'time': __import__('time'), 'urlsplit': urlsplit, 'copy': copy}
 exec(compile(tree, 'steel_context_fix.py', 'exec'), ns)
@@ -159,6 +160,68 @@ class Recovery(unittest.IsolatedAsyncioTestCase):
 
     def test_origin_rejects_plain_http(self):
         self.assertIsNone(ns['exact_origin']('http://fixture.test'))
+
+    async def test_known_steel_dashboard_origin_is_rejected_before_mutation(self):
+        portable = state('backup')
+        portable['origins'].append({
+            'origin': 'https://app.steel.dev',
+            'localStorage': [{'name': 'private-test-field', 'value': 'DO_NOT_PRINT'}]
+        })
+        r, c = remote(False)
+        before = copy.deepcopy(c.current)
+        with self.assertRaisesRegex(
+                ns['ProfileRestoreOriginBlocked'],
+                'PROFILE_RESTORE_PROVIDER_RESTRICTED'):
+            await ns['native_context'](r, storage_state=portable)
+        self.assertEqual(c.states, [])
+        self.assertEqual(c.current, before)
+        self.assertFalse(getattr(r, '_native_context_claimed', False))
+        self.assertEqual(portable['origins'][1]['localStorage'][0]['value'],
+                         'DO_NOT_PRINT')
+
+    async def test_hydrated_real_profile_does_not_import_blocked_old_backup(self):
+        native = state('native')
+        r, c = remote(True, native)
+        binding = r.engine._native_bindings['r']
+        binding['profile'] = 'Google - Weterynarz'
+        portable = state('backup')
+        portable['origins'].append({'origin': 'https://app.steel.dev',
+                                    'localStorage': []})
+        await ns['native_context'](r, storage_state=portable)
+        self.assertEqual(c.current, native)
+        self.assertEqual(c.states, [])
+        self.assertTrue(binding['native_authoritative'])
+
+    async def test_unrecognized_provider_admin_block_maps_to_fixed_code(self):
+        from playwright.async_api import Error as PlaywrightError
+        class BlockedContext(Context):
+            async def set_storage_state(self, value):
+                raise PlaywrightError(
+                    'BrowserContext.set_storage_state: ERR_BLOCKED_BY_ADMINISTRATOR '
+                    'at https://private.test?secret=DO_NOT_PRINT')
+        context = BlockedContext()
+        with self.assertRaises(ns['ProfileRestoreOriginBlocked']) as err:
+            await ns['import_portable_state'](context, state())
+        self.assertEqual(str(err.exception),
+                         'PROFILE_RESTORE_PROVIDER_RESTRICTED')
+        self.assertIsNone(err.exception.__cause__)
+        self.assertEqual(context.current, {'cookies': [], 'origins': []})
+
+    async def test_unrelated_storage_failure_not_mislabeled(self):
+        class BrokenContext(Context):
+            async def set_storage_state(self, value):
+                raise RuntimeError('different failure')
+        with self.assertRaisesRegex(RuntimeError, 'different failure'):
+            await ns['import_portable_state'](BrokenContext(), state())
+
+    def test_prior_verified_native_hydration_is_not_downgraded(self):
+        f = ns['preserve_verified_native_hydration']
+        native = {'profile_id': 'test-id', 'hydrated': True}
+        self.assertTrue(f(native, 'test-id'))
+        self.assertFalse(f(native, 'another-id'))
+        self.assertFalse(f({'profile_id': 'test-id', 'hydrated': False},
+                           'test-id'))
+        self.assertFalse(f({'profile_id': None, 'hydrated': False}, 'new-id'))
 
     def test_complete_source_compiles(self):
         compile(source, 'steel_context_fix.py', 'exec')

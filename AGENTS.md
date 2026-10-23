@@ -1,5 +1,7 @@
 # AGENTS.md — AI Browser (2026-10-23)
 
+**AKTUALNY STAN LIVE / P0 ODBIÓR:** [docs/OWNER_LIVE_STATUS_20261023.md](docs/OWNER_LIVE_STATUS_20261023.md). Poniższe wcześniejsze punkty są dziennikiem historycznym; przed nowym zadaniem obowiązuje najnowszy sprawdzony SHA i status tej strony oraz bezpośrednie odczyty narzędzi.
+
 ## Cel
 Użytkownik wydaje jedno polecenie w ChatGPT; agent sam rozpoznaje właściwe konto, procedurę i ostatni bezpieczny checkpoint. Pracuje odczytowo domyślnie, bez ręcznego przepisywania treści i bez wysyłania użytkownika do innego promptu. Wymagane MFA i świadoma zgoda na publikację są wyjątkami, a nie codzienną obsługą.
 

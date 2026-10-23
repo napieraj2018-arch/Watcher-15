@@ -31,6 +31,16 @@ REMOTE_TIMEOUT_MESSAGE = (
     "automatically repeat writes or authentication."
 )
 
+PROFILE_ORIGIN_BLOCKED_MESSAGE = (
+    "AI_BROWSER_PROFILE_RESTORE_PROVIDER_RESTRICTED: The remote browser "
+    "provider blocks an origin in this saved profile. The portable state was "
+    "not silently filtered or overwritten by this import. Do not retry the "
+    "same login, remove credentials, disable provider policy, or clear the "
+    "profile. Use the official account dashboard outside this managed "
+    "browser, or a supported website/profile; inspect the exact profile "
+    "before attempting any migration."
+)
+
 
 def classify_known_remote_failure(exc: Exception) -> str | None:
     """Precise exception class, never pattern-match private exception text."""
@@ -38,6 +48,9 @@ def classify_known_remote_failure(exc: Exception) -> str | None:
         return PAGE_CLOSED_MESSAGE
     if isinstance(exc, PlaywrightTimeoutError):
         return REMOTE_TIMEOUT_MESSAGE
+    from steel_context_fix import ProfileRestoreOriginBlocked
+    if isinstance(exc, ProfileRestoreOriginBlocked):
+        return PROFILE_ORIGIN_BLOCKED_MESSAGE
     return None
 
 

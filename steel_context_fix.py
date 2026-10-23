@@ -26,6 +26,13 @@ class ReliabilityError(RuntimeError):
     """Fixed error codes only: do not propagate third-party error text."""
 
 
+class ProfileRestoreOriginBlocked(ReliabilityError):
+    """The remote provider forbids an origin while importing portable state.
+    
+    This is not a login failure and must never trigger state deletion or retry.
+    """
+
+
 def safe_route(url):
     try:
         parsed = urlsplit(url)
@@ -52,6 +59,37 @@ def exact_origin(url):
         return 'https://' + p.hostname.lower() + (':' + str(port) if port and port != 443 else '')
     except (TypeError, ValueError):
         return None
+
+def preserve_verified_native_hydration(binding, profile_id):
+    """A new start cannot revoke the previous saved native state by default."""
+    return (binding.get('hydrated') is True
+            and binding.get('profile_id') == profile_id)
+
+
+async def import_portable_state(context, state):
+    """Never inject a known provider-blocked origin into a remote browser.
+
+    A provider-native context and the encrypted portable backup must not be
+    silently replaced with a filtered or partly restored profile. A separate
+    owner-approved migration is required if an origin cannot be imported.
+    """
+    origins = state.get('origins', [])
+    if isinstance(origins, list):
+        for item in origins:
+            if (isinstance(item, dict)
+                    and exact_origin(item.get('origin')) == 'https://app.steel.dev'):
+                raise ProfileRestoreOriginBlocked('PROFILE_RESTORE_PROVIDER_RESTRICTED')
+    try:
+        await context.set_storage_state(state)
+    except Exception as exc:
+        # Chromium's policy error is a fixed public code. Never propagate
+        # the rest of the provider exception (URLs may contain credentials).
+        from playwright.async_api import Error as PlaywrightError
+        if (isinstance(exc, PlaywrightError)
+                and 'ERR_BLOCKED_BY_ADMINISTRATOR' in str(exc)):
+            raise ProfileRestoreOriginBlocked('PROFILE_RESTORE_PROVIDER_RESTRICTED') from None
+        raise
+
 
 
 def merge_profile_state(native, backup):
@@ -502,7 +540,7 @@ async def native_context(remote, **options):
                     current, state, merged)
                 binding['synthetic_fixture_pair_repaired'] = coherence_fixed
             if merged != current:
-                await context.set_storage_state(merged)
+                await import_portable_state(context, merged)
                 binding['backup_recovery_applied'] = True
             if binding.get('profile') == 'SteelSelfTest':
                 # The intended state is NOT proof that Playwright accepted it.
@@ -523,7 +561,7 @@ async def native_context(remote, **options):
                 evidence['post_apply_readback_available'] = applied is not None
                 binding['synthetic_fixture_evidence'] = evidence
         else:
-            await context.set_storage_state(state)
+            await import_portable_state(context, state)
     if options.get('extra_http_headers'):
         await context.set_extra_http_headers(options['extra_http_headers'])
     from history_navigation import install_context_history
@@ -742,7 +780,8 @@ def install(ns):
             pid = str(uuid.UUID(str(data.get('profileId', ''))))
             if binding['profile_id'] and binding['profile_id'] != pid:
                 raise ReliabilityError('NATIVE_PROFILE_ID_MISMATCH')
-            await registry.request('POST', profile, pid)
+            await registry.request('POST', profile, pid,
+                                   preserve_verified_native_hydration(binding, pid))
             engine._native_bindings[rid] = {'profile': profile, 'profile_id': pid,
                                             'hydrated': binding['hydrated']}
             return data
