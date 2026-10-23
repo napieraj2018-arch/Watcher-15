@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import unittest
 from urllib.parse import urlsplit, parse_qs
 
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
@@ -115,8 +116,8 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
         await self.page.goto("https://ai-browser-cloud.onrender.com"+PATH,
                              wait_until="domcontentloaded")
         await self.page.locator("#touch-shot").wait_for(state="visible")
-        await self.page.wait_for_function(
-            "document.querySelector('#touch-shot').naturalWidth > 0")
+        await expect(self.page.locator("#touch-shot")).not_to_have_js_property(
+            "naturalWidth",0)
 
     async def asyncTearDown(self):
         if self.action_gate is not None:
@@ -183,8 +184,7 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
                 await element.fill(text)
                 await element.press("Enter")
                 await self.wait_for_events(before+2)
-                await self.page.wait_for_function(
-                    "id => document.getElementById(id).value === ''",arg=element_id)
+                await expect(element).to_have_value("")
                 self.assertEqual(self.events[before:],[
                     {"kind":"text","field":field,"text":text},
                     {"kind":"key","key":"Enter"},
@@ -195,11 +195,10 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
         await self.page.locator("#touch-password").fill("SYNTHETIC_CURRENT_FIELD")
         button=self.page.locator("#touch-enter")
         await button.focus()
-        self.assertEqual(await self.page.evaluate("document.activeElement.id"),"touch-enter")
+        await expect(button).to_be_focused()
         await button.tap()
         await self.wait_for_events(2)
-        await self.page.wait_for_function(
-            "document.getElementById('touch-password').value === ''")
+        await expect(self.page.locator("#touch-password")).to_have_value("")
         self.assertEqual(self.events,[
             {"kind":"text","field":"password","text":"SYNTHETIC_CURRENT_FIELD"},
             {"kind":"key","key":"Enter"},
@@ -213,8 +212,8 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
         await element.fill("SYNTHETIC_KEEP_ON_FAILURE")
         await element.press("Enter")
         await self.wait_for_events(1)
-        await self.page.wait_for_function(
-            "document.getElementById('touch-status').textContent.startsWith('Nie udało')")
+        await expect(self.page.locator("#touch-status")).to_have_text(
+            re.compile(r"^Nie udało"))
         self.assertEqual(self.events,[{
             "kind":"text","field":"password","text":"SYNTHETIC_KEEP_ON_FAILURE"}])
         self.assertEqual(await element.input_value(),"SYNTHETIC_KEEP_ON_FAILURE")
@@ -232,8 +231,7 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
                       await self.page.locator("#touch-status").text_content())
         self.action_gate.set()
         await self.wait_for_events(2)
-        await self.page.wait_for_function(
-            "document.getElementById('touch-value').value === ''")
+        await expect(self.page.locator("#touch-value")).to_have_value("")
         self.assertEqual(self.events,[
             {"kind":"text","field":"text","text":"synthetic@example.invalid"},
             {"kind":"key","key":"Enter"},
@@ -251,22 +249,21 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
         for count,kind in enumerate(("back","forward","reload"),1):
             await self.page.locator("#touch-"+kind).tap()
             await self.wait_for_events(count)
-            await self.page.wait_for_function(
-                "document.getElementById('touch-status').textContent.startsWith('Wykonano')")
+            await expect(self.page.locator("#touch-status")).to_have_text(
+                re.compile(r"^Wykonano"))
         self.assertEqual(self.events,[
             {"kind":"back"},{"kind":"forward"},{"kind":"reload"}])
 
     async def test_tab_picker_switches_popup_without_forwarding_unsent_password(self):
         self.tab_rows.append({"ref":"B"*16,"label":"Karta 2 — m.facebook.com",
                               "active":False})
-        await self.page.wait_for_function(
-            "document.querySelector('#touch-tabs').options.length === 2")
+        await expect(self.page.locator("#touch-tabs option")).to_have_count(2)
         password=self.page.locator("#touch-password")
         await password.fill("SYNTHETIC_KEEP_LOCAL")
         await self.page.locator("#touch-tabs").select_option("B"*16)
         await self.wait_for_events(1)
-        await self.page.wait_for_function(
-            "document.getElementById('touch-status').textContent.startsWith('Karta gotowa')")
+        await expect(self.page.locator("#touch-status")).to_have_text(
+            re.compile(r"^Karta gotowa"))
         self.assertEqual(self.events,[{"kind":"switch_tab","ref":"B"*16}])
         self.assertEqual(await password.input_value(),"SYNTHETIC_KEEP_LOCAL")
         # A remembered editor from the previous tab must not auto-fill this
@@ -280,13 +277,11 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
     async def test_automatic_popup_return_does_not_submit_pending_password_to_opener(self):
         # Observe the popup as active, then type locally without sending.
         self.tab_rows=[{"ref":"B"*16,"label":"Karta 1 — m.facebook.com","active":True}]
-        await self.page.wait_for_function(
-            "document.getElementById('touch-tabs').value === '"+"B"*16+"'")
+        await expect(self.page.locator("#touch-tabs")).to_have_value("B"*16)
         password=self.page.locator("#touch-password")
         await password.fill("SYNTHETIC_POPUP_PASSWORD")
         self.tab_rows=[{"ref":"A"*16,"label":"Karta 1 — www.facebook.com","active":True}]
-        await self.page.wait_for_function(
-            "document.getElementById('touch-tabs').value === '"+"A"*16+"'")
+        await expect(self.page.locator("#touch-tabs")).to_have_value("A"*16)
         await self.page.locator("#touch-send-password").tap()
         self.assertEqual(self.requests,[])
         self.assertEqual(await password.input_value(),"SYNTHETIC_POPUP_PASSWORD")
@@ -294,11 +289,10 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
 
     async def test_one_safe_tab_remains_selectable_when_current_tab_is_out_of_scope(self):
         self.tab_rows=[{"ref":"C"*16,"label":"Karta 1 — www.facebook.com","active":False}]
-        await self.page.wait_for_function(
-            "document.querySelector('#touch-tabs').options.length === 2 && "
-            "document.querySelector('#touch-tabs').value === ''")
         picker=self.page.locator("#touch-tabs")
-        self.assertTrue(await picker.is_enabled())
+        await expect(picker.locator("option")).to_have_count(2)
+        await expect(picker).to_have_value("")
+        await expect(picker).to_be_enabled()
         await picker.select_option("C"*16)
         await self.wait_for_events(1)
         self.assertEqual(self.events,[{"kind":"switch_tab","ref":"C"*16}])
