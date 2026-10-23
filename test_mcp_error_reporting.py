@@ -131,6 +131,26 @@ class ErrorReportingTests(unittest.TestCase):
         self.sanitize.assert_called_once()
         self.assertEqual(len(self.calls), 1)
 
+    def test_provider_blocked_profile_error_is_sanitized_actionable(self):
+        from steel_context_fix import ProfileRestoreOriginBlocked
+        error = ProfileRestoreOriginBlocked('PROFILE_RESTORE_PROVIDER_RESTRICTED')
+        with self.assertRaises(AnticipatedToolError) as caught:
+            self.handler(error)
+        self.assertEqual(str(caught.exception),
+                         fix.PROFILE_ORIGIN_BLOCKED_MESSAGE)
+        self.assertIn('not silently filtered or overwritten',
+                      str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(self.calls, [])
+        self.sanitize.assert_not_called()
+
+    def test_spoofed_provider_restore_error_is_not_reclassified(self):
+        with self.assertRaisesRegex(RuntimeError, "Browser operation failed"):
+            self.handler(RuntimeError(
+                'PROFILE_RESTORE_PROVIDER_RESTRICTED at SECRET'))
+        self.assertIsNone(fix.classify_known_remote_failure(
+            RuntimeError('PROFILE_RESTORE_PROVIDER_RESTRICTED')))
+
     def test_unknown_error_keeps_masking(self):
         with self.assertRaisesRegex(RuntimeError, "Browser operation failed"):
             self.handler(RuntimeError("SECRET"))
