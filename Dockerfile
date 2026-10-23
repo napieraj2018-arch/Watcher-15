@@ -6,6 +6,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY bootstrap.py /app/bootstrap.py
 COPY core_restore_diagnostic.py test_core_restore_diagnostic.py /app/
 RUN python /app/test_core_restore_diagnostic.py
+COPY test_native_context_trial.py /app/
 COPY test_safe_archive_extract.py /app/test_safe_archive_extract.py
 COPY test_cryptography_compat.py /app/test_cryptography_compat.py
 COPY entrypoint.py /app/entrypoint.py
@@ -15,6 +16,7 @@ COPY test_steel_captcha.py /app/test_steel_captcha.py
 COPY test_steel_parallel_runtime.py /app/test_steel_parallel_runtime.py
 COPY test_steel_health_private.py /app/test_steel_health_private.py
 COPY steel_context_fix.py /app/steel_context_fix.py
+RUN python /app/test_native_context_trial.py
 COPY history_navigation.py /app/history_navigation.py
 COPY test_history_navigation.py /app/test_history_navigation.py
 COPY test_history_navigation_chromium.py /app/test_history_navigation_chromium.py
