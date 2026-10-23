@@ -1,5 +1,7 @@
 # AI Browser — verified capabilities and gaps (2026-10-23)
 
+> **CURRENT STATUS:** [Owner-beta live acceptance, 23 Oct](OWNER_LIVE_STATUS_20261023.md) supersedes the historical #155/#156 blockers below. Always read the current Render SHA, sessions and tasks; archived failures are not current production facts.
+
 The last fully accepted baseline is PR #155, commit `47fbb0ce`.
 The newer login/save repair [PR #156](https://github.com/napieraj2018-arch/Watcher-15/pull/156)
 was deployed as `916c252b44883efec2229e5bf3a9e00e162c2a26`, Render
