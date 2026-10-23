@@ -6,6 +6,8 @@ on:
       - "session_ownership/owner_mobile_touch.py"
       - "session_ownership/multi_capability_guard.py"
       - "steel_runtime.py"
+      - "durable_tasks.py"
+      - "test_durable_tasks.py"
       - "test_steel_captcha.py"
       - "auth_status_v052.py"
       - "verification_status.py"

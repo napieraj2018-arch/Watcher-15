@@ -45,6 +45,8 @@ COPY session_ownership/owner_mobile_handoff.py /app/owner_mobile_handoff.py
 COPY session_ownership/owner_mobile_touch.py /app/owner_mobile_touch.py
 COPY connector_router.py /app/connector_router.py
 COPY operator_catalog.py /app/operator_catalog.py
+COPY durable_tasks.py /app/durable_tasks.py
+COPY test_durable_tasks.py /app/test_durable_tasks.py
 COPY review_dedupe.py /app/review_dedupe.py
 COPY workflows/anita/reviews.yaml /app/workflows/anita/reviews.yaml
 COPY test_connector_router.py /app/test_connector_router.py
@@ -56,3 +58,5 @@ RUN python /app/test_context_health_private.py && python /app/test_profile_delet
 EXPOSE 10000
 RUN python /app/test_steel_captcha.py && python /app/test_verification_status.py
 CMD ["sh", "-c", "if [ \"$AI_BROWSER_ENGINE\" = \"steel\" ]; then exec python /app/bootstrap.py; else exec python /app/entrypoint.py; fi"]
+
+RUN python /app/test_durable_tasks.py
