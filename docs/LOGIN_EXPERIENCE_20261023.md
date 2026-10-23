@@ -42,10 +42,13 @@ zaproszenie, capability oraz ten cache wyniku; trwały profil jest odrębny.
 
 ## CAPTCHA dostawcy
 
-Właściciel zlecił zmniejszenie ręcznej obsługi. Nowe sesje żądają
-`solveCaptcha: true`; `AI_BROWSER_CAPTCHA_AUTOMATION=0` wyłącza tę opcję.
-Nie zmienia się proxy, fingerprint ani abonament. Odpowiedź providera
-potwierdza dostępność albo jej brak. Sam brak pola nie jest potwierdzeniem.
+Właściciel zlecił zmniejszenie ręcznej obsługi. Opcja jest jawnie włączana
+przez `AI_BROWSER_CAPTCHA_AUTOMATION=1` dopiero po potwierdzeniu dostępu
+na właściwym koncie Steel. Brak zmiennej lub wartość `0` oznacza
+`solveCaptcha: false`. Nie zmienia się proxy, fingerprint ani abonament.
+Odpowiedź providera potwierdza dostępność albo jej brak; samo żądanie
+oraz brak pola w odpowiedzi nie są potwierdzeniem. Nie kupuj dostępu
+na podstawie ogólnego upoważnienia do naprawy przeglądarki.
 
 Jedyny fallback tworzenia sesji dotyczy dokładnego HTTP 402 od Steel,
 odrzucającego płatną opcję przed utworzeniem sesji. Wtedy jeden raz usuwamy
@@ -104,3 +107,30 @@ syntetyczne screenshoty z CI do oceny; wdrożenie dokładnego SHA; odczyt wcześ
 zapisanego profilu po wdrożeniu; pełny zapis i brak pozostawionych sesji.
 CAPTCHA live jest potwierdzona dopiero po odpowiedzi Steel; konto i
 potwierdzenie e-mail wymagają własnego, faktycznego bieżącego flow.
+
+### Wynik wdrożenia #156
+
+Commit `916c252b44883efec2229e5bf3a9e00e162c2a26`, Render
+`dep-dbdg8bnavr4c739vpqmg`, osiągnął LIVE 23.10 o 06:54:17 UTC.
+Odbiór nie jest zakończony: o 06:55:13 UTC pierwsze create z włączoną
+opcją CAPTCHA zwróciło 403, a release dokładnego żądanego UUID — 404.
+Nie zwrócono capability i nie przyłączono profilu przez CDP. Runtime
+zachował `provider_reconciliation_required`; nie uruchamiaj kolejnych
+sesji ani nie restartuj procesu, aby usunąć ten stan.
+
+403 nie dowodzi braku uprawnienia CAPTCHA. Oficjalna dokumentacja Steel
+[Authentication](https://docs.steel.dev/overview/authentication) opisuje
+także odmowę konta. Wyłączenie domyślnego żądania jest przygotowaniem
+bezpiecznej konfiguracji, a nie rozliczeniem tej konkretnej próby.
+Przed wdrożeniem wymagane są niezależny uwierzytelniony odczyt dokładnej
+sesji oraz inventory tego samego konta/projektu, obejmujący czas create,
+i uzgodnienie lokalnego stanu. Samo release 404 albo pusta lista lokalna
+nie wystarczą. Nie przenoś sekretów konta do repozytorium ani do czatu.
+
+CI #156: 654 testy obrazu, 10 Chromium, 20 WebKit i 4 external-CDP — PASS.
+Wizualnie oceniono screenshoty WebKit 390×844, także klawiaturę i przejście
+hasło → kod po niepewnej odpowiedzi. To nie jest logowanie na fizycznym
+iPhonie. Przed wdrożeniem potwierdzono pełny zapis neutralnego znacznika;
+odczyt po tym wdrożeniu i rzeczywisty HTTP saved-close receipt pozostają
+niepotwierdzone. Aktualizowany wynik kontynuacji znajduje się w Acceptance
+PR #156 oraz PR poprawiającym domyślną konfigurację CAPTCHA.

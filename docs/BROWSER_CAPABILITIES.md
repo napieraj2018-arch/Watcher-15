@@ -1,9 +1,16 @@
 # AI Browser — verified capabilities and gaps (2026-10-23)
 
-The live baseline for this update is PR #155, commit `47fbb0ce`.
-The newer login/save repair is tracked in [PR #156](https://github.com/napieraj2018-arch/Watcher-15/pull/156).
-Its Acceptance section records its own CI, exact deployed SHA and live readback;
-consult that receipt before treating the baseline below as the latest deployment.
+The last fully accepted baseline is PR #155, commit `47fbb0ce`.
+The newer login/save repair [PR #156](https://github.com/napieraj2018-arch/Watcher-15/pull/156)
+was deployed as `916c252b44883efec2229e5bf3a9e00e162c2a26`, Render
+`dep-dbdg8bnavr4c739vpqmg`, at 06:54:17 UTC on 23 October. Its first live
+start returned provider 403 and cleanup 404; acceptance is blocked by
+`provider_reconciliation_required`. Do not restart or create another session
+to clear this uncertainty. See the exact-state gate in
+[the login repair record](LOGIN_EXPERIENCE_20261023.md#wynik-wdrożenia-156)
+and the PR Acceptance section for later reconciliation and live readback.
+The table below records historical accepted capabilities, not a claim that
+browser start is currently available while this incident is unresolved.
 Render deploy `dep-dbddnfd9fdbs73ap9mcg` became live on 23 October at
 06:01 Europe/Warsaw. At 06:05, the real Steel acceptance passed restored
 cookie/localStorage from before deployment, text/textarea, tabs, reload,
@@ -91,8 +98,11 @@ frame fetching after phone/app switches, readback of the exact saved-close
 receipt, optional provider CAPTCHA automation and an agent-side connected
 Gmail route for ordinary confirmation links. See
 [the scope and acceptance contract](LOGIN_EXPERIENCE_20261023.md).
-Provider CAPTCHA availability must be read from the actual create response;
-requesting it is not proof of solving. Email code input remains the secure
+Provider CAPTCHA is an explicit opt-in (`AI_BROWSER_CAPTCHA_AUTOMATION=1`)
+after account access is verified; unset/0 keeps the option disabled. Its
+availability must be read from the actual create response; requesting it is
+not proof of solving. The default-off follow-up does not reconcile the failed
+#156 create or permit a retry of a forbidden account. Email code input remains the secure
 owner controller until a dedicated scoped secret-input API is available.
 
 The current Render service is on its Free plan and application logs show

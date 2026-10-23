@@ -108,7 +108,9 @@ class SteelCaptchaNotAvailable(SteelFailure):
 
 
 def captcha_automation_enabled():
-    value = os.environ.get('AI_BROWSER_CAPTCHA_AUTOMATION', '1')
+    # Optional provider access must be explicitly enabled after verification.
+    # An unverified entitlement must not prevent ordinary sessions starting.
+    value = os.environ.get('AI_BROWSER_CAPTCHA_AUTOMATION', '0')
     if value not in {'0', '1'}:
         raise SteelFailure('STEEL_CAPTCHA_CONFIG_INVALID')
     return value == '1'

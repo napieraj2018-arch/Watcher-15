@@ -86,7 +86,9 @@ class SteelSingleFlight(unittest.IsolatedAsyncioTestCase):
         self.key.stop()
 
     async def test_steel_session_explicitly_allows_human_mouse_keyboard(self):
-        engine, chrome = FakeEngine(), FakeChromium()
+        with patch.dict(os.environ):
+            os.environ.pop('AI_BROWSER_CAPTCHA_AUTOMATION', None)
+            engine, chrome = FakeEngine(), FakeChromium()
         browser = await engine.launch(chrome)
         try:
             request = engine.last_create_body
@@ -94,7 +96,7 @@ class SteelSingleFlight(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(request["debugConfig"]["systemCursor"], True)
             self.assertEqual(request["dimensions"], {"width": 508, "height": 1074})
             self.assertIs(request["headless"], False)
-            self.assertIs(request["solveCaptcha"], True)
+            self.assertIs(request["solveCaptcha"], False)
         finally:
             await browser.close()
 
@@ -298,6 +300,29 @@ class SteelInstalledCreatePreflight(unittest.IsolatedAsyncioTestCase):
             await self.engine.launch(self.chrome)
         self.assert_no_create()
         self.registry_read.assert_not_awaited()
+
+    async def test_captcha_choice_preserves_existing_profile_binding(self):
+        baseline = None
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled):
+                self.engine.captcha_requested = enabled
+                result = await self.manager.start("SyntheticPreflight")
+                try:
+                    request = self.engine.last_create_body
+                    self.assertIs(request["solveCaptcha"], enabled)
+                    self.assertEqual(request["profileId"], self.profile_id)
+                    self.assertIs(request["persistProfile"], True)
+                    unchanged = {key: value for key, value in request.items()
+                                 if key not in {"sessionId", "solveCaptcha"}}
+                    if baseline is None:
+                        baseline = unchanged
+                    else:
+                        self.assertEqual(unchanged, baseline)
+                finally:
+                    await self.manager.stop(result["session_id"])
+        self.assertEqual(self.engine.creates, 2)
+        self.assertEqual(self.engine.releases, 2)
+        self.assertEqual(self.engine.remote, {})
 
     async def test_registry_error_preserves_code_and_allows_later_explicit_start(self):
         failure = steel_context_fix.ReliabilityError("PROFILE_REGISTRY_UNAVAILABLE")
