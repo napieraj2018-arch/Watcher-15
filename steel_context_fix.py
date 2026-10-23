@@ -66,7 +66,33 @@ def preserve_verified_native_hydration(binding, profile_id):
             and binding.get('profile_id') == profile_id)
 
 
-def native_context_trial_payload(payload, profile, binding):
+def portable_cookies_for_provider(state):
+    """Convert the existing private Playwright snapshot to Steel/CDP cookies.
+
+    Do not copy origins: the provider replays those on every navigation.
+    Partition conversion matches Playwright 1.59 crBrowser.addCookies. Nothing
+    is logged or returned to the agent. Unknown fields fail rather than vanish.
+    """
+    if not isinstance(state, dict) or not isinstance(state.get('cookies'), list):
+        raise ReliabilityError('PROFILE_COOKIE_SNAPSHOT_REQUIRED')
+    cookies = copy.deepcopy(state['cookies'])
+    allowed = {'name', 'value', 'domain', 'path', 'url', 'expires', 'httpOnly',
+               'secure', 'sameSite', 'partitionKey', '_crHasCrossSiteAncestor'}
+    for item in cookies:
+        if (not isinstance(item, dict) or set(item) - allowed
+                or not isinstance(item.get('name'), str)
+                or not isinstance(item.get('value'), str)):
+            raise ReliabilityError('PROFILE_COOKIE_FORMAT_UNSUPPORTED')
+        ancestor = item.pop('_crHasCrossSiteAncestor', True)
+        if 'partitionKey' in item:
+            if not isinstance(item['partitionKey'], str) or type(ancestor) is not bool:
+                raise ReliabilityError('PROFILE_COOKIE_FORMAT_UNSUPPORTED')
+            item['partitionKey'] = {'topLevelSite': item['partitionKey'],
+                                    'hasCrossSiteAncestor': ancestor}
+    return cookies
+
+
+def native_context_trial_payload(payload, profile, binding, state=None):
     """Disposable canary only: isolate provider navigation-context replay.
 
     Steel documents request-level sessionContext as replacing profile context.
@@ -81,7 +107,7 @@ def native_context_trial_payload(payload, profile, binding):
             and binding.get('profile_id')):
         if 'sessionContext' in result:
             raise ReliabilityError('NATIVE_PROFILE_CONTEXT_CONFLICT')
-        result['sessionContext'] = {}
+        result['sessionContext'] = {'cookies': portable_cookies_for_provider(state)}
     return result
 
 
@@ -788,7 +814,11 @@ def install(ns):
             if binding['profile_id']:
                 await await_profile_ready(original_request, binding['profile_id'])
                 payload['profileId'] = binding['profile_id']
-            payload = native_context_trial_payload(payload, profile, binding)
+            snapshot = None
+            if (profile == 'Acceptance-20261023-Rollback'
+                    and binding.get('hydrated') is True and binding['profile_id']):
+                snapshot = await manager._load_portable_state(profile)
+            payload = native_context_trial_payload(payload, profile, binding, snapshot)
         except BaseException as failure:
             # This block performs only local preparation and read requests.
             # In particular, cancellation here cannot have created a session.
