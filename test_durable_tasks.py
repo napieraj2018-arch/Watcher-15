@@ -111,6 +111,18 @@ class Tests(unittest.IsolatedAsyncioTestCase):
  async def test_no_public_claim_in_list(self):
   self.assertNotIn(self.claim,canonical(await self.s.run('list')))
 class InstalledContract(unittest.IsolatedAsyncioTestCase):
+ async def test_expected_task_refusal_uses_sdk_public_error_type(self):
+  from mcp.server.mcpserver import MCPServer
+  from mcp.server.mcpserver.exceptions import ToolError
+  from durable_tasks import validate_checkpoint
+  self.assertTrue(issubclass(TaskError,ToolError))
+  server=MCPServer('task-error-contract')
+  @server.tool()
+  async def neutral_checkpoint(data_json:str)->dict:
+   validate_checkpoint(json.loads(data_json));return {'ok':True}
+  with self.assertRaisesRegex(ToolError,'TASK_CHECKPOINT_FIELDS_INVALID'):
+   await server._tool_manager._tools['neutral_checkpoint'].run({'data_json':'{"unsupported":"neutral"}'},context=None)
+  self.assertEqual(await server._tool_manager._tools['neutral_checkpoint'].run({'data_json':'{"remaining_steps":[]}'},context=None),{'ok':True})
  async def test_real_sdk_registration_start_stop_resume(self):
   import sys
   from pathlib import Path
