@@ -85,7 +85,11 @@ def scrub(v, internal_id="", handle="", public=False):
         return [scrub(x, internal_id, handle, public) for x in v]
     if isinstance(v, str) and internal_id and v == internal_id:
         return "[redacted]" if public else handle
-    return v
+    if v is None or isinstance(v, (str, bool, int, float)):
+        return v
+    # Images are allowed only as a top-level, authenticated tool result.
+    # Unknown objects in a public listing or nested metadata must fail closed.
+    raise OwnershipError("SESSION_RESULT_UNSUPPORTED")
 
 def scrub_result(v, internal_id="", handle="", public=False):
     if isinstance(v, str):
@@ -96,6 +100,11 @@ def scrub_result(v, internal_id="", handle="", public=False):
         return json.dumps(scrub(parsed, internal_id, handle, public),
                           ensure_ascii=False)
     if not isinstance(v, (dict, list)):
+        if not public and internal_id and handle:
+            from screenshot_result import image_result
+            image = image_result(v)
+            if image is not None:
+                return image
         raise OwnershipError("SESSION_RESULT_UNSUPPORTED")
     return scrub(v, internal_id, handle, public)
 

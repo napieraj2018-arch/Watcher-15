@@ -34,6 +34,8 @@ COPY profile_delete_guard.py /app/profile_delete_guard.py
 COPY test_profile_delete_guard.py /app/test_profile_delete_guard.py
 COPY test_mcp_error_reporting.py /app/test_mcp_error_reporting.py
 COPY test_owner_parallel_mcp.py /app/test_owner_parallel_mcp.py
+COPY screenshot_result.py /app/screenshot_result.py
+COPY test_screenshot_result.py /app/test_screenshot_result.py
 COPY test_owner_mobile_handoff.py /app/test_owner_mobile_handoff.py
 COPY test_owner_mobile_touch.py /app/test_owner_mobile_touch.py
 COPY test_owner_mobile_touch_chromium.py /app/test_owner_mobile_touch_chromium.py
@@ -60,3 +62,5 @@ RUN python /app/test_steel_captcha.py && python /app/test_verification_status.py
 CMD ["sh", "-c", "if [ \"$AI_BROWSER_ENGINE\" = \"steel\" ]; then exec python /app/bootstrap.py; else exec python /app/entrypoint.py; fi"]
 
 RUN python /app/test_durable_tasks.py
+
+RUN PYTHONPATH=/app/session_ownership:/app/session_ownership/tests:/app python /app/test_screenshot_result.py
