@@ -1,6 +1,7 @@
 """No provider calls or real profiles; exact disposable canary admission only."""
 import ast
 import copy
+import re
 from pathlib import Path
 import unittest
 
@@ -9,7 +10,8 @@ tree.body = [n for n in tree.body if isinstance(n, ast.FunctionDef)
              and n.name == 'native_context_trial_payload']
 class Failure(RuntimeError):
     pass
-ns = {'copy': copy, 'ReliabilityError': Failure}
+ns = {'copy': copy, 'ReliabilityError': Failure,
+      'PROFILE_RE': re.compile(r'^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$')}
 exec(compile(tree, '<trial-test>', 'exec'), ns)
 policy = ns['native_context_trial_payload']
 
@@ -25,10 +27,15 @@ class Trial(unittest.TestCase):
         self.assertEqual(value, {**before, 'sessionContext': {}})
         self.assertEqual(self.payload, before)
 
-    def test_customer_profiles_and_other_canaries_unchanged(self):
+    def test_verified_native_profiles_keep_all_admission_settings(self):
         for profile in ['WordPress - Napieraj i Synowie', 'Google - Weterynarz',
-                        'Meta - Anita', 'SteelSelfTest', 'Acceptance-20261023-R158',
+                        'Meta - Anita', 'Acceptance-20261023-R158',
                         'Acceptance-20261023-Rollback-other']:
+            self.assertEqual(policy(self.payload, profile, self.binding),
+                             {**self.payload, 'sessionContext': {}})
+
+    def test_special_fixture_and_invalid_names_unchanged(self):
+        for profile in ['SteelSelfTest', '../profile', '', None]:
             self.assertEqual(policy(self.payload, profile, self.binding), self.payload)
 
     def test_new_or_unverified_canary_is_unchanged(self):
@@ -37,7 +44,7 @@ class Trial(unittest.TestCase):
             self.assertEqual(policy(self.payload, 'Acceptance-20261023-Rollback', binding), self.payload)
 
     def test_explicit_context_is_never_silently_discarded(self):
-        with self.assertRaisesRegex(Failure, 'NATIVE_CONTEXT_TRIAL_CONFLICT'):
+        with self.assertRaisesRegex(Failure, 'NATIVE_PROFILE_CONTEXT_CONFLICT'):
             policy({**self.payload, 'sessionContext': {'cookies': []}},
                    'Acceptance-20261023-Rollback', self.binding)
 
