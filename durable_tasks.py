@@ -9,8 +9,11 @@ import asyncio, base64, contextvars, copy, hashlib, hmac, json, os, re, secrets,
 from typing import Literal
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from mcp.server.mcpserver.exceptions import ToolError
 
-class TaskError(RuntimeError): pass
+class TaskError(ToolError):
+    """Expected, fixed-code task refusal safe to expose through MCP 2.3."""
+    pass
 PROFILE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$')
 OP = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')
 ACTIONS = {'browser_navigate','browser_snapshot','browser_status','browser_auth_status',
@@ -251,6 +254,10 @@ def install(ns):
         For browser mutations use one stable operation_id. An uncertain operation must be verified,
         never retried. begin/confirm also journal authorized connector operations; confirm requires
         a real external receipt. No passwords, tokens or private credentials in data_json.
+        For create/checkpoint, data_json accepts ONLY last_confirmed_step (string),
+        remaining_steps (string array), status (string), required_permissions (string array).
+        For browser, data_json contains the selected browser tool's arguments WITHOUT session_id.
+        begin accepts safe operation metadata; confirm requires a receipt string.
         """
         return await service.run(action,task_id,task_claim,profile,title,data_json,operation_id,browser_tool,expected_text)
     ns['mcp'].tool()(aib_task)
