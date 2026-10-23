@@ -132,6 +132,30 @@ class InstalledContract(unittest.IsolatedAsyncioTestCase):
   self.assertTrue(started['browser']['session_id'].startswith('aib_'))
   await tool(action='stop',**args);await tool(action='release',**args)
   r2=await tool(action='resume',task_id=r['task_id']);self.assertNotEqual(r['task_claim'],r2['task_claim'])
+ async def test_watchdog_saved_close_records_checkpoint_without_capability_adoption(self):
+  import sys
+  from pathlib import Path
+  sys.path.insert(0,str(Path(__file__).parent/'session_ownership'/'tests'))
+  from test_owner_parallel_mcp import MultiManager
+  from test_sdk_contract import fake_mcp
+  from multi_capability_guard import MultiCapabilityGuard
+  import durable_tasks
+  class ReceiptManager(MultiManager):
+   async def stop(self,sid):return {**await super().stop(sid),'stopped':True}
+  manager=ReceiptManager();mcp=fake_mcp(manager);guard=MultiCapabilityGuard(mcp,manager,capacity=5,watchdog_enabled=False);guard.install()
+  vault=MemoryVault();ns={'mcp':mcp,'_AIB_OWNER_PARALLEL_GUARD':guard}
+  with patch.object(durable_tasks,'Vault',return_value=vault):durable_tasks.install(ns)
+  service=ns['_AIB_DURABLE_TASKS'];r=await service.run('create',profile='Acceptance-Watchdog',title='Watchdog fixture')
+  args={'task_id':r['task_id'],'task_claim':r['task_claim']};started=await service.run('start',**args)
+  lease=guard.authorize(started['browser']['session_id']);token=guard.actor_session.set(lease.internal_session_id)
+  # Hold task.lock while stop finishes: the finalizer must not await it here.
+  async with service.lock(r['task_id']):
+   await asyncio.wait_for(manager.stop(lease.internal_session_id),1)
+   guard._complete(lease)
+  guard.actor_session.reset(token)
+  await asyncio.gather(*service.finalizers)
+  self.assertEqual((await service.run('get',task_id=r['task_id']))['session_state'],'saved_closed')
+  await service.run('release',**args)
  async def test_restart_gate_blocks_legacy_start_when_task_uncertain(self):
   import sys
   from pathlib import Path

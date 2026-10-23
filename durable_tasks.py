@@ -67,6 +67,8 @@ class TaskService:
         self.vault,self.registry,self.guard=vault,registry,guard
         self.starting_task=contextvars.ContextVar('aib_durable_start',default=None)
         self.stopping=set()
+        self.internal_sessions={}
+        self.finalizers=set()
         self.bindings={}  # Only this process and task's fresh claim know a live capability.
         self.locks={}
     def lock(self,tid): return self.locks.setdefault(tid,asyncio.Lock())
@@ -149,6 +151,8 @@ class TaskService:
                     finally:
                         self.starting_task.reset(token)
                     self.bindings[task_id]=(task_claim,result['session_id'])
+                    if hasattr(self.guard,'authorize'):
+                        self.internal_sessions[task_id]=self.guard.authorize(result['session_id']).internal_session_id
                     data['session_state']='active'; await self.save(row,data,task_claim)
                 except BaseException:
                     # Do not restart or clear a provider outcome whose receipt was lost.
@@ -165,7 +169,7 @@ class TaskService:
                     self.stopping.discard(task_id)
                 if result.get('full_profile_saved') is not True or result.get('stopped') is not True:
                     raise TaskError('TASK_FULL_SAVE_UNCONFIRMED')
-                self.bindings.pop(task_id,None); data['session_state']='saved_closed'
+                self.bindings.pop(task_id,None); self.internal_sessions.pop(task_id,None); data['session_state']='saved_closed'
                 data['last_saved_at']=int(time.time()); await self.save(row,data,task_claim)
                 return {**self.public(row,data),'saved_close':result}
             elif action=='release':
@@ -225,9 +229,7 @@ class TaskService:
             return
         for tid,(claim,handle) in list(self.bindings.items()):
             if tid in self.stopping: continue
-            try: lease=self.guard.authorize(handle,allow_expired_stop=True)
-            except Exception: continue
-            if lease.internal_session_id!=internal_sid: continue
+            if self.internal_sessions.get(tid)!=internal_sid: continue
             async with self.lock(tid):
                 row,data=await self.load(tid)
                 self.authorize(data,claim)
@@ -266,6 +268,14 @@ def install(ns):
     previous_stop=guard.manager.stop
     async def durable_saved_stop(sid,*args,**kwargs):
         result=await previous_stop(sid,*args,**kwargs)
-        await service.saved_stop(sid,unpack(result))
+        # Never await task.lock under the owner's session.lock (watchdog order).
+        # Preserve the non-resumable row until this durable finalizer succeeds.
+        if any(service.internal_sessions.get(tid)==sid and tid not in service.stopping for tid in service.bindings):
+            job=asyncio.create_task(service.saved_stop(sid,unpack(result)))
+            service.finalizers.add(job)
+            def consume(done):
+                service.finalizers.discard(done)
+                if not done.cancelled(): done.exception()
+            job.add_done_callback(consume)
         return result
     guard.manager.stop=durable_saved_stop
