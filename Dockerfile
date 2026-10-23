@@ -4,8 +4,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 AI_BROWSER_HOST=0.0.0.0 AI_BROW
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY bootstrap.py /app/bootstrap.py
-COPY core_restore_diagnostic.py test_core_restore_diagnostic.py /app/
-RUN python /app/test_core_restore_diagnostic.py
 COPY test_native_context_trial.py /app/
 COPY test_safe_archive_extract.py /app/test_safe_archive_extract.py
 COPY test_cryptography_compat.py /app/test_cryptography_compat.py
