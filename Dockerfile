@@ -64,3 +64,6 @@ CMD ["sh", "-c", "if [ \"$AI_BROWSER_ENGINE\" = \"steel\" ]; then exec python /a
 RUN python /app/test_durable_tasks.py
 
 RUN PYTHONPATH=/app/session_ownership:/app/session_ownership/tests:/app python /app/test_screenshot_result.py
+
+COPY provider_recovery_gate.py startup_navigation.py test_provider_recovery_gate.py test_startup_navigation.py /app/
+RUN python /app/test_provider_recovery_gate.py && PYTHONPATH=/app/session_ownership:/app/session_ownership/tests:/app python /app/test_startup_navigation.py

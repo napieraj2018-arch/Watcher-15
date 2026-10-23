@@ -1,0 +1,72 @@
+"""Fail-closed recovery tests with an exact private incident, no real account."""
+import copy,json,unittest
+import httpx
+from provider_recovery_gate import RecoveryGate,RecoveryGateError,VAULT,STEEL
+S='00000000-0000-4000-8000-000000000001'
+P='00000000-0000-4000-8000-000000000002'
+G='00000000-0000-4000-8000-000000000003'
+PLAN={'version':1,'gate_id':G,'session_id':S,'profile_id':P,
+      'window_start':'2026-10-23T18:46:00Z','window_end':'2026-10-23T18:47:30Z'}
+class Fixture:
+ def __init__(self):
+  self.calls=[];self.plan=copy.deepcopy(PLAN);self.pending=True;self.safe=True
+  self.session={'id':S,'profileId':P,'status':'released','persistProfile':True,'createdAt':'2026-10-23T18:46:39Z'}
+  self.profile={'id':P,'status':'READY'};self.rows=[{'id':S,'status':'released'}]
+  self.new_live=[];self.repeat=False;self.http=200;self.ack=True;self.change=False
+ def transport(self,r):
+  self.calls.append((r.method,str(r.url)))
+  if str(r.url)==VAULT:
+   self.last_body=json.loads(r.content)
+   if self.last_body['action']=='attest':
+    return httpx.Response(200,json={'ok':self.ack,'verified':self.ack,'pending':False,'gate_id':G})
+   count=sum(1 for m,u in self.calls if u==VAULT)
+   return httpx.Response(200,json={'ok':True,'pending':self.pending,
+    'gate':self.plan,'local':{'safe':self.safe and not (self.change and count>1),'profile_count':38}})
+  if r.method!='GET': raise AssertionError('No provider mutation allowed')
+  if self.http!=200:return httpx.Response(self.http,json={'private':'DO_NOT_PRINT'})
+  if r.url.path.endswith('/sessions/'+S):return httpx.Response(200,json=self.session)
+  if '/profiles/' in r.url.path:return httpx.Response(200,json=self.profile)
+  if r.url.params.get('status')=='live':return httpx.Response(200,json={'sessions':self.new_live})
+  return httpx.Response(200,json={'sessions':self.rows if self.repeat or not r.url.params.get('cursorId') else []})
+ def run(self):
+  with httpx.Client(transport=httpx.MockTransport(self.transport)) as c:
+   return RecoveryGate(c,'synthetic-store','synthetic-steel').run()
+class Tests(unittest.TestCase):
+ def setUp(self):self.f=Fixture()
+ def denied(self,code):
+  with self.assertRaisesRegex(RecoveryGateError,code) as e:self.f.run()
+  self.assertNotIn('DO_NOT_PRINT',str(e.exception))
+  self.assertFalse(any(m!='GET' and u.startswith(STEEL) for m,u in self.f.calls))
+  self.assertFalse(getattr(self.f,'last_body',{}).get('action')=='attest')
+ def test_exact_released_complete_inventory_and_preserved_backup_pass(self):
+  r=self.f.run();self.assertEqual(r['status'],'verified');self.assertEqual(r['protected_profiles'],38)
+  self.assertEqual(self.f.last_body['proof']['inventory_total'],1)
+  self.assertEqual(sum(u.endswith('/sessions/'+S) for _,u in self.f.calls),2)
+ def test_no_pending_gate_never_touches_provider(self):
+  self.f.pending=False;self.assertEqual(self.f.run()['status'],'no_pending_gate');self.assertEqual(len(self.f.calls),1)
+ def test_changed_backup_denied(self):self.f.safe=False;self.denied('LOCAL_BACKUP')
+ def test_local_state_changes_during_reads_denied(self):self.f.change=True;self.denied('LOCAL_STATE_CHANGED')
+ def test_live_exact_session_denied(self):self.f.session['status']='live';self.denied('EXACT_SESSION_NOT_VERIFIED')
+ def test_failed_exact_session_is_not_saved_close(self):self.f.session['status']='failed';self.denied('EXACT_SESSION_NOT_VERIFIED')
+ def test_wrong_profile_denied(self):self.f.session['profileId']=G;self.denied('EXACT_SESSION_NOT_VERIFIED')
+ def test_wrong_session_denied(self):self.f.session['id']=G;self.denied('EXACT_SESSION_NOT_VERIFIED')
+ def test_no_persist_profile_denied(self):self.f.session['persistProfile']=False;self.denied('EXACT_SESSION_NOT_VERIFIED')
+ def test_wrong_time_denied(self):self.f.session['createdAt']='2026-10-22T18:46:39Z';self.denied('TIME_MISMATCH')
+ def test_404_not_reconciliation(self):self.f.http=404;self.denied('HTTP_404')
+ def test_403_not_retried(self):self.f.http=403;self.denied('HTTP_403');self.assertEqual(len(self.f.calls),2)
+ def test_unready_profile_denied(self):self.f.profile['status']='UPLOADING';self.denied('PROFILE_NOT_READY')
+ def test_wrong_ready_profile_denied(self):self.f.profile['id']=G;self.denied('PROFILE_NOT_READY')
+ def test_any_live_inventory_session_denied(self):self.f.rows.append({'id':G,'status':'live'});self.denied('ACTIVE_OR_UNKNOWN')
+ def test_unknown_inventory_state_denied(self):self.f.rows.append({'id':G,'status':'unknown'});self.denied('ACTIVE_OR_UNKNOWN')
+ def test_pagination_duplicate_denied(self):self.f.repeat=True;self.denied('PAGINATION_CONFLICT')
+ def test_missing_exact_inventory_denied(self):self.f.rows=[];self.denied('NOT_IN_INVENTORY')
+ def test_fresh_live_query_denied(self):self.f.new_live=[{'id':G,'status':'live'}];self.denied('PROVIDER_CHANGED')
+ def test_failed_vault_ack_does_not_unlock(self):
+  self.f.ack=False
+  with self.assertRaisesRegex(RecoveryGateError,'RECEIPT_UNCONFIRMED'):self.f.run()
+ def test_invalid_uuid_prevents_provider_request(self):self.f.plan['session_id']='../../other';self.denied('INVALID_BINDING');self.assertEqual(len(self.f.calls),1)
+ def test_no_credentials_fails_before_http(self):
+  with httpx.Client(transport=httpx.MockTransport(self.f.transport)) as c:
+   with self.assertRaisesRegex(RecoveryGateError,'CREDENTIALS'):RecoveryGate(c,'','')
+  self.assertEqual(self.f.calls,[])
+if __name__=='__main__':unittest.main(verbosity=2)
