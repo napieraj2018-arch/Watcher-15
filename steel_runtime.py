@@ -7,12 +7,13 @@ This intentionally preserves Playwright's full storage_state (including IDB).
 from __future__ import annotations
 import asyncio
 import contextlib
+import hashlib
 import hmac
 import os
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from starlette.responses import JSONResponse
@@ -75,7 +76,8 @@ def steel_health_payload(engine, authorization=""):
             "active_remote_sessions": len(engine.remote),
             "requires_reconciliation": engine._quarantined,
             "max_session_seconds": 870,
-            "proxy_enabled": False, "captcha_solving": False,
+            "proxy_enabled": False,
+            "captcha_solving_requested": getattr(engine, 'captcha_requested', False),
         })
     return public
 
@@ -96,6 +98,35 @@ class SteelCreateNotAttempted(SteelFailure):
         self.failure = failure
 
 
+class SteelCaptchaNotAvailable(SteelFailure):
+    """An explicit HTTP 402 rejected the paid option before session creation.
+
+    Only the HTTP transport produces this for a CAPTCHA-enabled create.
+    Timeouts, malformed responses and other statuses remain uncertain and
+    never permit a second create request.
+    """
+
+
+def captcha_automation_enabled():
+    value = os.environ.get('AI_BROWSER_CAPTCHA_AUTOMATION', '1')
+    if value not in {'0', '1'}:
+        raise SteelFailure('STEEL_CAPTCHA_CONFIG_INVALID')
+    return value == '1'
+
+
+def _captcha_page_key(url):
+    """Match a page in memory without retaining or returning sign-in tokens."""
+    try:
+        p = urlsplit(url)
+        if (p.scheme != 'https' or not p.hostname or p.username or p.password
+                or p.port not in (None, 443) or len(url) > 8192):
+            return None
+        normalized = urlunsplit(('https', p.hostname.lower(), p.path or '/', p.query, p.fragment))
+        return hashlib.sha256(normalized.encode('utf-8')).digest()
+    except (TypeError, ValueError, UnicodeError):
+        return None
+
+
 class Engine:
     def __init__(self):
         self.remote = {}
@@ -111,6 +142,7 @@ class Engine:
         self._quarantined = False
         self.authenticated = False
         self.timeout_ms = 900000
+        self.captcha_requested = captcha_automation_enabled()
 
     async def request(self, method, path, body=None, timeout=25):
         key = os.environ.get('STEEL_API_KEY', '').strip()
@@ -123,6 +155,12 @@ class Engine:
                     json=body)
         except (httpx.HTTPError, OSError):
             raise SteelFailure('STEEL_CONNECTION_FAILED') from None
+        if (response.status_code == 402 and method == 'POST' and path == '/sessions'
+                and isinstance(body, dict) and body.get('solveCaptcha') is True
+                and body.get('useProxy') is False):
+            # Steel's documented feature rejection. Do not echo its free-form
+            # message. The paid-option fallback is limited to this response.
+            raise SteelCaptchaNotAvailable('STEEL_CAPTCHA_ACCOUNT_ACCESS_REQUIRED')
         if not 200 <= response.status_code < 300:
             raise SteelFailure('STEEL_HTTP_' + str(response.status_code)) from None
         if not response.content:
@@ -160,12 +198,12 @@ class Engine:
         browser = None
         creation_confirmed = False
         try:
-            data = await self.request('POST', '/sessions', {
+            payload = {
                 'sessionId': remote_id,
                 'timeout': self.timeout_ms,
                 'inactivityTimeout': 180000,
                 'useProxy': False,
-                'solveCaptcha': False,
+                'solveCaptcha': self.captcha_requested,
                 'headless': False,
                 # Require actual server-side input support for the short-lived
                 # owner-authorized human takeover. A viewer URL parameter
@@ -176,7 +214,16 @@ class Engine:
                 # fingerprint across setup and later automated sessions.
                 'deviceConfig': {'device': 'mobile'},
                 'dimensions': {'width': 508, 'height': 1074},
-            })
+            }
+            captcha_unavailable = False
+            try:
+                data = await self.request('POST', '/sessions', payload)
+            except SteelCaptchaNotAvailable:
+                # Same requested UUID and profile; only remove the explicitly
+                # rejected optional feature, once. No timeout/error retries.
+                captcha_unavailable = True
+                payload = {**payload, 'solveCaptcha': False}
+                data = await self.request('POST', '/sessions', payload)
             returned_id = str(data.get('id', ''))
             if returned_id != remote_id:
                 # Releasing the REQUESTED id cannot prove that an unexpected
@@ -192,6 +239,17 @@ class Engine:
             except Exception:
                 raise SteelFailure('STEEL_CDP_CONNECTION_FAILED') from None
             remote = RemoteBrowser(self, browser, remote_id)
+            remote._captcha_requested = self.captcha_requested
+            remote._captcha_enabled = (payload['solveCaptcha'] is True
+                                       and data.get('solveCaptcha') is not False)
+            remote._captcha_confirmed = (payload['solveCaptcha'] is True
+                                         and data.get('solveCaptcha') is True)
+            remote._captcha_availability = (
+                'account_access_required' if captcha_unavailable else
+                'disabled' if not self.captcha_requested else
+                'enabled' if remote._captcha_confirmed else
+                'provider_disabled' if data.get('solveCaptcha') is False else
+                'provider_unconfirmed')
             # Keep the provider's unauthenticated live-view URL SERVER-SIDE.
             # Only a separate, one-time, owner-scoped mobile handoff may expose
             # it after authentication. Never send it through MCP or logs.
@@ -234,6 +292,12 @@ class RemoteBrowser:
         self._release_started = False
         self._release_confirmed = False
         self.close_lock = asyncio.Lock()
+        self._captcha_requested = False
+        self._captcha_enabled = False
+        self._captcha_confirmed = False
+        self._captcha_availability = 'disabled'
+        self._captcha_cache = None
+        self._captcha_status_lock = asyncio.Lock()
 
     def __getattr__(self, name):
         return getattr(self.browser, name)
@@ -246,6 +310,56 @@ class RemoteBrowser:
         except Exception:
             await self.close()
             raise SteelFailure('STEEL_PROFILE_CONTEXT_FAILED') from None
+
+    def captcha_configuration(self):
+        return {
+            'requested': self._captcha_requested,
+            'provider_confirmed': self._captcha_confirmed,
+            'availability': self._captcha_availability,
+        }
+
+    async def captcha_status(self, page_url):
+        """Read bounded progress for this page; False is never proof of success.
+
+        The caller must inspect the page again. URLs, page IDs, tokens and raw
+        task payloads stay server-side. No solve/retry or browser action occurs.
+        """
+        base = {
+            'requested': self._captcha_requested,
+            'enabled': self._captcha_enabled,
+            'provider_confirmed': self._captcha_confirmed,
+            'availability': self._captcha_availability,
+            'check_after_seconds': 3,
+            'completion_confirmed': False,
+        }
+        if not self._captcha_enabled:
+            return {**base, 'status': 'disabled'}
+        key = _captcha_page_key(page_url)
+        if key is None or self.closed:
+            return {**base, 'status': 'unavailable'}
+        async with self._captcha_status_lock:
+            cached = self._captcha_cache
+            if cached and cached[0] == key and time.monotonic() - cached[1] < 3:
+                return dict(cached[2])
+            status = 'unavailable'
+            try:
+                data = await asyncio.wait_for(self.engine.request(
+                    'GET', '/sessions/' + self.remote_id + '/captchas/status',
+                    timeout=5), timeout=6)
+                if isinstance(data, list) and len(data) <= 50:
+                    matching = [item for item in data if isinstance(item, dict)
+                                and _captcha_page_key(item.get('url')) == key]
+                    if not matching:
+                        status = 'not_reported'
+                    elif len(matching) == 1 and type(matching[0].get('isSolvingCaptcha')) is bool:
+                        status = 'solving' if matching[0]['isSolvingCaptcha'] else 'not_running'
+            except Exception:
+                # Cancellation propagates. Failure never triggers a write,
+                # release, login retry or false success.
+                pass
+            output = {**base, 'status': status}
+            self._captcha_cache = (key, time.monotonic(), output)
+            return dict(output)
 
     async def close(self, **_kwargs):
         async with self.close_lock:
@@ -351,6 +465,7 @@ def install(ns):
                        'controller_memory': memory_info()})
         if isinstance(remote, RemoteBrowser):
             result['remaining_seconds'] = max(0, int(870 - (time.time() - remote.created_at)))
+            result['captcha_automation'] = remote.captcha_configuration()
         return result
 
     async def expire(sid, delay):

@@ -10,6 +10,7 @@ import logging
 import os
 import re
 from urllib.parse import urlsplit
+from verification_status import inspect_verification
 
 VERSION = '0.5.2'
 EMAIL = re.compile(r'(?<![\w.+-])[A-Z0-9.!#$%&\x27*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9.-]*[A-Z0-9])?\.[A-Z]{2,}(?![\w.-])', re.I)
@@ -75,7 +76,7 @@ def result(stage, authenticated=None, **extra):
     return {'stage': stage, 'authenticated': authenticated, **extra}
 
 
-async def inspect_session(session):
+async def inspect_session(session, *, remaining_seconds=None):
     """Never infer logged-out from a lack of evidence. No navigation or writes."""
     try:
         page = session.page
@@ -87,10 +88,11 @@ async def inspect_session(session):
             return result('unverified', reason='unsupported_origin')
         p = urlsplit(initial_url)
         host, path = p.hostname.lower(), p.path.lower()
-        if any(s in path for s in ('/checkpoint', '/two_step_verification', '/captcha', '/challenge')):
-            return result('verification_required', False, next_action='stop_automatic_login')
-        if await page.locator(CHALLENGE).count():
-            return result('verification_required', False, next_action='stop_automatic_login')
+        verification = await inspect_verification(
+            session, initial_url, legacy_selector=CHALLENGE,
+            remaining_seconds=remaining_seconds)
+        if verification is not None:
+            return verification
         if await page.locator(PASSWORD).count():
             return result('login_form', False, next_action='check_saved_credential')
         if host == 'myaccount.google.com':
@@ -207,7 +209,17 @@ def install(ns):
     if getattr(manager, '_auth_status_v052', False):
         return
     core.VERSION = runtime.VERSION = VERSION
-    core.auth_probe = inspect_session
+    async def scoped_auth_probe(session):
+        remaining = None
+        guard = ns.get('_AIB_OWNER_PARALLEL_GUARD')
+        if guard is not None:
+            sid = guard.actor_session.get()
+            lease = guard.leases.get(sid)
+            if lease is not None and manager._sessions.get(sid) is session:
+                remaining = guard.with_lifecycle({}, lease)['remaining_seconds']
+        return await inspect_session(session, remaining_seconds=remaining)
+
+    core.auth_probe = scoped_auth_probe
     old_status, old_start, old_stop = manager.status, manager.start, manager.stop
     lifecycle = asyncio.Lock()
 

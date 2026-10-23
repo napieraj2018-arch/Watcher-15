@@ -167,6 +167,21 @@ class RealChromiumTouch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(invalid.status_code,409)
         self.assertEqual(await self.page.locator("#otp").input_value(),"123456")
 
+    async def test_real_focused_login_and_code_hints_never_read_values(self):
+        await self.page.set_content('''<input id="email" type="email"
+          name="SYNTHETIC_PRIVATE_EMAIL_NAME" value="SYNTHETIC_PRIVATE_EMAIL_VALUE">
+          <input id="password" type="password" value="SYNTHETIC_PRIVATE_PASSWORD">
+          <input id="code" type="text" autocomplete="one-time-code" value="012345">
+          <input id="readonly" type="text" readonly value="SYNTHETIC_PRIVATE_READONLY">''')
+        for field,kind in (("email","email"),("password","password"),
+                           ("code","code"),("readonly",None)):
+            await self.page.locator("#"+field).focus()
+            response=await self.touch.tabs(request(TABS_PATH,cookie=self.cookie))
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(json.loads(response.body)["focus_kind"],kind)
+            self.assertNotIn(b"SYNTHETIC_PRIVATE",response.body)
+            self.assertNotIn(b"012345",response.body)
+
     async def test_real_scoped_popup_can_be_selected_filled_and_return_to_opener(self):
         popup_url="https://m.facebook.com/synthetic-auth?state=SYNTHETIC_PRIVATE_QUERY"
         async def popup_document(route):

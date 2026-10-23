@@ -1,19 +1,24 @@
 # AI Browser — verified capabilities and gaps (2026-10-23)
 
-The live baseline for this update is PR #154, commit `975117f1`.
-Render deploy `dep-dbddcboae00c73fps3qg` became live on 23 October at
-05:40 Europe/Warsaw. Neutral input, textarea/Enter, tabs, reload and full
-saved close passed; history navigation changed pages but timed out while
-waiting for `domcontentloaded`. The follow-up below addresses that defect.
+The live baseline for this update is PR #155, commit `47fbb0ce`.
+The newer login/save repair is tracked in [PR #156](https://github.com/napieraj2018-arch/Watcher-15/pull/156).
+Its Acceptance section records its own CI, exact deployed SHA and live readback;
+consult that receipt before treating the baseline below as the latest deployment.
+Render deploy `dep-dbddnfd9fdbs73ap9mcg` became live on 23 October at
+06:01 Europe/Warsaw. At 06:05, the real Steel acceptance passed restored
+cookie/localStorage from before deployment, text/textarea, tabs, reload,
+Back/Forward and five isolated simultaneous profiles with full saved close.
+CI passed 573 image regressions, 9 Chromium and 10 WebKit checks, 4 external
+CDP history checks and three independent profile readback rounds.
 Code changes described below still require their own CI and matching live
 deploy before being reported as deployed. Historical account checks retain
 their original dates; they are not today's authentication evidence.
 
 | Capability | Reality | Evidence/limitation |
 | --- | --- | --- |
-| Saved profiles | LIVE (31 at the #154 smoke test) | All 30 pre-test profiles preserved plus one neutral test profile; name ≠ active logged-in account |
+| Saved profiles | LIVE (35 at the #155 smoke test) | All 30 original profiles preserved plus five neutral test profiles; name ≠ active logged-in account |
 | Remote browser | LIVE (owner beta 5 distinct profiles at a time) | Render ai-browser-cloud, controller 0.5.2, Steel provider 0.4.5, 5 separate owner-beta sessions verified |
-| Save profile | LIVE, neutral persistence verified | #153: flush, full saved close, new session, cookie/localStorage PASS before any second write. This does not certify every real account or every restart path. |
+| Save profile | LIVE, neutral persistence verified | #155: restored a marker saved before its Render deployment, explicit flush and full saved close of five isolated profiles. This does not certify every real account. |
 | Login detection | Cautious | browser status/auth probe; must verify correct account and content live |
 | Mobile/iPhone | LIVE scoped controller; physical-device validation remains limited | Eight fixed service entrypoints, owner-authenticated touch and keyboard. Real Chromium/WebKit CI is distinct from an actual iPhone login. |
 | DOM extraction | LIVE | `browser_snapshot`, frames, tabs, scroll and downloads |
@@ -78,6 +83,17 @@ inspection before any retry, because the operation may already have completed.
 These changes require the matching production-image CI and a live deployment
 receipt. They do not add durable task resume after a process restart, extend
 the provider's session budget or prove authentication to a real service.
+
+## Login experience follow-up
+
+The new code adds a single-screen phone controller, focus-kind hints, bounded
+frame fetching after phone/app switches, readback of the exact saved-close
+receipt, optional provider CAPTCHA automation and an agent-side connected
+Gmail route for ordinary confirmation links. See
+[the scope and acceptance contract](LOGIN_EXPERIENCE_20261023.md).
+Provider CAPTCHA availability must be read from the actual create response;
+requesting it is not proof of solving. Email code input remains the secure
+owner controller until a dedicated scoped secret-input API is available.
 
 The current Render service is on its Free plan and application logs show
 automatic idle shutdown and later startup. Saved profiles use the existing

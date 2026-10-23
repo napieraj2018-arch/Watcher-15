@@ -5,7 +5,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -199,6 +199,59 @@ class TouchTests(IsolatedAsyncioTestCase):
         self.assertNotIn(b"app.steel.dev/sessions/synthetic-valid-debug",page.body)
         anonymous=await self.touch.home(request(PATH))
         self.assertEqual(anonymous.status_code,403)
+
+    async def test_focus_hint_is_a_fixed_kind_and_never_returns_remote_contents(self):
+        for candidate,expected in (
+            ("password","password"),("email","email"),("code","code"),
+            ("tel","tel"),("number","number"),("text","text"),
+            ("SYNTHETIC_PRIVATE_VALUE",None),
+            ({"name":"SYNTHETIC_PRIVATE_NAME","value":"SYNTHETIC_PRIVATE_VALUE"},None),
+        ):
+            with self.subTest(candidate=candidate):
+                self.page.evaluate=AsyncMock(return_value=candidate)
+                response=await self.touch.tabs(request(TABS_PATH,cookie=self.cookie))
+                self.assertEqual(response.status_code,200)
+                self.assertEqual(json.loads(response.body)["focus_kind"],expected)
+                self.assertNotIn(b"SYNTHETIC_PRIVATE",response.body)
+                self.assertEqual(self.page.focused.fills,[])
+
+    async def test_focus_hint_rechecks_origin_and_exact_page_after_read(self):
+        async def redirect(_script):
+            self.page.url="https://phishing.example/"
+            return "password"
+        self.page.evaluate=redirect
+        response=await self.touch.tabs(request(TABS_PATH,cookie=self.cookie))
+        self.assertIsNone(json.loads(response.body)["focus_kind"])
+
+        self.page.url=FACEBOOK
+        async def close(_script):
+            self.page.closed=True
+            self.page.context.pages=[]
+            return "password"
+        self.page.evaluate=close
+        response=await self.touch.tabs(request(TABS_PATH,cookie=self.cookie))
+        self.assertIsNone(json.loads(response.body)["focus_kind"])
+
+    async def test_focus_hint_failure_keeps_safe_tab_inventory_available(self):
+        self.page.evaluate=AsyncMock(side_effect=RuntimeError("SYNTHETIC_PRIVATE_ERROR"))
+        response=await self.touch.tabs(request(TABS_PATH,cookie=self.cookie))
+        body=json.loads(response.body)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(len(body["tabs"]),1)
+        self.assertIsNone(body["focus_kind"])
+        self.assertNotIn(b"SYNTHETIC_PRIVATE_ERROR",response.body)
+
+    async def test_phone_screen_preserves_nonce_csp_and_native_input_hints(self):
+        response=await self.touch.home(request(PATH,cookie=self.cookie))
+        csp=response.headers["content-security-policy"]
+        self.assertNotIn("unsafe-inline",csp)
+        self.assertNotIn("unsafe-eval",csp)
+        self.assertIn(b'viewport-fit=cover',response.body)
+        self.assertIn(b'autocomplete="current-password"',response.body)
+        self.assertIn(b'autocomplete="one-time-code"',response.body)
+        self.assertIn(b'inputmode="numeric"',response.body)
+        self.assertIn(b'id="touch-finish"',response.body)
+        self.assertNotIn(b'user-scalable=no',response.body)
 
     async def test_tap_maps_to_remote_viewport(self):
         resp=await self.touch.action(self.action_request({
@@ -635,6 +688,33 @@ class TouchTests(IsolatedAsyncioTestCase):
             "kind":"tap","x":0.5,"y":0.5}))
         self.assertEqual(old.status_code,403)
         self.assertEqual(self.page.mouse.clicks,[])
+
+    async def test_touch_landing_reload_after_saved_close_keeps_receipt_only(self):
+        done = await self.handoff.finish(request(
+            SETUP_PATH + "/finish", "POST", {}, cookie=self.cookie))
+        self.assertEqual(done.status_code, 200)
+        self.assertTrue(json.loads(done.body)["full_profile_saved"])
+        returned = await self.touch.home(request(PATH, cookie=self.cookie))
+        self.assertEqual(returned.status_code, 200)
+        self.assertIn("Profil zapisany i sesja zamknięta".encode(), returned.body)
+        self.assertNotIn(b'id="touch-app"', returned.body)
+        self.assertNotIn(b'id="fullscreen"', returned.body)
+        self.assertEqual(len(self.manager.saved), 1)
+        self.assertEqual((await self.touch.frame(request(
+            FRAME_PATH, cookie=self.cookie))).status_code, 410)
+
+    async def test_touch_landing_after_control_expiry_keeps_bounded_status_only(self):
+        self.handoff.clock = lambda: self.handoff.active.expires_at + 91
+        returned = await self.touch.home(request(PATH, cookie=self.cookie))
+        self.assertEqual(returned.status_code, 200)
+        self.assertIn(b'/owner-mobile-login/status', returned.body)
+        self.assertNotIn(b'id="touch-app"', returned.body)
+        self.assertNotIn(b'id="fullscreen"', returned.body)
+        self.assertEqual(self.page.screenshots, 0)
+        self.handoff.clock = lambda: self.handoff.active.receipt_expires_at + 1
+        self.assertEqual((await self.touch.home(request(
+            PATH, cookie=self.cookie))).status_code, 403)
+        self.assertEqual((await self.touch.home(request(PATH))).status_code, 403)
 
 
 if __name__ == "__main__":
