@@ -66,6 +66,24 @@ def preserve_verified_native_hydration(binding, profile_id):
             and binding.get('profile_id') == profile_id)
 
 
+def native_context_trial_payload(payload, profile, binding):
+    """Disposable canary ONLY: avoid the provider's navigation context replay.
+
+    Steel documents request-level sessionContext as replacing profile context.
+    Its public frame-navigation handler replays that context on each visit.
+    An empty context does not clear native userDataDir. Whether that directory
+    alone preserves *all* state must be proven before any real-profile rollout.
+    """
+    result = copy.deepcopy(payload)
+    if (profile == 'Acceptance-20261023-Rollback'
+            and binding.get('hydrated') is True
+            and binding.get('profile_id')):
+        if 'sessionContext' in result:
+            raise ReliabilityError('NATIVE_CONTEXT_TRIAL_CONFLICT')
+        result['sessionContext'] = {}
+    return result
+
+
 async def import_portable_state(context, state):
     """Never inject a known provider-blocked origin into a remote browser.
 
@@ -769,6 +787,7 @@ def install(ns):
             if binding['profile_id']:
                 await await_profile_ready(original_request, binding['profile_id'])
                 payload['profileId'] = binding['profile_id']
+            payload = native_context_trial_payload(payload, profile, binding)
         except BaseException as failure:
             # This block performs only local preparation and read requests.
             # In particular, cancellation here cannot have created a session.
