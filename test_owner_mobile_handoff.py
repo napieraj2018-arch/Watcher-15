@@ -107,6 +107,108 @@ class MobileHandoffTests(IsolatedAsyncioTestCase):
         self.assertIs(self.manager.last_headless,False)
         self.assertEqual(self.guard.capacity,5)
 
+    async def test_slow_start_caps_invite_to_actual_guard_deadline(self):
+        now = [100.0]
+        self.guard.clock = self.handoff.clock = lambda: now[0]
+        original_start = self.handoff.original_start
+
+        async def slow_start(**args):
+            result = await original_start(**args)
+            now[0] += 270
+            result["remaining_seconds"] = 600
+            return result
+
+        self.handoff.original_start = slow_start
+        setup = await self.begin(timeout_seconds=900)
+        lease = next(iter(self.guard.leases.values()))
+        self.assertEqual(setup["expires_in_seconds"], 510)
+        self.assertEqual(self.handoff.active.expires_at, 880)
+        self.assertEqual(self.handoff.active.expires_at,
+                         self.guard.close_deadlines[lease.internal_session_id])
+        self.assertEqual(len(self.guard.leases), 1)
+        self.assertEqual(self.manager.saved, [])
+
+    async def delayed_viewer_setup(self, *, remaining, delay,
+                                  timeout_seconds=900, close_in_lookup=False):
+        now = [100.0]
+        self.guard.clock = self.handoff.clock = lambda: now[0]
+        self.manager.fake_viewer = None
+        original_start = self.handoff.original_start
+
+        async def start_without_viewer(**args):
+            result = await original_start(**args)
+            sid = result["session_id"]
+
+            async def metadata(method, path, timeout):
+                self.assertEqual(method, "GET")
+                self.assertEqual(path, "/sessions/REDACTED_SYNTHETIC_REMOTE")
+                self.assertEqual(timeout, 12)
+                now[0] += delay
+                if close_in_lookup:
+                    await self.guard.watchdog(self.guard.leases[sid])
+                return {"debugUrl": GOOD_URL}
+
+            self.manager._sessions[sid].browser.engine = SimpleNamespace(request=metadata)
+            result["remaining_seconds"] = remaining
+            return result
+
+        self.handoff.original_start = start_without_viewer
+        return await self.begin(timeout_seconds=timeout_seconds)
+
+    async def test_viewer_metadata_time_is_deducted_before_invite(self):
+        setup = await self.delayed_viewer_setup(remaining=450, delay=80)
+        lease = next(iter(self.guard.leases.values()))
+        self.assertEqual(setup["expires_in_seconds"], 280)
+        self.assertEqual(self.handoff.active.expires_at, 460)
+        self.assertEqual(self.guard.close_deadlines[lease.internal_session_id], 460)
+        self.assertEqual(len(self.guard.leases), 1)
+
+    async def test_short_requested_invite_is_not_extended_to_larger_budget(self):
+        setup = await self.delayed_viewer_setup(
+            remaining=450, delay=80, timeout_seconds=120)
+        self.assertEqual(setup["expires_in_seconds"], 120)
+        self.assertEqual(self.handoff.active.expires_at, 300)
+
+    async def test_short_actual_budget_can_further_reduce_valid_requested_ttl(self):
+        setup = await self.delayed_viewer_setup(
+            remaining=200, delay=30, timeout_seconds=120)
+        self.assertEqual(setup["expires_in_seconds"], 80)
+        self.assertEqual(self.handoff.active.expires_at, 210)
+
+    async def test_exhausted_metadata_budget_saves_only_its_session_and_creates_no_invite(self):
+        other = await self.guard.start(self.handoff.original_start, {
+            "profile": "Meta - Other-Synthetic", "start_url": "https://example.com/"})
+        other_lease = self.guard.authorize(other["session_id"])
+        other_record = self.manager._sessions[other_lease.internal_session_id]
+        with self.assertRaisesRegex(OwnershipError, "MOBILE_SETUP_BUDGET_EXHAUSTED"):
+            await self.delayed_viewer_setup(remaining=100, delay=11)
+        self.assertIsNone(self.handoff.active)
+        self.assertEqual(self.manager.saved, ["INTERNAL_SYNTHETIC_SESSION_2"])
+        self.assertEqual(set(self.guard.leases), {other_lease.internal_session_id})
+        self.assertIs(self.manager._sessions[other_lease.internal_session_id], other_record)
+        self.assertFalse(self.guard.quarantined)
+        self.assertNotIn(PROFILE, self.guard.by_profile)
+
+    async def test_exhausted_metadata_budget_failed_save_keeps_quarantine(self):
+        self.manager.broken_save = True
+        with self.assertRaisesRegex(OwnershipError, "MOBILE_SAVE_UNCONFIRMED"):
+            await self.delayed_viewer_setup(remaining=100, delay=11)
+        self.assertIsNone(self.handoff.active)
+        self.assertTrue(self.guard.quarantined)
+        self.assertEqual(len(self.guard.leases), 1)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                         ["missing_session_quarantined"])
+
+    async def test_watchdog_close_during_metadata_does_not_create_stale_invite(self):
+        with self.assertRaisesRegex(OwnershipError, "MOBILE_SETUP_SESSION_EXPIRED"):
+            await self.delayed_viewer_setup(
+                remaining=100, delay=11, close_in_lookup=True)
+        self.assertIsNone(self.handoff.active)
+        self.assertEqual(self.manager.saved, ["INTERNAL_SYNTHETIC_SESSION_1"])
+        self.assertEqual(self.guard.leases, {})
+        self.assertEqual(self.guard.safe_sessions(), [])
+        self.assertFalse(self.guard.quarantined)
+
     async def test_owner_cancellation_stops_only_bound_setup(self):
         previous=await self.mcp.call_tool("browser_start",{
             "profile":"Meta - Other-Synthetic",

@@ -223,7 +223,7 @@ def _page(body: str, script: str = "") -> HTMLResponse:
     .touch-field{background:#fff;padding:12px;border:1px solid #d9e3ec;
       border-radius:12px;margin:12px 0}
     .touch-field label{display:block;font-size:14px;font-weight:650;margin-bottom:7px}
-    .touch-field input{width:100%;box-sizing:border-box;font-size:17px;
+    .touch-field input,.touch-field select{width:100%;box-sizing:border-box;font-size:17px;
       padding:13px;border:1px solid #b9c8d7;border-radius:9px;
       background:#fff;color:#162a3e;margin-bottom:9px}
     .touch-field button{background:#1766aa}
@@ -350,10 +350,29 @@ class OwnerMobileHandoff:
                 await self.guard.action("browser_stop", self.original_stop,
                                         {"session_id": handle})
                 raise OwnershipError("MOBILE_VIEWER_UNAVAILABLE") from None
+            # The owner watchdog has a fixed deadline established at start.
+            # Provider setup and the optional viewer lookup can consume its
+            # budget. Never advertise a fresh 600 seconds after those awaits.
+            if self.guard.leases.get(lease.internal_session_id) is not lease:
+                raise OwnershipError("MOBILE_SETUP_SESSION_EXPIRED")
+            issued_at = self.clock()
+            available = self.guard.with_lifecycle({}, lease)["remaining_seconds"]
+            ttl = min(ttl, available)
+            if ttl <= 0:
+                # This session belongs to this start. Finish its guarded full
+                # save-close before failing; do not mint an unusable invite or
+                # leave a hidden lease when startup exhausted the login budget.
+                receipt = await self.guard.action(
+                    "browser_stop", self.original_stop, {"session_id": handle})
+                if (not isinstance(receipt, dict)
+                        or receipt.get("profile_saved") is not True
+                        or receipt.get("full_profile_saved") is not True):
+                    raise OwnershipError("MOBILE_SAVE_UNCONFIRMED")
+                raise OwnershipError("MOBILE_SETUP_BUDGET_EXHAUSTED")
             token = secrets.token_urlsafe(32)
             setup_id = secrets.token_urlsafe(32)
             self.active = Handoff(profile, handle, viewer, _digest(token),
-                                  _digest(setup_id), self.clock() + ttl,
+                                  _digest(setup_id), issued_at + ttl,
                                   service.name, service.allowed_origins)
             # Fragment is never sent to Render/Steel access logs or Referer.
             return {

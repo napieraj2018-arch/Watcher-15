@@ -1,4 +1,5 @@
 """Offline tests for compatibility with the observed legacy _fail behavior."""
+import traceback
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -54,6 +55,63 @@ class ErrorReportingTests(unittest.TestCase):
             fix.classify_known_remote_failure(TargetClosedError("secret")),
             fix.PAGE_CLOSED_MESSAGE,
         )
+
+    def test_playwright_timeout_reports_unknown_outcome_without_private_details(self):
+        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+        detail = ("Page.go_back: Timeout 30000ms exceeded; "
+                  "https://private.invalid/account?session=SECRET")
+        with self.assertRaises(AnticipatedToolError) as caught:
+            self.handler(PlaywrightTimeoutError(detail))
+        self.assertEqual(str(caught.exception), fix.REMOTE_TIMEOUT_MESSAGE)
+        self.assertIn("outcome is unconfirmed", str(caught.exception))
+        self.assertIn("browser_status and browser_snapshot", str(caught.exception))
+        self.assertIn("Do not automatically repeat writes or authentication",
+                      str(caught.exception))
+        self.assertNotIn("private.invalid", str(caught.exception))
+        self.assertNotIn("SECRET", str(caught.exception))
+        self.assertEqual(self.calls, [])
+        self.sanitize.assert_not_called()
+
+    def test_playwright_timeout_subclass_uses_same_static_message(self):
+        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+        class SpecificTimeout(PlaywrightTimeoutError):
+            pass
+        with self.assertRaises(AnticipatedToolError) as caught:
+            self.handler(SpecificTimeout("private page text SECRET"))
+        self.assertEqual(str(caught.exception), fix.REMOTE_TIMEOUT_MESSAGE)
+
+    def test_unrelated_timeout_types_and_words_are_not_reclassified(self):
+        class TimeoutErrorLookalike(Exception):
+            pass
+        for exc in (
+            RuntimeError("TimeoutError: Page.go_back Timeout 30000ms SECRET"),
+            TimeoutError("network timeout SECRET"),
+            TimeoutErrorLookalike("Playwright TimeoutError SECRET"),
+        ):
+            with self.subTest(type=type(exc).__name__):
+                self.assertIsNone(fix.classify_known_remote_failure(exc))
+                with self.assertRaisesRegex(RuntimeError, "Browser operation failed"):
+                    self.handler(exc)
+
+    def test_playwright_timeout_suppresses_private_exception_chain(self):
+        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+        private_detail = "PRIVATE_PROVIDER_SESSION_SECRET"
+        try:
+            try:
+                raise RuntimeError(private_detail)
+            except RuntimeError as cause:
+                raise PlaywrightTimeoutError(private_detail) from cause
+        except PlaywrightTimeoutError as timeout:
+            try:
+                self.handler(timeout)
+            except AnticipatedToolError as reported:
+                self.assertTrue(reported.__suppress_context__)
+                self.assertIsNone(reported.__cause__)
+                rendered = "".join(traceback.format_exception(reported))
+                self.assertNotIn(private_detail, rendered)
+                self.assertIn(fix.REMOTE_TIMEOUT_MESSAGE, rendered)
+            else:
+                self.fail("Playwright timeout was not reported as a tool error")
 
     def test_busy_is_actionable(self):
         with self.assertRaises(AnticipatedToolError) as caught:

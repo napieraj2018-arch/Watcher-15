@@ -6,6 +6,10 @@ on:
       - "session_ownership/owner_mobile_touch.py"
       - "session_ownership/multi_capability_guard.py"
       - "steel_runtime.py"
+      - "steel_context_fix.py"
+      - "history_navigation.py"
+      - "test_history_navigation.py"
+      - "test_history_navigation_chromium.py"
       - "test_owner_mobile_handoff.py"
       - "test_owner_mobile_touch.py"
       - "test_owner_mobile_touch_chromium.py"
@@ -38,11 +42,14 @@ jobs:
     timeout-minutes: 23
     steps:
       - uses: actions/checkout@v4
-      - name: Build the unchanged runtime with owner-scoped login tests
+      - name: Build the runtime with owner-scoped login and lifecycle tests
         run: docker build --progress=plain -t ai-browser-owner-mobile .
-      - name: Verify 51 existing MCP tools plus four scoped HTTP routes
+      - name: Verify scoped HTTP controls and real Chromium and WebKit behavior
         run: |
           docker run --rm --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_handoff.py && PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_touch.py"
-          docker run --rm --network none --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_touch_chromium.py"
-          docker run --rm --network none --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_touch_webkit.py"
+          aib_browser_checks_failed=0
+          docker run --rm --network none --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_touch_chromium.py" || aib_browser_checks_failed=1
+          docker run --rm --network none --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_owner_mobile_touch_webkit.py" || aib_browser_checks_failed=1
+          docker run --rm --network none --entrypoint sh ai-browser-owner-mobile -c "PYTHONPATH=/app/session_ownership:/app python /app/test_history_navigation_chromium.py" || aib_browser_checks_failed=1
+          test "$aib_browser_checks_failed" -eq 0
           echo "OFFLINE_TESTS_ONLY_NO_ACCOUNTS_NO_STEEL_NO_DEPLOY"

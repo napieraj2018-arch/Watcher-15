@@ -84,6 +84,18 @@ class SteelFailure(RuntimeError):
     """Only fixed messages/status numbers; never third-party exception text."""
 
 
+class SteelCreateNotAttempted(SteelFailure):
+    """Internal proof from a local wrapper that no session POST was called.
+
+    Emit only around read-only preparation, never around a provider-create
+    request or its aftermath. Preserve the original exception (including
+    cancellation) without treating a failed registry read as an orphan.
+    """
+    def __init__(self, failure):
+        super().__init__('STEEL_CREATE_NOT_ATTEMPTED')
+        self.failure = failure
+
+
 class Engine:
     def __init__(self):
         self.remote = {}
@@ -188,7 +200,13 @@ class Engine:
                 or data.get('sessionViewerURL'))
             self.remote[remote_id] = remote
             return remote
-        except BaseException:
+        except BaseException as failure:
+            if (type(failure) is SteelCreateNotAttempted
+                    and not creation_confirmed and browser is None):
+                # The context wrapper has not called the provider's create
+                # method. There is no new session to release or quarantine.
+                # This never clears existing uncertainty or retries a POST.
+                raise failure.failure from None
             # A timed-out/invalid create response may have started a provider
             # session. A 404 for our requested id is NOT proof otherwise.
             if not creation_confirmed:
