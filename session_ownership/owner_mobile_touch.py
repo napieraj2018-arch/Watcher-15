@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 from typing import Any
 
 from starlette.responses import HTMLResponse, JSONResponse, Response
@@ -22,6 +23,7 @@ from starlette.routing import Route
 PATH = "/owner-mobile-login/touch"
 FRAME_PATH = PATH + "/frame"
 ACTION_PATH = PATH + "/action"
+TABS_PATH = PATH + "/tabs"
 MAX_REQUEST_BYTES = 900
 MAX_FIELD_CHARS = 250
 FRAME_TIMEOUT = 13
@@ -33,11 +35,17 @@ class NativeTouchController:
     def __init__(self, handoff):
         self.handoff = handoff
         self.guard = handoff.guard
+        # References are private to the one claimed handoff. They never carry
+        # browser/provider IDs and cannot select a page in another context.
+        self._tab_record = None
+        self._tab_refs = {}
+        self._selected_page = None
 
     def routes(self) -> list[Route]:
         return [
             Route(PATH, self.home, methods=["GET"]),
             Route(FRAME_PATH, self.frame, methods=["GET"]),
+            Route(TABS_PATH, self.tabs, methods=["GET"]),
             Route(ACTION_PATH, self.action, methods=["POST"]),
         ]
 
@@ -55,7 +63,7 @@ class NativeTouchController:
             return None
         return record, lease
 
-    async def _do(self, request, fn, *, limit=ACTION_TIMEOUT):
+    async def _with_session(self, request, fn, *, limit=ACTION_TIMEOUT):
         pair = self._record(request)
         if pair is None:
             return None
@@ -71,16 +79,86 @@ class NativeTouchController:
                 return None
             token = self.guard.actor_session.set(sid)
             try:
-                page = self.guard.manager._session(sid).page
-                if not self._safe_login_page(page, rec):
-                    return None
-                result = await asyncio.wait_for(fn(page, rec), limit)
-                # A click or history navigation can redirect while awaited.
-                # Never return an image or successful result for a page that
-                # has left this handoff's exact service scope.
-                return result if self._safe_login_page(page, rec) else None
+                session = self.guard.manager._session(sid)
+                result = await asyncio.wait_for(fn(session, rec), limit)
+                return result if self._record(request) else None
             finally:
                 self.guard.actor_session.reset(token)
+
+    def _pages(self, session, record):
+        if self._tab_record is not record:
+            self._tab_record = record
+            self._tab_refs = {}
+            self._selected_page = None
+        # Even after the original tab closes, its context remains the exact
+        # context owned by this lease. Never use browser-wide context lists.
+        pages = [page for page in session.page.context.pages
+                 if not page.is_closed()]
+        if not any(page is self._selected_page for page in pages):
+            # A completed OAuth popup often closes itself. Return to the
+            # original tab if it survives; do not adopt another session.
+            self._selected_page = (session.page if session.page in pages
+                                   else pages[0] if pages else None)
+        return pages
+
+    def _tab_inventory(self, session, record):
+        from owner_mobile_handoff import _https_origin
+        pages = self._pages(session, record)
+        previous, refs, rows = self._tab_refs, {}, []
+        for page in pages:
+            if not self._safe_login_page(page, record):
+                continue
+            ref = next((key for key, value in previous.items() if value is page),
+                       None) or secrets.token_urlsafe(12)
+            refs[ref] = page
+            # Titles, URL paths and queries can contain private values.
+            # Display only the exact approved origin and an ordinal label.
+            rows.append({"ref": ref,
+                         "label": f"Karta {len(rows)+1} — "
+                                  + _https_origin(page.url)[8:],
+                         "active": page is self._selected_page})
+        self._tab_refs = refs
+        return {"tabs": rows}
+
+    async def _do(self, request, fn, *, limit=ACTION_TIMEOUT, ref=None):
+        async def operate(session, record):
+            self._tab_inventory(session, record)
+            page = self._selected_page
+            if (page is None or not self._safe_login_page(page, record)
+                    or (ref is not None and self._tab_refs.get(ref) is not page)):
+                return None
+            result = await fn(page, record)
+            # A click or history navigation can redirect while awaited.
+            # Never return an image or successful result for a page that
+            # has left this handoff's exact service scope.
+            return result if self._safe_login_page(page, record) else None
+        return await self._with_session(request, operate, limit=limit)
+
+    async def tabs(self, request):
+        async def inventory(session, record):
+            return self._tab_inventory(session, record)
+        try:
+            result = await self._with_session(request, inventory)
+        except Exception:
+            result = None
+        if not isinstance(result, dict):
+            return JSONResponse({"error": "TOUCH_AUTH_REQUIRED"},
+                                status_code=403, headers=self._headers())
+        return JSONResponse(result, headers=self._headers())
+
+    async def _switch_tab(self, request, ref):
+        async def select(session, record):
+            self._tab_inventory(session, record)
+            page = self._tab_refs.get(ref)
+            if page is None:
+                return False
+            await page.bring_to_front()
+            if (not any(candidate is page for candidate in self._pages(session, record))
+                    or not self._safe_login_page(page, record)):
+                return False
+            self._selected_page = page
+            return True
+        return await self._with_session(request, select)
 
     @staticmethod
     def _safe_login_page(page, record) -> bool:
@@ -138,11 +216,20 @@ class NativeTouchController:
           const status = document.getElementById("touch-status");
           const value = document.getElementById("touch-value");
           const pass = document.getElementById("touch-password");
+          const tabs = document.getElementById("touch-tabs");
           let busy = false, start = null, framePending = false, editor = null;
+          let tabsPending = false, tabsSignature = "", currentRef = null;
+          let frameRequestRef = null, displayedRef = null;
           function announce(t) { status.textContent = t; }
           async function command(payload, followup = null) {
             if (busy) {
               announce("Trwa poprzednia operacja. Spróbuj za chwilę.");
+              return false;
+            }
+            const boundRef = currentRef;
+            if (payload.kind !== "switch_tab" &&
+                (!boundRef || displayedRef !== boundRef)) {
+              announce("Czekam na aktualny obraz wybranej karty.");
               return false;
             }
             busy = true;
@@ -154,12 +241,13 @@ class NativeTouchController:
                 const response = await fetch("/owner-mobile-login/touch/action", {
                   method: "POST", credentials: "same-origin",
                   headers: {"Content-Type": "application/json"},
-                  cache: "no-store", body: JSON.stringify(action)
+                  cache: "no-store", body: JSON.stringify(action.kind === "switch_tab"
+                    ? action : {...action, ref:boundRef})
                 });
                 if (!response.ok) throw Error("unavailable");
               }
               announce("Wykonano. Odświeżam widok…");
-              refresh();
+              if (payload.kind !== "switch_tab") refresh();
               return true;
             } catch (_) {
               announce("Nie udało się sterować. Wpisany tekst nie został usunięty.");
@@ -170,10 +258,70 @@ class NativeTouchController:
             // Slow remote screenshots must finish before changing src again.
             // Replacing src every 2 seconds aborts the image in the client
             // while server-side captures pile up behind the same input lock.
-            if (document.visibilityState !== "visible" || framePending) return;
+            if (document.visibilityState !== "visible" || framePending || !currentRef) return;
             framePending = true;
-            shot.src = "/owner-mobile-login/touch/frame?t=" + Date.now();
+            frameRequestRef = currentRef;
+            shot.src = "/owner-mobile-login/touch/frame?ref=" +
+              encodeURIComponent(currentRef) + "&t=" + Date.now();
           }
+          async function refreshTabs() {
+            if (tabsPending || busy || document.visibilityState !== "visible") return;
+            tabsPending = true;
+            try {
+              const response = await fetch("/owner-mobile-login/touch/tabs", {
+                credentials:"same-origin", cache:"no-store"
+              });
+              if (!response.ok) return;
+              const data = await response.json();
+              if (!Array.isArray(data.tabs)) return;
+              const selected = data.tabs.find(tab => tab.active)?.ref || null;
+              if (selected !== currentRef) {
+                currentRef = selected;
+                editor = null;
+                shot.style.pointerEvents = "none";
+                refresh();
+              }
+              const signature = JSON.stringify(data.tabs);
+              if (signature === tabsSignature) return;
+              tabsSignature = signature;
+              tabs.replaceChildren();
+              if (!data.tabs.some(tab => tab.active)) {
+                const prompt = document.createElement("option");
+                prompt.value = "";
+                prompt.textContent = "Wybierz kartę logowania";
+                prompt.selected = true;
+                tabs.appendChild(prompt);
+              }
+              for (const tab of data.tabs) {
+                const option = document.createElement("option");
+                option.value = tab.ref;
+                option.textContent = tab.label;
+                option.selected = tab.active;
+                tabs.appendChild(option);
+              }
+              tabs.disabled = data.tabs.length === 0 ||
+                (data.tabs.length === 1 && data.tabs[0].active);
+              if (data.tabs.length > 1)
+                document.getElementById("touch-tabs-hint").textContent =
+                  "Otwarta jest dodatkowa karta logowania. Wybierz ją z listy.";
+              else document.getElementById("touch-tabs-hint").textContent =
+                "Tu pojawią się dodatkowe karty logowania, np. Google.";
+            } catch (_) { /* The frame and input paths show session errors. */ }
+            finally { tabsPending = false; }
+          }
+          tabs.onchange = async () => {
+            if (!tabs.value) return;
+            // Keep pending local text, but do not submit it into a newly
+            // selected tab merely because the user presses Enter afterward.
+            const switched = await command({kind:"switch_tab", ref:tabs.value});
+            if (switched) {
+              editor = null;
+              shot.style.pointerEvents = "none";
+              announce("Wybrano kartę. Czekam na jej obraz…");
+            }
+            tabsSignature = "";
+            refreshTabs();
+          };
           const fraction = (v, a, size) =>
             Math.max(0, Math.min(1, (v - a) / Math.max(size, 1)));
           shot.addEventListener("pointerdown", e => {
@@ -202,6 +350,10 @@ class NativeTouchController:
               announce("Najpierw wpisz tekst na klawiaturze.");
               return false;
             }
+            if (!editor || editor.element !== element || editor.ref !== currentRef) {
+              announce("Karta się zmieniła. Wybierz ponownie pole tekstu lub hasła.");
+              return false;
+            }
             const sent = await command({kind:"text", field, text:t},
               enter ? {kind:"key",key:"Enter"} : null);
             // Only clear sensitive input AFTER the remote browser reports
@@ -213,7 +365,7 @@ class NativeTouchController:
           for (const [element, field] of [[value,"text"],[pass,"password"]]) {
             // A button takes DOM focus on some phones. Remember only the
             // local editor, never read back the remote field's contents.
-            const remember = () => { editor = {element,field}; };
+            const remember = () => { editor = {element,field,ref:currentRef}; };
             element.addEventListener("focus", remember);
             element.addEventListener("input", remember);
             element.addEventListener("keydown", e => {
@@ -239,16 +391,33 @@ class NativeTouchController:
           document.getElementById("touch-refresh").onclick=refresh;
           shot.addEventListener("load", () => {
             framePending = false;
+            displayedRef = frameRequestRef;
+            if (displayedRef !== currentRef) {
+              shot.style.pointerEvents = "none";
+              refresh();
+              return;
+            }
+            shot.style.pointerEvents = "";
             if (status.textContent === "Łączę z aktywną sesją…")
               announce("Obraz gotowy. Dotknij wybranego miejsca.");
+            else if (status.textContent === "Wybrano kartę. Czekam na jej obraz…" ||
+                     status.textContent.startsWith("Brak obrazu.") ||
+                     status.textContent === "Czekam na aktualny obraz wybranej karty.")
+              announce("Karta gotowa. Dotknij wybranego pola.");
           });
           shot.addEventListener("error", () => {
             framePending = false;
+            displayedRef = null;
+            shot.style.pointerEvents = "none";
             announce("Brak obrazu. Sesja mogła wygasnąć.");
+            refreshTabs();
+            if (frameRequestRef !== currentRef) refresh();
           });
           refresh();
+          refreshTabs();
           setInterval(() => {
             if (!busy && document.visibilityState === "visible") refresh();
+            refreshTabs();
           }, 2100);
         })();
         """
@@ -261,6 +430,11 @@ class NativeTouchController:
             '<button type="button" id="touch-forward">Dalej</button>'
             '<button type="button" id="touch-reload">Przeładuj stronę</button>'
             '</div>'
+            '<div class="touch-field"><label for="touch-tabs">Karty logowania</label>'
+            '<select id="touch-tabs" disabled>'
+            '<option>Główna karta</option></select>'
+            '<p id="touch-tabs-hint" class="status">Tu pojawią się dodatkowe '
+            'karty logowania, np. Google.</p></div>'
             '<div class="touch-shell">'
             '<img id="touch-shot" alt="Widok Twojej zdalnej przeglądarki" '
             'draggable="false" referrerpolicy="no-referrer"></div>'
@@ -295,7 +469,8 @@ class NativeTouchController:
             return await page.screenshot(type="jpeg", quality=65,
                                          full_page=False, timeout=10000)
         try:
-            result = await self._do(request, capture, limit=FRAME_TIMEOUT)
+            result = await self._do(request, capture, limit=FRAME_TIMEOUT,
+                                    ref=request.query_params.get("ref"))
         except Exception:
             result = None
         if not isinstance(result, bytes) or len(result) < 4 or len(result)>4_000_000:
@@ -320,28 +495,36 @@ class NativeTouchController:
             data = json.loads(raw)
             if not isinstance(data,dict):
                 raise ValueError()
+            ref=data.get("ref")
+            if (not isinstance(ref,str) or len(ref)!=16 or
+                    any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+                        for c in ref)):
+                raise ValueError()
             kind = data.get("kind")
             if kind == "tap":
-                if set(data)!={"kind","x","y"}:
+                if set(data)!={"kind","x","y","ref"}:
                     raise ValueError()
                 x,y=data["x"],data["y"]
                 if not (self._num(x) and self._num(y)
                         and 0<=x<=1 and 0<=y<=1):
                     raise ValueError()
             elif kind == "scroll":
-                if set(data)!={"kind","delta"} or not self._num(data["delta"]):
+                if set(data)!={"kind","delta","ref"} or not self._num(data["delta"]):
                     raise ValueError()
                 if not -1000<=data["delta"]<=1000:
                     raise ValueError()
             elif kind == "key":
-                if set(data)!={"kind","key"} or data["key"] not in {
+                if set(data)!={"kind","key","ref"} or data["key"] not in {
                     "Enter","Tab","Backspace"}:
                     raise ValueError()
             elif kind in {"back","forward","reload"}:
-                if set(data)!={"kind"}:
+                if set(data)!={"kind","ref"}:
+                    raise ValueError()
+            elif kind == "switch_tab":
+                if set(data)!={"kind","ref"}:
                     raise ValueError()
             elif kind == "text":
-                if set(data)!={"kind","field","text"}:
+                if set(data)!={"kind","field","text","ref"}:
                     raise ValueError()
                 if (data["field"] not in ("text","password")
                         or not isinstance(data["text"],str)
@@ -383,7 +566,11 @@ class NativeTouchController:
                               "reload": page.reload}[kind]
                 # None means there is no entry in that direction; this is a
                 # normal no-op. The enclosing guard rechecks the final origin.
-                await navigation(wait_until="domcontentloaded", timeout=10000)
+                # History may restore a committed document without a new DOM
+                # lifecycle event. A deferred resource must not turn an already
+                # completed back/forward navigation into a misleading timeout.
+                wait_until = "domcontentloaded" if kind == "reload" else "commit"
+                await navigation(wait_until=wait_until, timeout=10000)
             else:
                 # Only fill the *already focused* editable element.
                 # A password may NEVER be inserted into text/email fields.
@@ -409,7 +596,7 @@ class NativeTouchController:
                     if tag!="INPUT" or inp_type!="password":
                         return False
                 elif (tag == "INPUT" and
-                      inp_type not in ("text","email","search","tel","url","")):
+                      inp_type not in ("text","email","search","tel","url","number","")):
                     return False
                 if not self._safe_login_page(page, record):
                     return False
@@ -419,7 +606,8 @@ class NativeTouchController:
                 await field.fill(data["text"], timeout=7000)
             return True
         try:
-            ok = await self._do(request, perform)
+            ok = (await self._switch_tab(request, data["ref"])
+                  if kind == "switch_tab" else await self._do(request, perform,ref=ref))
         except Exception:
             ok = None
         if ok is not True:

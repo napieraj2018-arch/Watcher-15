@@ -526,6 +526,8 @@ async def native_context(remote, **options):
             await context.set_storage_state(state)
     if options.get('extra_http_headers'):
         await context.set_extra_http_headers(options['extra_http_headers'])
+    from history_navigation import install_context_history
+    install_context_history(context)
     remote._native_context_claimed = True
     remote._aib_context = context
     remote._aib_native_hydrated = True
@@ -716,18 +718,24 @@ def install(ns):
     async def request(method, path, body=None, timeout=25):
         if method != 'POST' or path != '/sessions':
             return await original_request(method, path, body, timeout)
-        profile = pending_profile.get()
-        if not profile:
-            raise ReliabilityError('PROFILE_CONTEXT_REQUIRED')
-        binding = await registry.request('GET', profile)
-        payload = dict(body or {})
-        payload['persistProfile'] = True
-        # Keep the existing total/cost cap, but do not terminate an in-progress
-        # authentication flow simply because no CDP command arrived for 3 min.
-        payload['inactivityTimeout'] = max(15000, int(payload['timeout']) - 1000)
-        if binding['profile_id']:
-            await await_profile_ready(original_request, binding['profile_id'])
-            payload['profileId'] = binding['profile_id']
+        try:
+            profile = pending_profile.get()
+            if not profile:
+                raise ReliabilityError('PROFILE_CONTEXT_REQUIRED')
+            binding = await registry.request('GET', profile)
+            payload = dict(body or {})
+            payload['persistProfile'] = True
+            # Keep the existing total/cost cap, but do not terminate an in-progress
+            # authentication flow simply because no CDP command arrived for 3 min.
+            payload['inactivityTimeout'] = max(15000, int(payload['timeout']) - 1000)
+            if binding['profile_id']:
+                await await_profile_ready(original_request, binding['profile_id'])
+                payload['profileId'] = binding['profile_id']
+        except BaseException as failure:
+            # This block performs only local preparation and read requests.
+            # In particular, cancellation here cannot have created a session.
+            # Keep the provider POST and every subsequent step OUTSIDE it.
+            raise runtime.SteelCreateNotAttempted(failure) from None
         data = await original_request(method, path, payload, timeout)
         rid = str(data.get('id', ''))
         try:

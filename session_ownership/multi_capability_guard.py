@@ -34,6 +34,7 @@ AUTO_SAVE_CLOSE_SECONDS = 780
 CAPABILITY_LIFETIME_SECONDS = 850
 UPSTREAM_SAVE_MARGIN_SECONDS = 90
 START_CLEANUP_TIMEOUT_SECONDS = 90
+SAVED_CLOSE_TIMEOUT_SECONDS = 90
 
 
 class MultiCapabilityGuard:
@@ -59,6 +60,7 @@ class MultiCapabilityGuard:
         self.starting: tuple[str, frozenset[str]] | None = None
         self.start_cleanups: dict[str, object] = {}
         self.cleanup_tasks: set[asyncio.Task] = set()
+        self.close_tasks: dict[str, asyncio.Task] = {}
         self.pending_start = contextvars.ContextVar(
             "aib_multi_pending_start_profile", default=None)
         self.actor_session = contextvars.ContextVar(
@@ -386,6 +388,111 @@ class MultiCapabilityGuard:
         if self.by_profile.get(lease.profile) == sid:
             self.by_profile.pop(lease.profile, None)
 
+    async def _saved_close(self, lease, handle, fn, args):
+        """Finish one owned save-close even if its request is interrupted.
+
+        Keep the session lock in the caller and the exact record in closing
+        until the full save receipt arrives. A caller cancellation is not a
+        failed profile save. A timeout or real save failure remains quarantined;
+        an eventual receipt after a timeout must not clear that uncertainty.
+        """
+        sid = lease.internal_session_id
+        record = self.sessions()[sid]
+        self.closing[sid] = record
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + SAVED_CLOSE_TIMEOUT_SECONDS
+        timed_out = False
+        receipt_at = None
+
+        async def finalize():
+            nonlocal timed_out, receipt_at
+            actor = self.actor_session.set(sid)
+            try:
+                if (self.sessions().get(sid) is not record
+                        or self.leases.get(sid) is not lease
+                        or getattr(record, "profile", None) != lease.profile):
+                    raise OwnershipError("SESSION_CHANGED")
+                result = await fn(**{**args, "session_id": sid})
+                receipt_at = loop.time()
+                if receipt_at >= deadline:
+                    # A stalled event loop can deliver the receipt before
+                    # wait_for processes its already-expired timeout. Check
+                    # the absolute deadline before freeing the owned slot.
+                    timed_out = True
+                    raise OwnershipError("SESSION_CLOSE_TIMEOUT")
+                confirmed = (isinstance(result, dict)
+                             and result.get("profile_saved") is True
+                             and result.get("full_profile_saved") is True
+                             and sid not in self.sessions()
+                             and self.leases.get(sid) is lease)
+                if confirmed and not timed_out:
+                    self._complete(lease)
+                else:
+                    lease.recovery_required = True
+                    self.quarantined = True
+                return result
+            except BaseException:
+                lease.recovery_required = True
+                self.quarantined = True
+                raise
+            finally:
+                if self.closing.get(sid) is record:
+                    self.closing.pop(sid, None)
+                if self.close_tasks.get(sid) is asyncio.current_task():
+                    self.close_tasks.pop(sid, None)
+                self.actor_session.reset(actor)
+
+        task = asyncio.create_task(finalize())
+        self.close_tasks[sid] = task
+        self.cleanup_tasks.add(task)
+
+        def consume(done):
+            self.cleanup_tasks.discard(done)
+            if not done.cancelled():
+                done.exception()
+
+        task.add_done_callback(consume)
+        caller_cancelled = False
+        while not task.done():
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                timed_out = True
+                lease.recovery_required = True
+                self.quarantined = True
+                task.cancel()
+                if caller_cancelled:
+                    raise asyncio.CancelledError()
+                raise OwnershipError("SESSION_CLOSE_TIMEOUT")
+            try:
+                await asyncio.wait_for(asyncio.shield(task), remaining)
+            except asyncio.CancelledError:
+                # Retain ownership through repeated cancellations of the
+                # request. Cancellation of the finalizer itself is a failure
+                # and is handled by its own exception/receipt path above.
+                caller_cancelled = True
+            except TimeoutError:
+                # An early receipt can be followed by a delayed caller. Its
+                # completed result remains valid. Otherwise timeout is sticky
+                # even when the finalizer finished in the same event-loop turn.
+                if task.done() and receipt_at is not None and receipt_at < deadline:
+                    break
+                if loop.time() >= deadline:
+                    timed_out = True
+                    lease.recovery_required = True
+                    self.quarantined = True
+                    if not task.done():
+                        task.cancel()
+                    if caller_cancelled:
+                        raise asyncio.CancelledError()
+                    raise OwnershipError("SESSION_CLOSE_TIMEOUT") from None
+                break  # The finalizer itself raised TimeoutError before expiry.
+            except Exception:
+                break
+        result = task.result()
+        if caller_cancelled:
+            raise asyncio.CancelledError()
+        return scrub_result(result, sid, handle)
+
     async def action(self, name, fn, args):
         handle = args.get("session_id")
         lease = self.authorize(
@@ -399,6 +506,8 @@ class MultiCapabilityGuard:
                 handle, allow_expired_stop=(name in {"browser_stop", "profile_flush"})
             ) is not lease:
                 raise OwnershipError("SESSION_CHANGED")
+            if sid in self.close_tasks:
+                raise OwnershipError("SESSION_CLOSE_IN_PROGRESS")
             if lease.recovery_required and name not in {
                 "browser_stop", "profile_flush"
             }:
@@ -407,35 +516,23 @@ class MultiCapabilityGuard:
                 lease.recovery_required = True
                 self.quarantined = True
                 raise OwnershipError("SESSION_DISAPPEARED")
-            actor = self.actor_session.set(sid)
             if name == "browser_stop":
-                self.closing[sid] = self.sessions()[sid]
+                return await self._saved_close(lease, handle, fn, args)
+            actor = self.actor_session.set(sid)
             try:
                 result = await fn(**{**args, "session_id": sid})
-                if name == "browser_stop":
-                    if (isinstance(result, dict)
-                            and result.get("profile_saved") is True
-                            and result.get("full_profile_saved") is True
-                            and sid not in self.sessions()):
-                        self._complete(lease)
-                    else:
-                        lease.recovery_required = True
-                        self.quarantined = True
-                elif sid not in self.sessions():
+                if sid not in self.sessions():
                     lease.recovery_required = True
                     self.quarantined = True
                     raise OwnershipError("SESSION_DISAPPEARED")
-                if name == "browser_status":
+                # Several ordinary tools (new/switch tab, navigate, mode)
+                # return manager.status as their result. Their provider clock
+                # must not appear to renew this task's earlier fixed deadline.
+                if (name == "browser_status"
+                        or isinstance(result, dict) and "remaining_seconds" in result):
                     result = self.with_lifecycle(result, lease)
                 return scrub_result(result, sid, handle)
-            except BaseException:
-                if name == "browser_stop":
-                    lease.recovery_required = True
-                    self.quarantined = True
-                raise
             finally:
-                if name == "browser_stop":
-                    self.closing.pop(sid, None)
                 self.actor_session.reset(actor)
 
     async def watchdog(self, lease):
@@ -449,6 +546,10 @@ class MultiCapabilityGuard:
                 return
             async with lock:
                 if self.leases.get(sid) is not lease:
+                    return
+                if sid in self.close_tasks:
+                    # A timed-out request may still have an accounted-for
+                    # finalizer. Do not start a second close for that record.
                     return
                 if sid not in self.sessions():
                     lease.recovery_required = True

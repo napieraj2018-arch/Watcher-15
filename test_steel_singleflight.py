@@ -7,6 +7,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import steel_context_fix
+import steel_runtime
 from steel_runtime import Engine, RemoteBrowser, SteelFailure, install
 
 
@@ -219,6 +221,179 @@ class SteelSingleFlight(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(engine.releases, 1)
         self.assertEqual(chrome.connections[0].close_count, 1)
         self.assertEqual(engine.remote, {})
+
+
+class SteelInstalledCreatePreflight(unittest.IsolatedAsyncioTestCase):
+    """Use the real context wrapper; all registry/provider I/O stays synthetic."""
+
+    async def asyncSetUp(self):
+        self.engine, self.chrome = FakeEngine(), FakeChromium()
+        self.profile_id = "00000000-0000-4000-8000-000000000001"
+        self.registry_read = AsyncMock(return_value={
+            "profile_id": self.profile_id, "hydrated": True})
+        self.registry_write = AsyncMock(return_value={"ok": True})
+        self.provider_read = AsyncMock(return_value={"status": "READY"})
+        provider_request = self.engine.request
+
+        async def request(method, path, body=None, timeout=25):
+            if method == "GET" and path == "/profiles/" + self.profile_id:
+                return await self.provider_read()
+            result = await provider_request(method, path, body, timeout)
+            if method == "POST" and path == "/sessions":
+                result["profileId"] = self.profile_id
+            return result
+
+        async def registry_request(method, *args):
+            return await (self.registry_read if method == "GET"
+                          else self.registry_write)(*args)
+
+        self.engine.request = request
+        sessions = {}
+
+        async def start(profile):
+            remote = await self.engine.launch(self.chrome)
+            sid = "synthetic-" + remote.remote_id
+            sessions[sid] = SimpleNamespace(
+                browser=remote, profile=profile,
+                page=SimpleNamespace(url="https://example.org/", is_closed=lambda: False,
+                    locator=lambda _selector: SimpleNamespace(count=AsyncMock(return_value=0))))
+            return {"session_id": sid}
+
+        async def stop(sid):
+            await sessions[sid].browser.close()
+            sessions.pop(sid)
+            return {"profile_saved": False}
+
+        self.manager = SimpleNamespace(
+            _steel_engine=self.engine, _sessions=sessions,
+            _session=lambda sid: sessions[sid], start=start, stop=stop,
+            status=AsyncMock(side_effect=lambda sid: {"session_id": sid}),
+            flush_profile=AsyncMock(return_value={"ok": True}))
+        mcp = SimpleNamespace(
+            tool=lambda: lambda fn: fn,
+            custom_route=lambda *_args, **_kwargs: lambda fn: fn)
+        for patcher in (
+            patch.dict(os.environ, {"AI_BROWSER_ENGINE": "steel",
+                                   "STEEL_API_KEY": "synthetic-key-not-a-secret"}),
+            patch.object(RemoteBrowser, "new_context", RemoteBrowser.new_context),
+            patch.object(steel_runtime, "VERSION", steel_runtime.VERSION),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        with patch.object(steel_context_fix, "ProfileRegistry", return_value=SimpleNamespace(
+                request=registry_request)), patch("builtins.print"):
+            steel_context_fix.install({
+                "manager": self.manager, "mcp": mcp, "_SETUP_HTML": "",
+                "_setup_record": lambda _request: None})
+
+    def assert_no_create(self):
+        self.assertEqual(self.engine.creates, 0)
+        self.assertEqual(self.engine.releases, 0)
+        self.assertEqual(self.chrome.attempts, 0)
+        self.assertFalse(self.engine._quarantined)
+        self.registry_write.assert_not_awaited()
+
+    async def test_missing_profile_context_cannot_quarantine_or_release(self):
+        with self.assertRaisesRegex(steel_context_fix.ReliabilityError, "^PROFILE_CONTEXT_REQUIRED$"):
+            await self.engine.launch(self.chrome)
+        self.assert_no_create()
+        self.registry_read.assert_not_awaited()
+
+    async def test_registry_error_preserves_code_and_allows_later_explicit_start(self):
+        failure = steel_context_fix.ReliabilityError("PROFILE_REGISTRY_UNAVAILABLE")
+        self.registry_read.side_effect = failure
+        with self.assertRaises(steel_context_fix.ReliabilityError) as caught:
+            await self.manager.start("SyntheticPreflight")
+        self.assertIs(caught.exception, failure)
+        self.assert_no_create()
+
+        # No automatic retry. A later caller may start once the read recovers.
+        self.registry_read.side_effect = None
+        result = await self.manager.start("SyntheticPreflight")
+        try:
+            self.assertEqual(self.engine.creates, 1)
+            self.assertEqual(self.chrome.attempts, 1)
+        finally:
+            await self.manager.stop(result["session_id"])
+        self.assertEqual(self.engine.remote, {})
+
+    async def test_not_ready_profile_cannot_quarantine_or_release(self):
+        self.provider_read.return_value = {"status": "FAILED"}
+        with self.assertRaisesRegex(steel_context_fix.ReliabilityError, "^NATIVE_PROFILE_NOT_READY$"):
+            await self.manager.start("SyntheticPreflight")
+        self.assert_no_create()
+
+    async def test_ready_read_network_error_cannot_quarantine_or_release(self):
+        self.provider_read.side_effect = SteelFailure("STEEL_HTTP_503")
+        with self.assertRaisesRegex(SteelFailure, "^STEEL_HTTP_503$"):
+            await self.manager.start("SyntheticPreflight")
+        self.assert_no_create()
+
+    async def assert_cancelled_read_did_not_create(self, read):
+        entered = asyncio.Event()
+
+        async def blocked(*_args):
+            entered.set()
+            await asyncio.Event().wait()
+
+        read.side_effect = blocked
+        task = asyncio.create_task(self.manager.start("SyntheticPreflight"))
+        await asyncio.wait_for(entered.wait(), 2)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(task.cancelled(), "Cancellation must not become an ordinary error")
+        self.assert_no_create()
+
+    async def test_cancelled_registry_read_has_no_provider_side_effect(self):
+        await self.assert_cancelled_read_did_not_create(self.registry_read)
+
+    async def test_cancelled_ready_read_has_no_provider_side_effect(self):
+        await self.assert_cancelled_read_did_not_create(self.provider_read)
+
+    async def assert_quarantined_without_create_retry(self):
+        self.assertTrue(self.engine._quarantined)
+        self.assertEqual(self.engine.creates, 1)
+        self.assertGreaterEqual(self.engine.releases, 1)
+        reads = self.registry_read.await_count
+        with self.assertRaisesRegex(SteelFailure, "^STEEL_SESSION_QUARANTINED$"):
+            await self.manager.start("SyntheticPreflight")
+        self.assertEqual(self.engine.creates, 1)
+        self.assertEqual(self.registry_read.await_count, reads)
+
+    async def test_cancellation_inside_actual_create_still_quarantines(self):
+        self.engine.block_create = True
+        task = asyncio.create_task(self.manager.start("SyntheticPreflight"))
+        await asyncio.wait_for(self.engine.create_entered.wait(), 2)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        await self.assert_quarantined_without_create_retry()
+
+    async def test_actual_create_error_still_quarantines(self):
+        self.engine.fail_create = True
+        with self.assertRaisesRegex(SteelFailure, "^STEEL_CONNECTION_FAILED$"):
+            await self.manager.start("SyntheticPreflight")
+        await self.assert_quarantined_without_create_retry()
+
+    async def test_registry_write_after_create_still_quarantines(self):
+        self.registry_write.side_effect = steel_context_fix.ReliabilityError("PROFILE_REGISTRY_UNAVAILABLE")
+        with self.assertRaisesRegex(steel_context_fix.ReliabilityError, "^NATIVE_PROFILE_BINDING_FAILED$"):
+            await self.manager.start("SyntheticPreflight")
+        await self.assert_quarantined_without_create_retry()
+
+    async def test_existing_quarantine_and_remote_reference_cannot_be_cleared(self):
+        other = RemoteBrowser(self.engine, FakeCDPBrowser(), "synthetic-other")
+        self.engine.remote[other.remote_id] = other
+        self.engine._quarantined = True
+        with self.assertRaisesRegex(SteelFailure, "^STEEL_SESSION_QUARANTINED$"):
+            await self.manager.start("SyntheticPreflight")
+        self.assertTrue(self.engine._quarantined)
+        self.assertIs(self.engine.remote[other.remote_id], other)
+        self.assertFalse(other.closed)
+        self.assertEqual(self.engine.creates, 0)
+        self.assertEqual(self.engine.releases, 0)
+        self.registry_read.assert_not_awaited()
 
 
 class SteelCloseCancellation(unittest.IsolatedAsyncioTestCase):

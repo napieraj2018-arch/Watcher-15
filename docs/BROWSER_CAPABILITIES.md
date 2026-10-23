@@ -1,14 +1,17 @@
 # AI Browser — verified capabilities and gaps (2026-10-23)
 
-The live baseline for this update is merged PR #153, commit `648963ab`.
-Its production smoke test finished on 23 October at 00:28 Europe/Warsaw.
+The live baseline for this update is PR #154, commit `975117f1`.
+Render deploy `dep-dbddcboae00c73fps3qg` became live on 23 October at
+05:40 Europe/Warsaw. Neutral input, textarea/Enter, tabs, reload and full
+saved close passed; history navigation changed pages but timed out while
+waiting for `domcontentloaded`. The follow-up below addresses that defect.
 Code changes described below still require their own CI and matching live
 deploy before being reported as deployed. Historical account checks retain
 their original dates; they are not today's authentication evidence.
 
 | Capability | Reality | Evidence/limitation |
 | --- | --- | --- |
-| Saved profiles | LIVE (28 at the #153 smoke test) | All 27 existing profiles preserved plus one neutral test profile; name ≠ active logged-in account |
+| Saved profiles | LIVE (31 at the #154 smoke test) | All 30 pre-test profiles preserved plus one neutral test profile; name ≠ active logged-in account |
 | Remote browser | LIVE (owner beta 5 distinct profiles at a time) | Render ai-browser-cloud, controller 0.5.2, Steel provider 0.4.5, 5 separate owner-beta sessions verified |
 | Save profile | LIVE, neutral persistence verified | #153: flush, full saved close, new session, cookie/localStorage PASS before any second write. This does not certify every real account or every restart path. |
 | Login detection | Cautious | browser status/auth probe; must verify correct account and content live |
@@ -51,3 +54,33 @@ their original dates; they are not today's authentication evidence.
 These changes do not turn a saved profile into a resumable task or permit
 adopting another conversation's capability. Ordinary browser tools for tabs,
 history, navigation, text input and screenshots remain the existing tools.
+
+## Daily-use repair acceptance — 23 October follow-up
+
+The follow-up repair adds cancellation-resistant saved close, fixed-deadline
+mobile invitations, numeric verification fields and selection of trusted login
+popup tabs. Each touch action is bound to the observed tab reference; pending
+input cannot be redirected to the opener after a popup closes.
+
+Back/forward use Playwright's `commit` wait, following its
+[upstream history fix](https://github.com/microsoft/playwright/pull/41153).
+The hook applies only to pages in the owned provider-native context and
+preserves the existing timeout, return value and exception without retries.
+Reload retains its original behavior. A real external Chromium/CDP regression
+uses local HTTP pages so ordinary Playwright launch defaults and request
+interception cannot hide the production integration path.
+
+Errors before a provider create request no longer trigger speculative release
+or quarantine. Uncertain actual create/release operations still remain blocked.
+Real Playwright timeouts report an unconfirmed outcome and require status/page
+inspection before any retry, because the operation may already have completed.
+
+These changes require the matching production-image CI and a live deployment
+receipt. They do not add durable task resume after a process restart, extend
+the provider's session budget or prove authentication to a real service.
+
+The current Render service is on its Free plan and application logs show
+automatic idle shutdown and later startup. Saved profiles use the existing
+encrypted external vault; the in-memory task and its capability are separate.
+Do not describe an idle cold start as deleted profile data, or promise a
+continuous unattended task based on a saved profile alone.

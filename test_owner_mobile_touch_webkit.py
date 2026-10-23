@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 from playwright.async_api import async_playwright
 from starlette.responses import JSONResponse
@@ -19,7 +19,7 @@ from test_owner_mobile_handoff import (
     FakeMobileManager, PROFILE, FACEBOOK, SETUP_PATH, request,
 )
 from multi_capability_guard import MultiCapabilityGuard
-from owner_mobile_touch import PATH, FRAME_PATH, ACTION_PATH
+from owner_mobile_touch import PATH, FRAME_PATH, ACTION_PATH, TABS_PATH
 from pathlib import Path
 import sys
 
@@ -61,8 +61,10 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
         self.sample_image=await self.page.screenshot(type="jpeg",quality=50)
         self.assertTrue(self.sample_image.startswith(b"\xff\xd8"))
         self.events=[]
+        self.requests=[]
         self.action_status=200
         self.action_gate=None
+        self.tab_rows=[{"ref":"A"*16,"label":"Karta 1 — www.facebook.com","active":True}]
 
         async def mock_requests(route):
             url=route.request.url
@@ -76,14 +78,31 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
                         "Cache-Control":"no-store"
                     })
             elif parsed.path==FRAME_PATH and route.request.method=="GET":
+                active=next((tab["ref"] for tab in self.tab_rows if tab["active"]),None)
+                if parse_qs(parsed.query).get("ref") != [active]:
+                    await route.fulfill(status=410)
+                    return
                 await route.fulfill(
                     status=200,body=self.sample_image,
                     content_type="image/jpeg")
+            elif parsed.path==TABS_PATH and route.request.method=="GET":
+                await route.fulfill(status=200,content_type="application/json",
+                                    body=json.dumps({"tabs":self.tab_rows}))
             elif parsed.path==ACTION_PATH and route.request.method=="POST":
                 event=route.request.post_data_json
-                self.events.append(event)
+                self.requests.append(event)
+                self.events.append(event if event["kind"]=="switch_tab"
+                                   else {k:v for k,v in event.items() if k!="ref"})
                 if self.action_gate is not None:
                     await self.action_gate.wait()
+                active=next((tab["ref"] for tab in self.tab_rows if tab["active"]),None)
+                if event["kind"]!="switch_tab" and event.get("ref")!=active:
+                    await route.fulfill(status=409,content_type="application/json",
+                                        body='{"error":"TOUCH_ACTION_FAILED"}')
+                    return
+                if self.action_status==200 and event["kind"]=="switch_tab":
+                    for tab in self.tab_rows:
+                        tab["active"]=tab["ref"]==event["ref"]
                 await route.fulfill(status=self.action_status,
                                     content_type="application/json",
                                     body='{"status":"ok"}' if self.action_status==200
@@ -236,6 +255,53 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
                 "document.getElementById('touch-status').textContent.startsWith('Wykonano')")
         self.assertEqual(self.events,[
             {"kind":"back"},{"kind":"forward"},{"kind":"reload"}])
+
+    async def test_tab_picker_switches_popup_without_forwarding_unsent_password(self):
+        self.tab_rows.append({"ref":"B"*16,"label":"Karta 2 — m.facebook.com",
+                              "active":False})
+        await self.page.wait_for_function(
+            "document.querySelector('#touch-tabs').options.length === 2")
+        password=self.page.locator("#touch-password")
+        await password.fill("SYNTHETIC_KEEP_LOCAL")
+        await self.page.locator("#touch-tabs").select_option("B"*16)
+        await self.wait_for_events(1)
+        await self.page.wait_for_function(
+            "document.getElementById('touch-status').textContent.startsWith('Karta gotowa')")
+        self.assertEqual(self.events,[{"kind":"switch_tab","ref":"B"*16}])
+        self.assertEqual(await password.input_value(),"SYNTHETIC_KEEP_LOCAL")
+        # A remembered editor from the previous tab must not auto-fill this
+        # tab when focus moves to the common Enter button.
+        await self.page.locator("#touch-enter").tap()
+        await self.wait_for_events(2)
+        self.assertEqual(self.events[1],{"kind":"key","key":"Enter"})
+        self.assertEqual(self.requests[1]["ref"],"B"*16)
+        self.assertEqual(await password.input_value(),"SYNTHETIC_KEEP_LOCAL")
+
+    async def test_automatic_popup_return_does_not_submit_pending_password_to_opener(self):
+        # Observe the popup as active, then type locally without sending.
+        self.tab_rows=[{"ref":"B"*16,"label":"Karta 1 — m.facebook.com","active":True}]
+        await self.page.wait_for_function(
+            "document.getElementById('touch-tabs').value === '"+"B"*16+"'")
+        password=self.page.locator("#touch-password")
+        await password.fill("SYNTHETIC_POPUP_PASSWORD")
+        self.tab_rows=[{"ref":"A"*16,"label":"Karta 1 — www.facebook.com","active":True}]
+        await self.page.wait_for_function(
+            "document.getElementById('touch-tabs').value === '"+"A"*16+"'")
+        await self.page.locator("#touch-send-password").tap()
+        self.assertEqual(self.requests,[])
+        self.assertEqual(await password.input_value(),"SYNTHETIC_POPUP_PASSWORD")
+        self.assertIn("Karta się zmieniła",await self.page.locator("#touch-status").text_content())
+
+    async def test_one_safe_tab_remains_selectable_when_current_tab_is_out_of_scope(self):
+        self.tab_rows=[{"ref":"C"*16,"label":"Karta 1 — www.facebook.com","active":False}]
+        await self.page.wait_for_function(
+            "document.querySelector('#touch-tabs').options.length === 2 && "
+            "document.querySelector('#touch-tabs').value === ''")
+        picker=self.page.locator("#touch-tabs")
+        self.assertTrue(await picker.is_enabled())
+        await picker.select_option("C"*16)
+        await self.wait_for_events(1)
+        self.assertEqual(self.events,[{"kind":"switch_tab","ref":"C"*16}])
 
 
 if __name__=="__main__":

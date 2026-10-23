@@ -7,7 +7,9 @@ unmanaged session fail-closed and simultaneous actions in different sessions.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
+import time
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
@@ -385,6 +387,58 @@ class MultiMcp(IsolatedAsyncioTestCase):
                                         {"session_id": cap})
         self.assertEqual(result["remaining_seconds"], 12)
 
+    async def test_real_mcp_new_tab_status_keeps_original_guard_deadline(self):
+        manager = MultiManager()
+        mcp = fake_mcp(manager)
+        now = [100.0]
+        upstream_remaining = [785]
+
+        async def new_tab(session_id):
+            result = await manager.status(session_id)
+            return {**result, "remaining_seconds": upstream_remaining[0],
+                    "tab_count": 2}
+
+        mcp._tool_manager._tools["browser_new_tab"].fn = new_tab
+        guard = MultiCapabilityGuard(mcp, manager, capacity=5,
+                                     clock=lambda: now[0], watchdog_enabled=False)
+        guard.install()
+        started = await mcp.call_tool("browser_start", {
+            "profile": "TechnicalTabCountdown", "start_url": "https://example.com/"})
+        initial = json.loads(started.content[0].text)
+        cap = initial["session_id"]
+        lease = guard.authorize(cap)
+        self.assertEqual(initial["remaining_seconds"], 780)
+        deadline = guard.close_deadlines[lease.internal_session_id]
+
+        # Reproduces the live smoke: 85 seconds later a new tab returned the
+        # provider's 785s instead of the guard's already-reduced 695s budget.
+        for now[0], upstream_remaining[0], expected in (
+                (185, 785, 695), (200, 870, 680), (210, 12, 12)):
+            with self.subTest(now=now[0], upstream=upstream_remaining[0]):
+                response = await mcp.call_tool("browser_new_tab", {"session_id": cap})
+                result = json.loads(response.content[0].text)
+                self.assertEqual(result["remaining_seconds"], expected)
+                self.assertEqual(result["auto_save_close_in_seconds"], 880 - now[0])
+                self.assertEqual(result["capability_expires_in_seconds"], 950 - now[0])
+                self.assertIs(result["durable_resume_supported"], False)
+                self.assertEqual(result["tab_count"], 2)
+                self.assertEqual(result["session_id"], cap)
+                self.assertEqual(guard.close_deadlines[lease.internal_session_id], deadline)
+        self.assertEqual(lease.started_at, 100)
+        self.assertEqual(manager.saved, [])
+
+    async def test_ordinary_nonstatus_results_do_not_gain_lifecycle_fields(self):
+        cap = await self.begin("TechnicalNonstatusResult")
+        for output in ({"ok": True}, {"data": {"remaining_seconds": 15}},
+                       [{"title": "Synthetic tab"}]):
+            with self.subTest(output=output):
+                async def operation(session_id):
+                    self.manager._session(session_id)
+                    return output
+                result = await self.guard.action("browser_tabs", operation,
+                                                {"session_id": cap})
+                self.assertEqual(result, output)
+
     async def test_lifecycle_countdown_is_zero_after_watchdog_deadline(self):
         self.guard.clock = lambda: 100
         cap = await self.begin("TechnicalClosePending")
@@ -562,15 +616,289 @@ class MultiMcp(IsolatedAsyncioTestCase):
                 await task
         await self.assert_failed_close_retains_lease(lease)
 
-    async def test_cancelled_close_after_record_removal_requires_recovery(self):
+    async def test_cancelled_close_after_record_removal_finishes_saved_receipt(self):
         lease, task, allow_remove, removed, allow_receipt = await self.paused_stop()
         try:
             await self.observe_paused_close(lease, allow_remove, removed)
-        finally:
             task.cancel()
+            await asyncio.sleep(0)
+            self.assertFalse(task.done())
+            self.assertFalse(self.guard.quarantined)
+            self.assertFalse(lease.recovery_required)
+            self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                             ["closing"])
+            self.assertIn(lease.internal_session_id, self.guard.close_tasks)
+            self.assertTrue(self.guard.session_locks[lease.internal_session_id].locked())
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        await asyncio.sleep(0)
+        self.assertEqual(self.guard.safe_sessions(), [])
+        self.assertFalse(self.guard.quarantined)
+        self.assertEqual(self.guard.close_tasks, {})
+        self.assertEqual(self.guard.cleanup_tasks, set())
+        await self.begin("TechnicalAfterCancelledSavedClose")
+
+    async def test_repeated_close_cancellation_preserves_own_record_and_other_chat(self):
+        other = await self.begin("TechnicalOtherChat")
+        other_sid = self.guard.authorize(other).internal_session_id
+        other_record = self.manager._sessions[other_sid]
+        lease, task, allow_remove, removed, allow_receipt = await self.paused_stop()
+        sid = lease.internal_session_id
+        record = self.manager._sessions[sid]
+        try:
+            for after_removal in (False, True):
+                if after_removal:
+                    allow_remove.set()
+                    await asyncio.wait_for(removed.wait(), 1.5)
+                for _ in range(2):
+                    task.cancel()
+                    await asyncio.sleep(0)
+                self.assertFalse(task.done())
+                self.assertTrue(self.guard.session_locks[sid].locked())
+                self.assertIs(self.guard.closing[sid], record)
+                self.assertIs(self.guard.leases[sid], lease)
+                self.assertEqual(len(self.guard.close_tasks), 1)
+                self.assertEqual(len(self.guard.cleanup_tasks), 1)
+                self.assertFalse(self.guard.quarantined)
+                self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                                 ["active", "closing"])
+                result = await self.mcp.call_tool("browser_status", {"session_id": other})
+                self.assertIn("TechnicalOtherChat", str(result))
+                self.assertIs(self.manager._sessions[other_sid], other_record)
+                with self.assertRaisesRegex(ToolError, "PARALLEL_PROFILE_BUSY"):
+                    await self.begin(lease.profile)
+            await self.begin("TechnicalThirdChatDuringCancelledClose")
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertNotIn(sid, self.guard.leases)
+        self.assertIs(self.manager._sessions[other_sid], other_record)
+        self.assertEqual(self.guard.close_tasks, {})
+        self.assertFalse(self.guard.quarantined)
+        await self.begin(lease.profile)
+
+    async def test_cancelled_close_with_false_receipt_still_quarantines(self):
+        lease, task, allow_remove, removed, allow_receipt = await self.paused_stop("false")
+        try:
+            await self.observe_paused_close(lease, allow_remove, removed)
+            task.cancel()
+            await asyncio.sleep(0)
+            self.assertFalse(task.done())
+            self.assertFalse(self.guard.quarantined)
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
             with self.assertRaises(asyncio.CancelledError):
                 await task
         await self.assert_failed_close_retains_lease(lease)
+
+    async def test_cancelled_close_with_failed_receipt_still_quarantines(self):
+        lease, task, allow_remove, removed, allow_receipt = await self.paused_stop("raise")
+        try:
+            await self.observe_paused_close(lease, allow_remove, removed)
+            task.cancel()
+            await asyncio.sleep(0)
+            self.assertFalse(task.done())
+        finally:
+            allow_remove.set()
+            allow_receipt.set()
+            with self.assertRaisesRegex(RuntimeError, "SYNTHETIC_PERSISTENCE_ERROR"):
+                await task
+        await self.assert_failed_close_retains_lease(lease)
+
+    async def test_close_timeout_tracks_finalizer_and_never_clears_uncertainty(self):
+        other = await self.begin("TechnicalOtherChat")
+        cap = await self.begin("TechnicalSlowClose")
+        lease = self.guard.authorize(cap)
+        sid = lease.internal_session_id
+        removed, cancelled, finish = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        stop_calls = []
+
+        async def delayed_receipt(session_id):
+            self.assertEqual(self.guard.actor_session.get(), session_id)
+            stop_calls.append(session_id)
+            self.manager._session(session_id)
+            self.manager._sessions.pop(session_id)
+            removed.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                await finish.wait()
+                return {"session_id": session_id, "profile_saved": True,
+                        "full_profile_saved": True}
+
+        with patch("multi_capability_guard.SAVED_CLOSE_TIMEOUT_SECONDS", .03):
+            task = asyncio.create_task(self.guard.action(
+                "browser_stop", delayed_receipt, {"session_id": cap}))
+            try:
+                await asyncio.wait_for(removed.wait(), 1.5)
+                with self.assertRaisesRegex(OwnershipError, "SESSION_CLOSE_TIMEOUT"):
+                    await asyncio.wait_for(task, 1.5)
+                await asyncio.wait_for(cancelled.wait(), 1.5)
+                self.assertTrue(self.guard.quarantined)
+                self.assertTrue(lease.recovery_required)
+                self.assertEqual(len(self.guard.close_tasks), 1)
+                self.assertEqual(len(self.guard.cleanup_tasks), 1)
+                self.assertIn(sid, self.guard.leases)
+                for name in ("browser_stop", "profile_flush"):
+                    with self.assertRaisesRegex(OwnershipError, "SESSION_CLOSE_IN_PROGRESS"):
+                        await self.guard.action(name, delayed_receipt, {"session_id": cap})
+                self.assertEqual(stop_calls, [sid])
+                with self.assertRaisesRegex(ToolError, "PARALLEL_PROVIDER_RECONCILIATION_REQUIRED"):
+                    await self.begin("TechnicalBlockedByCloseTimeout")
+                self.assertIn("TechnicalOtherChat", str(await self.mcp.call_tool(
+                    "browser_status", {"session_id": other})))
+            finally:
+                finish.set()
+                await asyncio.gather(*tuple(self.guard.cleanup_tasks), return_exceptions=True)
+                await asyncio.gather(task, return_exceptions=True)
+        self.assertEqual(self.guard.close_tasks, {})
+        self.assertEqual(self.guard.cleanup_tasks, set())
+        self.assertEqual(stop_calls, [sid])
+        self.assertTrue(self.guard.quarantined)
+        self.assertTrue(lease.recovery_required)
+        self.assertIs(self.guard.leases[sid], lease)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                         ["active", "missing_session_quarantined"])
+        with self.assertRaisesRegex(ToolError, "PARALLEL_PROVIDER_RECONCILIATION_REQUIRED"):
+            await self.begin("TechnicalBlockedAfterLateReceipt")
+
+    async def test_real_mcp_cancelled_stop_completes_exact_save_once(self):
+        cap = await self.begin("TechnicalMcpCancelledClose")
+        lease = self.guard.authorize(cap)
+        entered, finish = asyncio.Event(), asyncio.Event()
+        original_stop = self.manager.stop
+
+        async def paused_stop(sid):
+            result = await original_stop(sid)
+            entered.set()
+            await finish.wait()
+            return result
+
+        with patch.object(self.manager, "stop", new=paused_stop):
+            task = asyncio.create_task(self.mcp.call_tool(
+                "browser_stop", {"session_id": cap}))
+            try:
+                await asyncio.wait_for(entered.wait(), 1.5)
+                task.cancel()
+                await asyncio.sleep(0)
+                self.assertFalse(task.done())
+                self.assertEqual([x["state"] for x in self.guard.safe_sessions()],
+                                 ["closing"])
+            finally:
+                finish.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+        self.assertEqual(self.manager.saved, [lease.internal_session_id])
+        self.assertEqual(self.guard.safe_sessions(), [])
+        self.assertFalse(self.guard.quarantined)
+
+    async def test_late_receipt_after_event_loop_stall_cannot_release_timed_out_lease(self):
+        cap = await self.begin("TechnicalLateCloseReceipt")
+        lease = self.guard.authorize(cap)
+        sid = lease.internal_session_id
+        finish = asyncio.Event()
+        received = []
+        loop = asyncio.get_running_loop()
+
+        async def saved_stop(session_id):
+            await finish.wait()
+            self.manager._sessions.pop(session_id)
+            received.append(session_id)
+            return {"session_id": session_id, "profile_saved": True,
+                    "full_profile_saved": True}
+
+        # Make both the receipt and timeout callbacks ready in one loop turn.
+        # Previously wait_for raised TimeoutError, but its next while test saw
+        # a done finalizer that had already freed the slot after the deadline.
+        stall = loop.call_later(.01, time.sleep, .06)
+        release = loop.call_later(.02, finish.set)
+        try:
+            with patch("multi_capability_guard.SAVED_CLOSE_TIMEOUT_SECONDS", .03):
+                with self.assertRaisesRegex(OwnershipError, "SESSION_CLOSE_TIMEOUT"):
+                    await self.guard.action("browser_stop", saved_stop,
+                                            {"session_id": cap})
+        finally:
+            stall.cancel()
+            release.cancel()
+            finish.set()
+            await asyncio.gather(*tuple(self.guard.cleanup_tasks), return_exceptions=True)
+        self.assertEqual(received, [sid])
+        await self.assert_failed_close_retains_lease(lease)
+
+    async def test_early_receipt_stays_valid_when_only_the_caller_is_delayed(self):
+        cap = await self.begin("TechnicalEarlyCloseReceipt")
+        lease = self.guard.authorize(cap)
+        sid = lease.internal_session_id
+        loop = asyncio.get_running_loop()
+        stall = None
+
+        async def saved_stop(session_id):
+            nonlocal stall
+            self.manager._sessions.pop(session_id)
+            # The finalizer can synchronously confirm this receipt before the
+            # following callback stalls delivery to its awaiting caller.
+            stall = loop.call_soon(time.sleep, .06)
+            return {"session_id": session_id, "profile_saved": True,
+                    "full_profile_saved": True}
+
+        began = loop.time()
+        try:
+            with patch("multi_capability_guard.SAVED_CLOSE_TIMEOUT_SECONDS", .03):
+                result = await self.guard.action("browser_stop", saved_stop,
+                                                {"session_id": cap})
+        finally:
+            if stall is not None:
+                stall.cancel()
+        self.assertGreater(loop.time() - began, .03)
+        self.assertTrue(result["full_profile_saved"])
+        self.assertNotIn(sid, self.guard.leases)
+        self.assertEqual(self.guard.safe_sessions(), [])
+        self.assertFalse(self.guard.quarantined)
+
+    async def test_close_finalizer_does_not_stop_a_replacement_record(self):
+        cap = await self.begin("TechnicalReplacedClose")
+        lease = self.guard.authorize(cap)
+        sid = lease.internal_session_id
+        replacement = SimpleNamespace(profile=lease.profile, mode="read_only")
+        calls = []
+        async def stop(session_id):
+            calls.append(session_id)
+            return await self.manager.stop(session_id)
+        # This callback runs after the action captures its exact record, before
+        # the new finalizer task gets its first event-loop turn.
+        asyncio.get_running_loop().call_soon(
+            self.manager._sessions.__setitem__, sid, replacement)
+        with self.assertRaisesRegex(OwnershipError, "SESSION_CHANGED"):
+            await self.guard.action("browser_stop", stop, {"session_id": cap})
+        self.assertEqual(calls, [])
+        self.assertEqual(self.manager.saved, [])
+        self.assertIs(self.manager._sessions[sid], replacement)
+        self.assertTrue(self.guard.quarantined)
+        self.assertTrue(lease.recovery_required)
+
+    async def test_cancelled_queued_close_does_not_start_or_quarantine(self):
+        cap = await self.begin("TechnicalQueuedClose")
+        lease = self.guard.authorize(cap)
+        lock = self.guard.session_locks[lease.internal_session_id]
+        async with lock:
+            task = asyncio.create_task(self.guard.action(
+                "browser_stop", self.manager.stop, {"session_id": cap}))
+            await asyncio.sleep(0)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertEqual(self.manager.saved, [])
+        self.assertEqual(self.guard.close_tasks, {})
+        self.assertEqual(self.guard.closing, {})
+        self.assertFalse(self.guard.quarantined)
+        self.assertEqual([x["state"] for x in self.guard.safe_sessions()], ["active"])
 
     async def test_inventory_during_watchdog_close_waits_for_full_receipt(self):
         lease, task, allow_remove, removed, allow_receipt = await self.paused_stop(

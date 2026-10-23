@@ -5,7 +5,17 @@ WordPress lub opinii Google najpierw sprawdź dostępne, już podłączone
 aplikacje ChatGPT. Wykonuj w nich autoryzowaną czynność BEZ uruchamiania
 Steel, jeśli narzędzie obsługuje dokładnie żądany format i konto.
 
-Stan kontroli 10.10.2026 (sprawdzać na żywo):
+**Wznowienie pracy, 23.10.2026:** istniejące zgody użytkownika obowiązują
+w zatwierdzonym zakresie. Sprawdź aktualną tożsamość i dostępność konkretnej
+operacji; nie proś o ponowne logowanie ani zgodę na GitHub tylko dlatego,
+że poprzedni czat się przerwał. Puste dane, timeout, brak pojedynczego
+uprawnienia i wylogowanie to różne stany. Katalog tras pomaga wybrać
+narzędzie, ale nie wykonuje autoryzacji i nie odzyskuje zadania.
+
+Poniższe wyniki kontroli połączeń pochodzą z 10.10.2026; nie są
+potwierdzeniem dzisiejszego dostępu. Schemat operacji, format materiału
+i właściwe konto sprawdzaj bezpośrednio przed użyciem:
+
 - Gmail: osobna aplikacja ChatGPT już działa. OAuth wyklucza potrzebę
   przechowywania hasła Gmaila w AI Browser. Użyj Gmail do odczytu,
   szkiców lub wysyłania, zależnie od zgody i zakresu narzędzi.
@@ -71,8 +81,28 @@ konta i dostępność wymaganej operacji. Publikacja wymaga wskazanego
 materiału i odpowiedniego upoważnienia. Nie wolno na podstawie katalogu
 ogłaszać, że Reel się opublikował, ani zastępować Reels zdjęciem.
 
-Sama poprawa routingu nie naprawia #111 — Steel może odtworzyć
-niespójne cookies/localStorage. Wykonywanie CAPTCHA lub MFA bez udziału
-użytkownika nie jest mechanizmem trwałej autoryzacji; pojawienie się
-wyzwania zatrzymuje krok, ale nie całe pozostałe zadania z innych
-kont/profili. Nie wpisywać rodzinnego hasła ani kodów w ChatGPT.
+## Trwałość profilu i rzeczywiste blokady
+
+Wdrożenie [#154](https://github.com/napieraj2018-arch/Watcher-15/pull/154)
+potwierdzono 23.10.2026 o 05:40 Europe/Warsaw. Neutralny test przeszedł
+wpisywanie tekstu, karty, odświeżanie i pełne zapisane zamknięcie;
+bieżąca poprawka obejmuje wykryty timeout nawigacji wstecz/dalej.
+Wcześniejszy odbiór [#153](https://github.com/napieraj2018-arch/Watcher-15/pull/153)
+potwierdza na neutralnym profilu zapis cookie/localStorage, pełne zamknięcie
+i zgodny odczyt strony w nowej sesji (23.10.2026, 00:28 Europe/Warsaw).
+Wcześniejszy syntetyczny odbiór #138 obejmował również restart Render,
+zgodnie z `AGENTS.md`. Nie traktuj dawnego #111 jako automatycznej awarii
+wszystkich zapisanych profili; te testy nie potwierdzają jednak aktualnego
+zalogowania prawdziwych kont. Każdy nowo scalony kod wymaga osobnego
+potwierdzenia wdrożenia. Zakres: `docs/BROWSER_CAPABILITIES.md`.
+
+Historyczna sesja #148 została niezależnie rozliczona jako
+[Completed](https://github.com/napieraj2018-arch/Watcher-15/issues/148#issuecomment-6129272443).
+Nowy błąd zapisu, utrata lease lub niepewne zwolnienie providera nadal
+wymagają sprawdzenia przed ponownym startem albo wdrożeniem; nie czyść
+kwarantanny restartem. Kontynuuj niezależne autoryzowane prace API.
+
+CAPTCHA lub wymagane ludzkie MFA zatrzymują zależny krok do potwierdzenia
+użytkownika. Nie wykonuj ślepych prób logowania ani nie rozszerzaj zakresu
+mobilnego handoff. Hasła, kody i tokeny nie trafiają do czatu. Zapisany profil
+nie jest trwałym wznowieniem zadania z poprzedniej rozmowy.

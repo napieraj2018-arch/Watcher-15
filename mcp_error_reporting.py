@@ -6,9 +6,10 @@ from __future__ import annotations
 from collections.abc import Callable, MutableMapping
 from typing import Any, NoReturn
 
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright._impl._errors import TargetClosedError
 
-FIX_REVISION = "2026-10-10.1"
+FIX_REVISION = "2026-10-23.1"
 BUSY_MESSAGE = (
     "AI_BROWSER_BUSY: The configured browser session limit is occupied. "
     "Use browser_sessions to inspect it. Do not stop another active task or "
@@ -22,11 +23,21 @@ PAGE_CLOSED_MESSAGE = (
     "that the prior remote session has been reconciled or released."
 )
 
+REMOTE_TIMEOUT_MESSAGE = (
+    "AI_BROWSER_REMOTE_TIMEOUT: The remote browser operation exceeded its wait "
+    "limit. Its outcome is unconfirmed; navigation or a submitted action may "
+    "already have completed. Inspect browser_status and browser_snapshot for "
+    "this same owned session before deciding whether to retry. Do not "
+    "automatically repeat writes or authentication."
+)
+
 
 def classify_known_remote_failure(exc: Exception) -> str | None:
     """Precise exception class, never pattern-match private exception text."""
     if isinstance(exc, TargetClosedError):
         return PAGE_CLOSED_MESSAGE
+    if isinstance(exc, PlaywrightTimeoutError):
+        return REMOTE_TIMEOUT_MESSAGE
     return None
 
 

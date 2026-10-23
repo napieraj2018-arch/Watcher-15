@@ -7,8 +7,12 @@ input events and screenshot paths, not merely fake methods.
 """
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+import json
+from tempfile import TemporaryDirectory
 import unittest
-from playwright.async_api import async_playwright
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError, async_playwright
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
@@ -16,7 +20,7 @@ from multi_capability_guard import MultiCapabilityGuard
 from test_owner_mobile_handoff import (
     FakeMobileManager, PROFILE, FACEBOOK, SETUP_PATH, request,
 )
-from owner_mobile_touch import FRAME_PATH, ACTION_PATH
+from owner_mobile_touch import FRAME_PATH, ACTION_PATH, TABS_PATH
 from pathlib import Path
 import sys
 
@@ -85,16 +89,139 @@ class RealChromiumTouch(unittest.IsolatedAsyncioTestCase):
         await self.playwright.stop()
 
     def touch_request(self,payload):
+        if "ref" not in payload:
+            record=self.handoff.active
+            lease=self.guard.authorize(record.handle)
+            rows=self.touch._tab_inventory(
+                self.manager._sessions[lease.internal_session_id],record)["tabs"]
+            ref=next((row["ref"] for row in rows if row["active"]),"X"*16)
+            payload={**payload,"ref":ref}
         return request(ACTION_PATH,"POST",payload,cookie=self.cookie)
 
-    async def tap(self,css):
-        bb=await self.page.locator(css).bounding_box()
+    async def tap(self,css,page=None):
+        bb=await (page or self.page).locator(css).bounding_box()
         self.assertIsNotNone(bb)
         x=(bb["x"]+bb["width"]/2)/508
         y=(bb["y"]+bb["height"]/2)/1074
         reply=await self.touch.action(self.touch_request({
             "kind":"tap","x":x,"y":y}))
         self.assertEqual(reply.status_code,200)
+
+    @asynccontextmanager
+    async def external_chromium_over_cdp(self):
+        # Like Steel, this browser is started independently of Playwright and
+        # then attached over CDP. Every page/resource is intercepted below.
+        # Disable BFCache only to force a deterministic delayed-resource case.
+        with TemporaryDirectory(prefix="aib-synthetic-history-") as directory:
+            process=await asyncio.create_subprocess_exec(
+                self.playwright.chromium.executable_path,
+                "--headless=new","--no-sandbox","--no-first-run",
+                "--disable-dev-shm-usage",
+                "--no-default-browser-check","--disable-background-networking",
+                "--disable-component-update","--disable-sync",
+                "--disable-features=BackForwardCache",
+                "--remote-debugging-address=127.0.0.1","--remote-debugging-port=0",
+                "--user-data-dir="+directory,"about:blank",
+                stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.DEVNULL)
+            browser=None
+            try:
+                async def endpoint():
+                    active_port=Path(directory)/"DevToolsActivePort"
+                    while True:
+                        if active_port.exists():
+                            lines=active_port.read_text().splitlines()
+                            if lines and lines[0].isdigit():
+                                return "http://127.0.0.1:"+lines[0]
+                        if process.returncode is not None:
+                            raise RuntimeError("SYNTHETIC_CHROMIUM_START_FAILED")
+                        await asyncio.sleep(0.05)
+                browser=await self.playwright.chromium.connect_over_cdp(
+                    await asyncio.wait_for(endpoint(),10),timeout=10000)
+                yield browser
+            finally:
+                try:
+                    if browser is not None:
+                        await browser.close()
+                finally:
+                    if process.returncode is None:
+                        process.terminate()
+                        try:
+                            await asyncio.wait_for(process.wait(),3)
+                        except asyncio.TimeoutError:
+                            process.kill()
+                            await process.wait()
+
+    async def test_real_numeric_verification_input_and_password_type_guard(self):
+        await self.page.set_content('<input id="otp" type="number" '
+                                    'aria-label="Synthetic verification code">')
+        await self.tap("#otp")
+        typed=await self.touch.action(self.touch_request({
+            "kind":"text","field":"text","text":"123456"}))
+        self.assertEqual(typed.status_code,200)
+        self.assertEqual(await self.page.locator("#otp").input_value(),"123456")
+        denied=await self.touch.action(self.touch_request({
+            "kind":"text","field":"password","text":"SYNTHETIC_SECRET"}))
+        self.assertEqual(denied.status_code,409)
+        invalid=await self.touch.action(self.touch_request({
+            "kind":"text","field":"text","text":"not-a-number"}))
+        self.assertEqual(invalid.status_code,409)
+        self.assertEqual(await self.page.locator("#otp").input_value(),"123456")
+
+    async def test_real_scoped_popup_can_be_selected_filled_and_return_to_opener(self):
+        popup_url="https://m.facebook.com/synthetic-auth?state=SYNTHETIC_PRIVATE_QUERY"
+        async def popup_document(route):
+            await route.fulfill(status=200,content_type="text/html",body='''
+                <html><body><input id="otp" type="number">
+                <button id="finish" onclick="window.opener.postMessage(
+                  'synthetic-auth-finished','https://www.facebook.com');
+                  window.close()">Finish synthetic login</button></body></html>''')
+        await self.context.route(popup_url,popup_document)
+        await self.page.set_content('''<html><body>
+          <p id="result">waiting</p>
+          <button id="open" onclick="window.open('''+repr(popup_url)+''',
+            'synthetic-login')">Open synthetic login popup</button>
+          <script>addEventListener('message',e=>{
+            if(e.origin==='https://m.facebook.com')
+              document.getElementById('result').textContent=e.data;
+          });</script></body></html>''')
+        async with self.context.expect_page() as popup_info:
+            await self.tap("#open")
+        popup=await popup_info.value
+        await popup.wait_for_load_state("domcontentloaded")
+        inventory=await self.touch.tabs(request(TABS_PATH,cookie=self.cookie))
+        self.assertEqual(inventory.status_code,200)
+        self.assertNotIn(b"SYNTHETIC_PRIVATE_QUERY",inventory.body)
+        rows=json.loads(inventory.body)["tabs"]
+        self.assertEqual(len(rows),2)
+        popup_ref=next(row["ref"] for row in rows if not row["active"])
+        switch=await self.touch.action(self.touch_request({
+            "kind":"switch_tab","ref":popup_ref}))
+        self.assertEqual(switch.status_code,200)
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,200)
+        await self.tap("#otp",page=popup)
+        typed=await self.touch.action(self.touch_request({
+            "kind":"text","field":"text","text":"123456"}))
+        self.assertEqual(typed.status_code,200)
+        self.assertEqual(await popup.locator("#otp").input_value(),"123456")
+        async with popup.expect_event("close"):
+            await self.tap("#finish",page=popup)
+        await self.page.wait_for_function(
+            "document.getElementById('result').textContent === 'synthetic-auth-finished'")
+        self.assertTrue(popup.is_closed())
+        returned=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(returned.status_code,200)
+        rows=json.loads((await self.touch.tabs(
+            request(TABS_PATH,cookie=self.cookie))).body)["tabs"]
+        self.assertEqual(len(rows),1)
+        self.assertTrue(rows[0]["active"])
+        stale_input=await self.touch.action(self.touch_request({
+            "kind":"text","field":"text","text":"MUST_NOT_REACH_OPENER",
+            "ref":popup_ref}))
+        self.assertEqual(stale_input.status_code,409)
+        stale=await self.touch.action(self.touch_request({
+            "kind":"switch_tab","ref":popup_ref}))
+        self.assertEqual(stale.status_code,409)
 
     async def test_real_chrome_screenshot_input_focus_and_mobile_scroll(self):
         shot=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
@@ -225,6 +352,68 @@ class RealChromiumTouch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reload.status_code,200)
         self.assertEqual(loads[second],before+1)
         self.assertEqual(await self.page.locator("#visit").text_content(),str(before+1))
+
+    async def test_real_cdp_history_returns_before_a_deferred_script_finishes(self):
+        first="https://www.facebook.com/synthetic-deferred-a"
+        second="https://www.facebook.com/synthetic-deferred-b"
+        documents={first:"A",second:"B"}
+        scripts={url+".js" for url in documents}
+        loads={url:0 for url in documents}
+        delay_scripts=False
+        script_entered=asyncio.Event()
+        script_continue=asyncio.Event()
+
+        async def synthetic_routes(route):
+            url=route.request.url
+            if url in documents:
+                loads[url]+=1
+                await route.fulfill(status=200,content_type="text/html",
+                    headers={"Cache-Control":"no-store"},body=(
+                        '<!doctype html><html><head><script defer src="'+url+
+                        '.js"></script></head><body><h1>'+documents[url]+
+                        '</h1></body></html>'))
+            elif url in scripts:
+                if delay_scripts:
+                    script_entered.set()
+                    await script_continue.wait()
+                await route.fulfill(status=200,content_type="application/javascript",
+                                    body="window.syntheticDeferredFinished=true;")
+            else:
+                await route.abort("blockedbyclient")
+
+        session=self.manager._sessions[next(iter(self.manager._sessions))]
+        original_page=session.page
+        async with self.external_chromium_over_cdp() as browser:
+            context=browser.contexts[0]
+            await context.route("**/*",synthetic_routes)
+            page=await context.new_page()
+            session.page=page
+            try:
+                await page.goto(first,wait_until="domcontentloaded")
+                await page.goto(second,wait_until="domcontentloaded")
+                delay_scripts=True
+                for kind,target in (("back",first),("forward",second)):
+                    script_entered=asyncio.Event()
+                    script_continue=asyncio.Event()
+                    # The old DOMContentLoaded wait cannot complete while the
+                    # deferred response is held. Commit must acknowledge the
+                    # history move once, before releasing that response.
+                    response=await asyncio.wait_for(self.touch.action(
+                        self.touch_request({"kind":kind})),3)
+                    self.assertEqual(response.status_code,200)
+                    self.assertEqual(page.url,target)
+                    await asyncio.wait_for(script_entered.wait(),2)
+                    self.assertEqual(loads[target],2)
+                    self.assertEqual(await page.locator("h1").text_content(timeout=2000),
+                                     documents[target])
+                    with self.assertRaises(PlaywrightTimeoutError):
+                        await page.wait_for_load_state("domcontentloaded",timeout=150)
+                    script_continue.set()
+                    await page.wait_for_load_state("domcontentloaded",timeout=2000)
+            finally:
+                script_continue.set()
+                session.page=original_page
+                await context.unroute_all(behavior="wait")
 
     async def test_real_back_cannot_strand_login_on_initial_blank(self):
         # Build exactly [about:blank, official fixture]. Navigating to blank

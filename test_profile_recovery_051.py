@@ -138,7 +138,7 @@ class Recovery(unittest.IsolatedAsyncioTestCase):
         r, c = remote()
         await ns['native_context'](r, extra_http_headers={'accept-language': 'pl'})
         self.assertEqual(c.headers, [{'accept-language': 'pl'}])
-        self.assertEqual(c.handlers, ['request', 'response', 'requestfailed'])
+        self.assertEqual(c.handlers, ['page', 'request', 'response', 'requestfailed'])
 
     def test_merge_does_not_mutate_inputs(self):
         native, backup = state('native'), state('backup')

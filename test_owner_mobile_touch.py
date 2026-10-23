@@ -10,7 +10,7 @@ from unittest.mock import patch
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from owner_mobile_touch import PATH, FRAME_PATH, ACTION_PATH
+from owner_mobile_touch import PATH, FRAME_PATH, ACTION_PATH, TABS_PATH
 from test_owner_mobile_handoff import (
     FakeMobileManager, request, SETUP_PATH, SETUP_ORIGIN, PROFILE, FACEBOOK,
 )
@@ -99,7 +99,16 @@ class FakePage:
         self.history_error=False
         self.history_redirect=None
         self.history_detach_blocked=False
-        self.context=SimpleNamespace(new_cdp_session=self.new_cdp_session)
+        self.closed=False
+        self.fronts=0
+        self.context=SimpleNamespace(new_cdp_session=self.new_cdp_session,
+                                     pages=[self])
+
+    def is_closed(self):
+        return self.closed
+
+    async def bring_to_front(self):
+        self.fronts+=1
 
     async def new_cdp_session(self,page):
         assert page is self
@@ -157,6 +166,13 @@ class TouchTests(IsolatedAsyncioTestCase):
 
     def action_request(self,payload,cookie=None,origin=SETUP_ORIGIN,
                        content_type="application/json"):
+        if "ref" not in payload:
+            record=self.handoff.active
+            lease=self.guard.authorize(record.handle)
+            rows=self.touch._tab_inventory(
+                self.manager._sessions[lease.internal_session_id],record)["tabs"]
+            current=next((row["ref"] for row in rows if row["active"]),"X"*16)
+            payload={**payload,"ref":current}
         return request(ACTION_PATH,"POST",payload,
                        cookie=self.cookie if cookie is None else cookie,
                        origin=origin,content_type=content_type)
@@ -228,6 +244,118 @@ class TouchTests(IsolatedAsyncioTestCase):
         self.assertEqual(self.page.focused.fills,[(word,7000)])
         self.assertNotIn(word.encode(),resp.body)
 
+    async def test_numeric_verification_field_accepts_human_text_never_password(self):
+        self.page.focused.field_type="number"
+        typed=await self.touch.action(self.action_request({
+            "kind":"text","field":"text","text":"123456"}))
+        self.assertEqual(typed.status_code,200)
+        self.assertEqual(self.page.focused.fills,[("123456",7000)])
+        denied=await self.touch.action(self.action_request({
+            "kind":"text","field":"password","text":"SYNTHETIC_SECRET"}))
+        self.assertEqual(denied.status_code,409)
+        self.assertEqual(self.page.focused.fills,[("123456",7000)])
+
+    async def test_popup_tabs_stay_in_exact_context_and_service_scope(self):
+        popup=FakePage()
+        popup.url="https://m.facebook.com/synthetic-login?private=SYNTHETIC_SECRET"
+        popup.context=self.page.context
+        unsafe=FakePage()
+        unsafe.url="https://phishing.example/"
+        unsafe.context=self.page.context
+        self.page.context.pages.extend([popup,unsafe])
+        other=FakePage()
+        other.url="https://www.facebook.com/other-owner"
+        # The other context is deliberately absent from this session's pages.
+        inventory=await self.touch.tabs(request(TABS_PATH,cookie=self.cookie))
+        self.assertEqual(inventory.status_code,200)
+        rows=json.loads(inventory.body)["tabs"]
+        self.assertEqual(len(rows),2)
+        self.assertTrue(rows[0]["active"])
+        self.assertFalse(rows[1]["active"])
+        self.assertNotIn(b"SYNTHETIC_SECRET",inventory.body)
+        self.assertNotIn(b"phishing",inventory.body)
+        self.assertNotIn(b"other-owner",inventory.body)
+        switched=await self.touch.action(self.action_request({
+            "kind":"switch_tab","ref":rows[1]["ref"]}))
+        self.assertEqual(switched.status_code,200)
+        self.assertEqual(popup.fronts,1)
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,200)
+        self.assertEqual(popup.screenshots,1)
+        self.assertEqual(self.page.screenshots,0)
+        typed=await self.touch.action(self.action_request({
+            "kind":"text","field":"text","text":"SYNTHETIC_POPUP_INPUT"}))
+        self.assertEqual(typed.status_code,200)
+        self.assertEqual(popup.focused.fills,[("SYNTHETIC_POPUP_INPUT",7000)])
+        self.assertEqual(self.page.focused.fills,[])
+        self.assertEqual(other.focused.fills,[])
+
+    async def test_closed_popup_returns_to_opener_and_stale_ref_never_retargets(self):
+        popup=FakePage()
+        popup.context=self.page.context
+        self.page.context.pages.append(popup)
+        rows=json.loads((await self.touch.tabs(
+            request(TABS_PATH,cookie=self.cookie))).body)["tabs"]
+        ref=rows[1]["ref"]
+        switched=await self.touch.action(self.action_request({
+            "kind":"switch_tab","ref":ref}))
+        self.assertEqual(switched.status_code,200)
+        popup.closed=True
+        self.page.context.pages.remove(popup)
+        replacement=FakePage()
+        replacement.context=self.page.context
+        self.page.context.pages.append(replacement)
+        self.page.focused.field_type="password"
+        for action in (
+            {"kind":"text","field":"password","text":"MUST_STAY_IN_POPUP"},
+            {"kind":"tap","x":0.5,"y":0.5},
+            {"kind":"key","key":"Enter"},
+        ):
+            stale_input=await self.touch.action(self.action_request({**action,"ref":ref}))
+            self.assertEqual(stale_input.status_code,409)
+        self.assertEqual(self.page.focused.fills,[])
+        self.assertEqual(self.page.mouse.clicks,[])
+        self.assertEqual(self.page.keyboard.presses,[])
+        stale=await self.touch.action(self.action_request({
+            "kind":"switch_tab","ref":ref}))
+        self.assertEqual(stale.status_code,409)
+        self.assertEqual(replacement.fronts,0)
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,200)
+        self.assertEqual(self.page.screenshots,1)
+        self.assertEqual(replacement.screenshots,0)
+
+    async def test_touch_input_requires_observed_tab_ref(self):
+        unbound=await self.touch.action(request(ACTION_PATH,"POST",{
+            "kind":"tap","x":0.4,"y":0.4},cookie=self.cookie))
+        self.assertEqual(unbound.status_code,400)
+        self.assertEqual(self.page.mouse.clicks,[])
+
+    async def test_tab_selection_rechecks_origin_after_bring_to_front(self):
+        popup=FakePage()
+        popup.context=self.page.context
+        self.page.context.pages.append(popup)
+        rows=json.loads((await self.touch.tabs(
+            request(TABS_PATH,cookie=self.cookie))).body)["tabs"]
+        async def redirect():
+            popup.url="https://phishing.example/"
+        popup.bring_to_front=redirect
+        switched=await self.touch.action(self.action_request({
+            "kind":"switch_tab","ref":rows[1]["ref"]}))
+        self.assertEqual(switched.status_code,409)
+        frame=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
+        self.assertEqual(frame.status_code,200)
+        self.assertEqual(self.page.screenshots,1)
+        self.assertEqual(popup.screenshots,0)
+
+    async def test_tab_inventory_requires_cookie_and_rejects_unknown_refs(self):
+        denied=await self.touch.tabs(request(TABS_PATH))
+        self.assertEqual(denied.status_code,403)
+        unknown=await self.touch.action(self.action_request({
+            "kind":"switch_tab","ref":"X"*16}))
+        self.assertEqual(unknown.status_code,409)
+        self.assertEqual(self.page.fronts,0)
+
     async def test_textarea_accepts_text_but_never_password_or_readonly_write(self):
         self.page.focused.tag="TEXTAREA"
         self.page.focused.field_type="textarea"
@@ -253,6 +381,11 @@ class TouchTests(IsolatedAsyncioTestCase):
             self.assertEqual(result.status_code,200)
         self.assertEqual([kind for kind,_ in self.page.navigations],
                          ["back","forward","reload"])
+        self.assertEqual(self.page.navigations,[
+            ("back",{"wait_until":"commit","timeout":10000}),
+            ("forward",{"wait_until":"commit","timeout":10000}),
+            ("reload",{"wait_until":"domcontentloaded","timeout":10000}),
+        ])
         self.assertEqual(self.page.mouse.clicks,[])
 
     async def test_back_skips_only_entry_zero_exact_about_blank(self):
