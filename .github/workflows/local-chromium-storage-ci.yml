@@ -1,0 +1,24 @@
+name: Local Playwright real Chromium storage smoke
+on:
+  push:
+    branches:
+      - local-chromium-storage-e2e-20261010
+    paths:
+      - "test_local_chromium_storage.py"
+      - "Dockerfile"
+      - ".github/workflows/local-chromium-storage-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-local-chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the identical production Playwright 1.59 container
+        run: docker build --progress=plain -t aib-local-storage .
+      - name: Exercise ephemeral and persistent Chromium with localhost ONLY
+        run: docker run --rm --shm-size=1g --entrypoint python aib-local-storage /app/test_local_chromium_storage.py
+      - name: Prove no Steel, Floot, Stripe or real accounts needed
+        run: echo "REAL_LOCAL_CHROMIUM_ONLY_NO_EXTERNAL_LOGIN"
