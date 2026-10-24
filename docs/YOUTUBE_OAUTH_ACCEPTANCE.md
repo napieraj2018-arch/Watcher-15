@@ -97,3 +97,57 @@ not merely a missing user click. No usable OAuth connection link is issued yet.
 - https://developers.google.com/youtube/data/reference/rest/v3/channels/list
 - https://developers.google.com/youtube/data/reference/rest/v3/videos/update
 - https://developers.google.com/youtube/data/reference/rest/v3/thumbnails/set
+
+## Continuation — 24 October 2026: Floot retained, no migration
+
+Owner instruction: leave the EXISTING Floot / Steel / Render production
+arrangement intact; do not migrate profiles, cookies or checkpoints to Neon.
+All changes in this continuation are source and offline tests on DRAFT PR #170.
+
+New source in the existing draft branch:
+
+- youtube_oauth_handoff.py is an isolated, not-installed iPhone/system-Safari
+  OAuth handoff. Single-use 5-minute fragment invite, same-origin JSON
+  claim, Secure HttpOnly SameSite=Lax host cookie, CSRF browser binding,
+  CSP/no-referrer/no-store response headers, and strict callback handling.
+  No anonymous route can generate an invite; an owner-authenticated MCP
+  must call new_invite only after explicit user authorization.
+- youtube_floot_cas.py is a fail-closed HTTPS client for a PROPOSED NEW
+  private endpoint: https://ai-browser-vault.floot.app/_api/youtube-oauth-vault
+  This endpoint is NOT confirmed to exist. It does not fall back to existing
+  profile-vault or task-vault; those remain untouched. OAuth bearer and
+  encrypted data use distinct HMAC key labels; no credentials appear in repo.
+- The two matching test files bring the total to 72 offline tests.
+  GitHub Actions run 40075516092 succeeded on the PR source (35 existing
+  Google/API + 19 handoff/ASGI + 18 Floot CAS client). This does NOT certify
+  a live Google connection or production profile persistence.
+
+Floot private backend required before any production release:
+
+1. In the original authorized vault project, implement a new isolated
+   Postgres table for owner-hashed OAuth record keys, bounded sealed
+   envelopes, positive integer revisions and created/expires timestamps.
+   Atomic INSERT for expectedRevision null and compare-and-swap UPDATE
+   WHERE revision equals the supplied expectedRevision; return HTTP 409
+   on conflicts. Real concurrent DB tests and cleanup are required.
+2. Add a server-only POST endpoint for actions get/put, enforcing bearer,
+   owner binding, size/schema/key validation and no enumeration/export.
+   A missing, unauthorized or incorrect response must fail closed.
+3. Implement authenticated MCP connect/status/prepare/read/update/verify
+   wrappers, and real Google Cloud client with exact HTTPS redirect URI
+   and YouTube Data API v3 on the EXISTING approved Google project.
+   Do not invent a client ID or ask for secrets in the conversation.
+4. Before callback activation, scrub OAuth callback code/state QUERY
+   PARAMETERS from ALL HTTP access/proxy/exception logs, not only
+   application logging. OAuth authorization codes must never enter logs.
+   Add callback tests, retention controls and key rotation/revocation.
+5. After independent storage/owner/provider checks, await safe closure
+   of other Work sessions, run full production-image CI, deploy exact
+   reviewed SHA. Owner grants consent in REAL Safari; confirm correct
+   YouTube channel, private video readback and refresh-token durability.
+   No actual video modification without explicit approval.
+
+Floot admin resource read was still blocked by the existing free account
+build-action quota at 24 October 07:23 UTC; reset reported for 13:00 UTC
+(15:00 Europe/Warsaw). No purchase, bypass, new Floot project, or production
+endpoint change. No functioning authorization link is available yet.
