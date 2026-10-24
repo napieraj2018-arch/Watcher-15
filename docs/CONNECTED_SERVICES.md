@@ -52,6 +52,52 @@ wpisywane w czat ani w publiczny GitHub. Hasło master odzyskiwania
 w razie wyzwania użytkownik przechowuje we własnym menedżerze haseł.
 
 
+## YouTube Studio / Google — osobny błąd polityki logowania (24.10.2026)
+
+W mobilnym handoff profilu do YouTube Studio właściciel zaobserwował komunikat Google
+`Couldn't sign you in — This browser or app may not be secure`. Nie wynika z niego
+błędne hasło, skasowane cookies ani nieprawidłowe zapisanie całego profilu.
+Nazwa/obecność trwałego profilu **nie** oznacza aktualnej autoryzacji Google.
+
+- Dokumentacja Google wskazuje, że logowanie może zostać zablokowane w
+  przeglądarkach wbudowanych lub sterowanych programowo. Dla zdalnego
+  Chromium/CDP (Steel) ponawianie logowania nie jest potwierdzoną naprawą.
+  Nie obchodź blokady przez spoofing User-Agent, wyłączanie polityk, rotację
+  adresów IP, stealth, import sesji z innej osoby ani automatyczne powtarzanie
+  prób. CAPTCHA to inny mechanizm i nie rozwiązuje tej odmowy.
+- **Natychmiastowa droga ręczna:** otwórz `https://studio.youtube.com/`
+  w zwykłym Safari/Chrome na urządzeniu właściciela. Jego sesja w Safari
+  NIE jest automatycznie przenoszona do zdalnego Steel i nie upoważnia
+  do deklarowania, że ChatGPT zalogował się do panelu.
+- **Docelowa droga programowa:** oddzielne, świadomie zatwierdzone OAuth 2.0
+  Google dla **YouTube Data API**, prowadzone w systemowej przeglądarce
+  i z bezpiecznym przekierowaniem. Uprawnienia i token odświeżania trzymać
+  w prywatnym zaszyfrowanym magazynie na właściciela/kanał, nie w
+  publicznym repo, historii narzędzi ani cookie Steel. Użyć state/PKCE
+  tam, gdzie właściwe dla rodzaju klienta. Każde żądanie musi potwierdzać
+  właściwy kanał i zakres autoryzacji.
+- YouTube Data API umożliwia m.in. aktualizację tytułów, opisów, tagów,
+  ustawianie pojedynczej miniatury i harmonogramu **prywatnego filmu
+  nigdy wcześniej nieopublikowanego**. Aktualizacje `videos.update`
+  mogą wyczyścić pominięte właściwości w części `snippet`/status; przed
+  zapisem odczytać pełny wymagany zasób i robić kontrolowany update.
+  Potwierdzić dokładne video ID, kanał, końcowe wartości i read-back.
+  Funkcje wyłącznie interfejsu Studio (np. natywne testy wariantów miniatur)
+  nie są obiecywane jako dostępne przez API.
+- Wcześniejsze połączenie Gmail/Drive **nie daje automatycznie** uprawnień
+  YouTube. Nie deklarować, że OAuth YouTube jest skonfigurowane bez
+  autoryzacji i odczytu bieżącego kanału. Żadne dane uwierzytelniające
+  z innych konektorów nie mogą być kopiowane do AI Browser.
+- **Bieżący status:** błąd logowania Google potwierdzony na ekranie;
+  integracja bezpośredniego OAuth YouTube Data API w AI Browser NIE
+  jest jeszcze wdrożona ani autoryzowana. Nie klasyfikować jako PASS.
+
+Oficjalne źródła:
+- https://support.google.com/accounts/answer/7675428
+- https://developers.google.com/identity/protocols/oauth2/web-server
+- https://developers.google.com/youtube/data/reference/rest/v3/videos/update
+- https://developers.google.com/youtube/data/reference/rest/v3/thumbnails/set
+
 ## Operacyjny wybór połączenia z poziomu AI Browser MCP
 
 Narzędzie `aib_route_operation(service, operation, brand)` jest bezpiecznym
