@@ -24,6 +24,10 @@ class RecoveryGateError(RuntimeError):
     """Static codes only."""
 
 
+class RecoveryRateLimited(RecoveryGateError):
+    """Typed HTTP 429: boot must stay fail-closed without a restart storm."""
+
+
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'))
 
@@ -183,6 +187,8 @@ def run_boot_gate():
         print('AI_BROWSER_RECOVERY_GATE ' + canonical(result), flush=True)
     except RecoveryGateError as exc:
         print('AI_BROWSER_RECOVERY_GATE_BLOCKED ' + str(exc), flush=True)
+        if str(exc) == 'RECOVERY_HTTP_429':
+            raise RecoveryRateLimited('RECOVERY_HTTP_429') from None
         raise RuntimeError('AI_BROWSER_RECOVERY_GATE_BLOCKED') from None
     except Exception:
         print('AI_BROWSER_RECOVERY_GATE_BLOCKED RECOVERY_UNEXPECTED_STATE', flush=True)
