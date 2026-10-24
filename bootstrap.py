@@ -144,8 +144,19 @@ os.environ.setdefault("AI_BROWSER_PORTABLE_PROFILES", "1")
 os.environ.setdefault("AI_BROWSER_MAX_SESSIONS", "1")
 os.environ.setdefault("AI_BROWSER_HOST", "0.0.0.0")
 os.environ.setdefault("AI_BROWSER_PORT", os.environ.get("PORT", "10000"))
-from provider_recovery_gate import run_boot_gate
-run_boot_gate()
+from provider_recovery_gate import run_boot_gate, RecoveryRateLimited
+try:
+    run_boot_gate()
+except RecoveryRateLimited:
+    # Never start a browser while the vault denies independent provider checks.
+    # A minimal maintenance listener prevents Render's crash/restart/429 storm.
+    from recovery_boot_maintenance import wait_until_recovered, verify_provider_idle
+    wait_until_recovered(
+        run_boot_gate,
+        lambda: verify_provider_idle(os.environ.get('STEEL_API_KEY', '').strip()),
+        host=os.environ.get('AI_BROWSER_HOST', '0.0.0.0'),
+        port=int(os.environ.get('AI_BROWSER_PORT', os.environ.get('PORT', '10000'))),
+    )
 key = derive(master, "app-code")
 req = urllib.request.Request(PAYLOAD_URL, headers={"User-Agent": "AI-Browser-Bootstrap/0.4.1"})
 with urllib.request.urlopen(req, timeout=30) as resp:
