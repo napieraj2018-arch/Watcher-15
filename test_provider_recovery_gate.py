@@ -1,7 +1,10 @@
 """Fail-closed recovery tests with an exact private incident, no real account."""
 import copy,json,unittest
 import httpx
-from provider_recovery_gate import RecoveryGate,RecoveryGateError,VAULT,STEEL
+from provider_recovery_gate import RecoveryGate,RecoveryGateError,RecoveryRateLimited,run_boot_gate,VAULT,STEEL
+from unittest.mock import patch
+import io
+from contextlib import redirect_stdout
 S='00000000-0000-4000-8000-000000000001'
 P='00000000-0000-4000-8000-000000000002'
 G='00000000-0000-4000-8000-000000000003'
@@ -69,4 +72,14 @@ class Tests(unittest.TestCase):
   with httpx.Client(transport=httpx.MockTransport(self.f.transport)) as c:
    with self.assertRaisesRegex(RecoveryGateError,'CREDENTIALS'):RecoveryGate(c,'','')
   self.assertEqual(self.f.calls,[])
+ def test_boot_gate_429_is_typed_and_never_opens_browser(self):
+  with patch.dict('os.environ', {'AI_BROWSER_ENGINE':'steel','AI_BROWSER_PROFILE_STORE_TOKEN':'fixture','STEEL_API_KEY':'fixture'}):
+   with patch.object(RecoveryGate,'run',side_effect=RecoveryGateError('RECOVERY_HTTP_429')):
+    with redirect_stdout(io.StringIO()):
+     with self.assertRaises(RecoveryRateLimited): run_boot_gate()
+ def test_boot_gate_non429_still_fails_closed(self):
+  with patch.dict('os.environ', {'AI_BROWSER_ENGINE':'steel','AI_BROWSER_PROFILE_STORE_TOKEN':'fixture','STEEL_API_KEY':'fixture'}):
+   with patch.object(RecoveryGate,'run',side_effect=RecoveryGateError('RECOVERY_HTTP_403')):
+    with redirect_stdout(io.StringIO()):
+     with self.assertRaisesRegex(RuntimeError,'AI_BROWSER_RECOVERY_GATE_BLOCKED'): run_boot_gate()
 if __name__=='__main__':unittest.main(verbosity=2)
