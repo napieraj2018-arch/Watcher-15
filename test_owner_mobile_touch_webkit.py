@@ -416,6 +416,33 @@ class IOSWebKitTouch(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(self.events[0]["x"], (x-box["x"])/box["width"], delta=.01)
         self.assertAlmostEqual(self.events[0]["y"], (y-box["y"])/box["height"], delta=.01)
 
+    async def test_explicit_scroll_mode_sends_owner_position_even_when_zoomed(self):
+        await self.page.locator('#touch-zoom').tap()
+        await self.page.locator('#touch-more').tap()
+        await self.page.locator('#touch-scroll-mode').tap()
+        await expect(self.page.locator('#touch-editor')).to_be_hidden()
+        area=await self.page.locator('#touch-viewport').bounding_box()
+        box=await self.page.locator('#touch-shot').bounding_box()
+        x=area['x']+area['width']*.5;y=area['y']+area['height']*.6
+        await self.page.mouse.move(x,y);await self.page.mouse.down()
+        await self.page.mouse.move(x,y-70,steps=4);await self.page.mouse.up()
+        await self.wait_for_events(1)
+        self.assertEqual(self.events[0]['kind'],'scroll')
+        self.assertAlmostEqual(self.events[0]['x'],(x-box['x'])/box['width'],delta=.01)
+        self.assertAlmostEqual(self.events[0]['y'],(y-box['y'])/box['height'],delta=.01)
+        await self.artifact('iphone-nested-scroll-mode.png')
+
+    async def test_non_input_after_submit_hides_editor_without_resending_pending_value(self):
+        await self.open_editor('touch-password')
+        await self.page.locator('#touch-password').fill('synthetic-preserved-value')
+        self.action_status=409
+        self.focus_kind=None
+        await self.page.locator('#touch-enter').tap()
+        await self.wait_for_events(1)
+        await expect(self.page.locator('#touch-editor')).to_be_hidden(timeout=10000)
+        self.assertEqual(await self.page.locator('#touch-password').input_value(),'synthetic-preserved-value')
+        self.assertEqual(len(self.events),1)
+
     async def test_visual_viewport_only_keyboard_resize_keeps_controls_reachable(self):
         await self.open_editor("touch-password")
         # Model Safari's OS-keyboard geometry, which does not change CSS

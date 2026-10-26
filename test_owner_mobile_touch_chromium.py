@@ -279,6 +279,26 @@ class RealChromiumTouch(unittest.IsolatedAsyncioTestCase):
         after=await self.touch.frame(request(FRAME_PATH,cookie=self.cookie))
         self.assertEqual(after.status_code,410)
 
+    async def test_owner_scroll_targets_cross_origin_frame_without_inspecting_or_clicking_it(self):
+        # Neutral cross-origin iframe, not a verification provider/challenge.
+        await self.context.route('https://nested.synthetic.invalid/frame',
+            lambda route: route.fulfill(status=200,content_type='text/html',body=
+                '<html><body style="margin:0;height:2500px">Neutral nested scroll</body></html>'))
+        await self.page.set_content('<html><body style="margin:0;height:3000px">'
+            '<iframe name="nested" src="https://nested.synthetic.invalid/frame" '
+            'style="position:absolute;left:40px;top:40px;width:320px;height:240px"></iframe></body></html>')
+        await self.page.locator('iframe').wait_for()
+        frame=self.page.frame(name='nested')
+        await frame.wait_for_load_state('domcontentloaded')
+        await self.page.mouse.move(500,800)  # Simulate a stale previous pointer.
+        response=await self.touch.action(self.touch_request({'kind':'scroll','delta':320,'x':.25,'y':.12}))
+        self.assertEqual(response.status_code,200)
+        await frame.wait_for_function('scrollY > 0')
+        self.assertEqual(await self.page.evaluate('scrollY'),0)
+        response=await self.touch.action(self.touch_request({'kind':'scroll','delta':320,'x':.94,'y':.6}))
+        self.assertEqual(response.status_code,200)
+        await self.page.wait_for_function('scrollY > 0')
+
     async def test_real_textarea_and_acknowledged_text_before_form_enter(self):
         await self.page.set_content("""<!doctype html><html><body>
         <script>window.syntheticSubmits = 0;</script>

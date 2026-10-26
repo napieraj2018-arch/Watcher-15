@@ -370,6 +370,7 @@ class NativeTouchController:
           let mode = "text", focusKind = null, noticeKind = "connection";
           let lastFrame = 0, lastTabs = 0, lastState = 0, deferredImage = null;
           let zoom = 1, panX = 0, panY = 0, gesture = null, pinching = false;
+          let remoteScroll = false;
           let imageWidth = 508, imageHeight = 1074;
           let layoutStamp = "", keyboardAnchor = {x:0.5,y:0.4};
           const visible = () => document.visibilityState === "visible";
@@ -450,6 +451,11 @@ class NativeTouchController:
           }
           function applyFocus(kind, suggest) {
             focusKind = ["text","email","password","code","tel","number"].includes(kind) ? kind : null;
+            // A submitted form can advance to a manually operated iframe or
+            // non-input page. Give the owner the viewport back; retain local
+            // unsent values and never interact with a verification challenge.
+            if (!focusKind && submittedEditor && submittedEditor.submitting && submittedEditor.ref === currentRef)
+              closeKeyboard();
             const labels = {text:"Pole tekstowe",email:"E-mail / login",password:"Pole hasła",
               code:"Kod jednorazowy",tel:"Numer telefonu",number:"Pole liczbowe"};
             byId("touch-field-hint").textContent = labels[focusKind] || "Najpierw wybierz pole na stronie";
@@ -495,6 +501,10 @@ class NativeTouchController:
             }
             if (ending || ended || !controlAllowed) return false;
             const boundRef = currentRef;
+            const submitting = (payload.kind === "key" && payload.key === "Enter") ||
+              (followup && followup.kind === "key" && followup.key === "Enter");
+            if (submitting && !sourceEditor && editor && editor.ref === boundRef)
+              sourceEditor = editor.element;
             if (payload.kind !== "switch_tab" && !readyForInput()) {
               announce("Czekam na aktualny obraz wybranej karty.","connection");
               refresh(true);
@@ -510,10 +520,10 @@ class NativeTouchController:
                 });
               }
               announce("Wykonano. Odświeżam widok…");
-              if (sourceEditor) submittedEditor = {element:sourceEditor,ref:boundRef,unconfirmed:false};
+              if (sourceEditor) submittedEditor = {element:sourceEditor,ref:boundRef,unconfirmed:false,submitting};
               return true;
             } catch (_) {
-              if (sourceEditor) submittedEditor = {element:sourceEditor,ref:boundRef,unconfirmed:true};
+              if (sourceEditor) submittedEditor = {element:sourceEditor,ref:boundRef,unconfirmed:true,submitting};
               announce("Nie udało się potwierdzić czynności. Sprawdź obraz. Wpisany tekst został na telefonie.","error");
               return false;
             } finally {
@@ -694,6 +704,15 @@ class NativeTouchController:
           byId("touch-refresh").onclick = () => { refresh(true); refreshTabs(); refreshState(); };
           byId("touch-scroll-up").onclick = () => command({kind:"scroll",delta:-500});
           byId("touch-scroll-down").onclick = () => command({kind:"scroll",delta:500});
+          byId("touch-scroll-mode").onclick = () => {
+            remoteScroll = !remoteScroll;
+            byId("touch-scroll-mode").setAttribute("aria-pressed",String(remoteScroll));
+            byId("touch-scroll-mode").textContent = remoteScroll ? "Gest: przewijanie strony" : "Gest: przesuwanie obrazu";
+            closeKeyboard(); menu.hidden = true;
+            byId("touch-more").setAttribute("aria-expanded","false");
+            layout();
+            announce(remoteScroll ? "Przesuwaj palcem po obszarze strony, który chcesz przewinąć, także wewnątrz ramki." : "Przesuwasz powiększony obraz. Zmniejsz do 1×, aby przewijać stronę.");
+          };
           byId("touch-keyboard").onclick = () => keyboard.hidden ? openKeyboard(true) : closeKeyboard();
           byId("touch-keyboard-close").onclick = closeKeyboard;
           byId("touch-more").onclick = () => {
@@ -732,7 +751,7 @@ class NativeTouchController:
               byId("touch-zoom").setAttribute("aria-pressed",String(zoom > 1));
               byId("touch-zoom-label").textContent = zoom.toFixed(1).replace(".",",")+"×";
               layout();
-            } else if (!pinching && (zoom > 1 || !keyboard.hidden)) {
+            } else if (!pinching && !remoteScroll && (zoom > 1 || !keyboard.hidden)) {
               panX = gesture.panX+e.clientX-gesture.x; panY = gesture.panY+e.clientY-gesture.y; layout();
             }
           });
@@ -749,12 +768,15 @@ class NativeTouchController:
                   keyboardAnchor = {x:fraction(e.clientX,box.left,box.width),
                     y:fraction(e.clientY,box.top,box.height)};
                   command({kind:"tap",...keyboardAnchor});
+                } else if (remoteScroll || (keyboard.hidden && zoom === 1)) {
+                  if (Math.abs(dy)>25) command({kind:"scroll",
+                    delta:Math.max(-950,Math.min(950,-dy*2)),
+                    x:fraction(start.x,box.left,box.width),
+                    y:fraction(start.y,box.top,box.height)});
                 } else if (!keyboard.hidden) {
                   const area = viewport.getBoundingClientRect();
                   keyboardAnchor = {x:fraction(area.left+area.width/2,box.left,box.width),
                     y:fraction(area.top+area.height/2,box.top,box.height)};
-                } else if (zoom === 1 && Math.abs(dy)>25) {
-                  command({kind:"scroll",delta:Math.max(-950,Math.min(950,-dy*2))});
                 }
               }
               pinching = false;
@@ -930,8 +952,10 @@ class NativeTouchController:
               <button type="button" id="touch-reload">Przeładuj stronę</button>
               <button type="button" id="touch-scroll-up">Przewiń w górę</button>
               <button type="button" id="touch-scroll-down">Przewiń w dół</button>
+              <button type="button" id="touch-scroll-mode" aria-pressed="false">Gest: przesuwanie obrazu</button>
             </div>
             <p class="touch-help">Dotykasz strony w Twojej prywatnej sesji. Powiększ obraz, jeśli elementy są drobne.
+              Włącz gest przewijania strony, aby przewijać pod palcem także po powiększeniu i wewnątrz ramki.
               Po logowaniu wybierz „Zapisz i wróć” u góry — bez przechodzenia do innego ekranu.</p>
           </section>
           <nav id="touch-dock" class="touch-dock" aria-label="Sterowanie stroną">
@@ -995,9 +1019,12 @@ class NativeTouchController:
                         and 0<=x<=1 and 0<=y<=1):
                     raise ValueError()
             elif kind == "scroll":
-                if set(data)!={"kind","delta","ref"} or not self._num(data["delta"]):
+                if set(data) not in ({"kind","delta","ref"},{"kind","delta","ref","x","y"}) or not self._num(data["delta"]):
                     raise ValueError()
                 if not -1000<=data["delta"]<=1000:
+                    raise ValueError()
+                if "x" in data and not (self._num(data["x"]) and self._num(data["y"])
+                    and 0<=data["x"]<=1 and 0<=data["y"]<=1):
                     raise ValueError()
             elif kind == "key":
                 if set(data)!={"kind","key","ref"} or data["key"] not in {
@@ -1036,6 +1063,16 @@ class NativeTouchController:
                 await page.mouse.click(max(1,min(width-1,round(data["x"]*width))),
                                        max(1,min(height-1,round(data["y"]*height))))
             elif kind == "scroll":
+                # Wheel dispatch targets the element under the pointer,
+                # including cross-origin iframe scrollports. Do not leave it
+                # at an unrelated field from an earlier click. No DOM access,
+                # iframe inspection or automated verification is introduced.
+                dimensions=page.viewport_size
+                if not isinstance(dimensions,dict): return False
+                width,height=dimensions.get("width"),dimensions.get("height")
+                if not (type(width) is int and width>0 and type(height) is int and height>0): return False
+                await page.mouse.move(max(1,min(width-1,round(data.get("x",0.5)*width))),
+                                      max(1,min(height-1,round(data.get("y",0.5)*height))))
                 await page.mouse.wheel(0,round(data["delta"]))
             elif kind == "key":
                 await page.keyboard.press(data["key"])
