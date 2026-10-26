@@ -5,7 +5,28 @@ Always check current deployment/session state before acting. Private identities,
 aliases, provider IDs and authentication material belong in the encrypted task,
 never this public repository.
 
-## Verified baseline
+## Latest continuation — 26 October, after mobile repair
+
+Production was freshly checked at commit `12a20c1343852b221add1be791d03d68e96f88f2`,
+Render `dep-dbfqvpss728c73cl4g80` LIVE. PRs #173–#175 are deployed. The owner
+physically reached the page with the keyboard hidden and zoom enabled, but the
+site rejected credentials. No authenticated restore or full iPhone acceptance
+is claimed. The affected login waits for the owner's secure credential check;
+no repeated challenge/login attempt is authorized by this repair.
+
+Fresh Render logs at 20:06:56 UTC show `browser_read_download_pdf` failing with
+a real pypdf `EmptyFileError`. Error-reporting revision `2026-10-26.2` handles
+real empty, unreadable and encrypted PDF exceptions with fixed, private-safe
+MCP errors. It does not claim why the download was empty, repair the source
+file, retry downloads or decrypt documents. Regression tests use the real parser
+and check private-chain suppression. Deployment and actual LIVE invocation
+must be recorded separately in #160; a commit alone is not acceptance.
+
+Rollback baseline for this isolated PDF reporting change is `12a20c1343852b221add1be791d03d68e96f88f2`.
+No schema, profile key or save-policy change. Rollback follows the same session
+idle/reconciliation gate and has not been executed on shared production.
+
+## Historical baseline before #173–#175
 
 - Production branch and Render LIVE: `c6618599ea45842ac8624ee91dc83a24ed26cae3`,
   deploy `dep-dbe673avcj2c73brjj20`, autoDeploy off, Free plan unchanged.
@@ -60,7 +81,7 @@ or recovery state, no other deployment, and fresh authenticated provider
 inventory when the prior provider/save outcome is uncertain. A new unknown
 provider state blocks rollout even if browser_sessions is empty.
 
-Rollback target is the exact prior LIVE commit above. No database/schema,
+Rollback for #173 used its exact prior LIVE commit above. No database/schema,
 encryption, profile key, native context policy, OAuth config or vault migration
 changes occur in this patch. Rollback must use the same idle/reconciliation
 gate; never roll back over an active login/write. Preserve private task state

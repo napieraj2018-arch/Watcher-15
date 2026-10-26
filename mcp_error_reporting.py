@@ -9,7 +9,7 @@ from typing import Any, NoReturn
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 from playwright._impl._errors import TargetClosedError
 
-FIX_REVISION = "2026-10-26.1"
+FIX_REVISION = "2026-10-26.2"
 BUSY_MESSAGE = (
     "AI_BROWSER_BUSY: The configured browser session limit is occupied. "
     "Use browser_sessions to inspect it. Do not stop another active task or "
@@ -48,6 +48,27 @@ PROFILE_ORIGIN_BLOCKED_MESSAGE = (
     "before attempting any migration."
 )
 
+PDF_EMPTY_MESSAGE = (
+    "AI_BROWSER_PDF_EMPTY: The downloaded file is empty; no PDF content was "
+    "read. Inspect browser_downloads for this same owned session and check "
+    "the source response. Do not automatically repeat the download or any "
+    "action that produced it."
+)
+
+PDF_ENCRYPTED_MESSAGE = (
+    "AI_BROWSER_PDF_ENCRYPTED: The downloaded PDF requires decryption; its "
+    "content was not confirmed. Open it through the owner's secure document "
+    "workflow or provide an authorized unencrypted copy. Do not send a "
+    "password in chat or automatically repeat the download."
+)
+
+PDF_INVALID_MESSAGE = (
+    "AI_BROWSER_PDF_UNREADABLE: The downloaded file could not be parsed as "
+    "a readable PDF; its content was not confirmed. Inspect browser_downloads "
+    "for this same owned session and verify the source file. Do not "
+    "automatically repeat the download or the action that produced it."
+)
+
 
 def classify_known_remote_failure(exc: Exception) -> str | None:
     """Precise exception class, never pattern-match private exception text."""
@@ -62,6 +83,15 @@ def classify_known_remote_failure(exc: Exception) -> str | None:
     from steel_context_fix import ProfileRestoreOriginBlocked
     if isinstance(exc, ProfileRestoreOriginBlocked):
         return PROFILE_ORIGIN_BLOCKED_MESSAGE
+    from pypdf.errors import (
+        EmptyFileError, FileNotDecryptedError, PdfReadError, WrongPasswordError,
+    )
+    if isinstance(exc, EmptyFileError):
+        return PDF_EMPTY_MESSAGE
+    if isinstance(exc, (FileNotDecryptedError, WrongPasswordError)):
+        return PDF_ENCRYPTED_MESSAGE
+    if isinstance(exc, PdfReadError):
+        return PDF_INVALID_MESSAGE
     return None
 
 

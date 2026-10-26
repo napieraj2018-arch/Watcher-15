@@ -1,5 +1,6 @@
 """Offline tests for compatibility with the observed legacy _fail behavior."""
 import traceback
+import io
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -91,6 +92,78 @@ class ErrorReportingTests(unittest.TestCase):
 
     def test_spoofed_navigation_abort_is_not_reclassified(self):
         self.assertIsNone(fix.classify_known_remote_failure(RuntimeError('net::ERR_ABORTED SECRET')))
+
+    def assert_pdf_failure(self, operation, message):
+        try:
+            operation()
+        except Exception as error:
+            with self.assertRaises(AnticipatedToolError) as caught:
+                self.handler(error)
+        else:
+            self.fail("PDF fixture unexpectedly succeeded")
+        self.assertEqual(str(caught.exception), message)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertTrue(caught.exception.__suppress_context__)
+        self.assertEqual(self.calls, [])
+        self.sanitize.assert_not_called()
+
+    def test_real_parser_empty_file_is_actionable(self):
+        from pypdf import PdfReader
+        self.assert_pdf_failure(lambda: PdfReader(io.BytesIO(b"")), fix.PDF_EMPTY_MESSAGE)
+
+    def test_real_parser_truncated_pdf_is_unreadable(self):
+        from pypdf import PdfReader
+        self.assert_pdf_failure(
+            lambda: PdfReader(io.BytesIO(b"%PDF-1.7\nPRIVATE_DOCUMENT_SECRET")),
+            fix.PDF_INVALID_MESSAGE,
+        )
+
+    def test_real_encrypted_pdf_requires_owner_decryption(self):
+        from pypdf import PdfReader, PdfWriter
+        writer = PdfWriter()
+        writer.add_blank_page(width=100, height=100)
+        writer.encrypt("synthetic-test-only")
+        stream = io.BytesIO()
+        writer.write(stream)
+        stream.seek(0)
+        reader = PdfReader(stream)
+        self.assert_pdf_failure(lambda: len(reader.pages), fix.PDF_ENCRYPTED_MESSAGE)
+
+    def test_pdf_errors_never_expose_parser_details_or_private_chain(self):
+        from pypdf.errors import EmptyFileError, FileNotDecryptedError, PdfReadError, WrongPasswordError
+        for error_type, message in (
+            (EmptyFileError, fix.PDF_EMPTY_MESSAGE),
+            (FileNotDecryptedError, fix.PDF_ENCRYPTED_MESSAGE),
+            (WrongPasswordError, fix.PDF_ENCRYPTED_MESSAGE),
+            (PdfReadError, fix.PDF_INVALID_MESSAGE),
+        ):
+            with self.subTest(error_type=error_type):
+                try:
+                    try:
+                        raise RuntimeError("PRIVATE_DOCUMENT_SECRET")
+                    except RuntimeError as cause:
+                        raise error_type("PRIVATE_DOCUMENT_SECRET") from cause
+                except error_type as error:
+                    with self.assertRaises(AnticipatedToolError) as caught:
+                        self.handler(error)
+                self.assertEqual(str(caught.exception), message)
+                rendered = "".join(traceback.format_exception(caught.exception))
+                self.assertNotIn("PRIVATE_DOCUMENT_SECRET", rendered)
+
+    def test_pdf_error_words_do_not_reclassify_unknown_exceptions(self):
+        for error in (RuntimeError("EmptyFileError SECRET"), ValueError("PdfReadError SECRET")):
+            self.assertIsNone(fix.classify_known_remote_failure(error))
+            with self.assertRaisesRegex(RuntimeError, "Browser operation failed"):
+                self.handler(error)
+
+    def test_valid_pdf_is_still_readable(self):
+        from pypdf import PdfReader, PdfWriter
+        writer = PdfWriter()
+        writer.add_blank_page(width=100, height=100)
+        stream = io.BytesIO()
+        writer.write(stream)
+        stream.seek(0)
+        self.assertEqual(len(PdfReader(stream).pages), 1)
 
     def test_playwright_timeout_subclass_uses_same_static_message(self):
         from playwright.async_api import TimeoutError as PlaywrightTimeoutError
