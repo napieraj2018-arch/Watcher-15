@@ -454,7 +454,7 @@ class NativeTouchController:
             // A submitted form can advance to a manually operated iframe or
             // non-input page. Give the owner the viewport back; retain local
             // unsent values and never interact with a verification challenge.
-            if (!focusKind && submittedEditor && submittedEditor.ref === currentRef)
+            if (!focusKind && submittedEditor && submittedEditor.submitting && submittedEditor.ref === currentRef)
               closeKeyboard();
             const labels = {text:"Pole tekstowe",email:"E-mail / login",password:"Pole hasła",
               code:"Kod jednorazowy",tel:"Numer telefonu",number:"Pole liczbowe"};
@@ -501,6 +501,10 @@ class NativeTouchController:
             }
             if (ending || ended || !controlAllowed) return false;
             const boundRef = currentRef;
+            const submitting = (payload.kind === "key" && payload.key === "Enter") ||
+              (followup && followup.kind === "key" && followup.key === "Enter");
+            if (submitting && !sourceEditor && editor && editor.ref === boundRef)
+              sourceEditor = editor.element;
             if (payload.kind !== "switch_tab" && !readyForInput()) {
               announce("Czekam na aktualny obraz wybranej karty.","connection");
               refresh(true);
@@ -516,10 +520,10 @@ class NativeTouchController:
                 });
               }
               announce("Wykonano. Odświeżam widok…");
-              if (sourceEditor) submittedEditor = {element:sourceEditor,ref:boundRef,unconfirmed:false};
+              if (sourceEditor) submittedEditor = {element:sourceEditor,ref:boundRef,unconfirmed:false,submitting};
               return true;
             } catch (_) {
-              if (sourceEditor) submittedEditor = {element:sourceEditor,ref:boundRef,unconfirmed:true};
+              if (sourceEditor) submittedEditor = {element:sourceEditor,ref:boundRef,unconfirmed:true,submitting};
               announce("Nie udało się potwierdzić czynności. Sprawdź obraz. Wpisany tekst został na telefonie.","error");
               return false;
             } finally {
