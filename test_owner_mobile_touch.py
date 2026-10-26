@@ -28,6 +28,10 @@ class FakeMouse:
     def __init__(self):
         self.clicks=[]
         self.scrolls=[]
+        self.moves=[]
+
+    async def move(self,x,y):
+        self.moves.append((x,y))
 
     async def click(self,x,y):
         self.clicks.append((x,y))
@@ -265,11 +269,25 @@ class TouchTests(IsolatedAsyncioTestCase):
             "kind":"scroll","delta":480}))
         self.assertEqual(wheel.status_code,200)
         self.assertEqual(self.page.mouse.scrolls,[(0,480)])
+        self.assertEqual(self.page.mouse.moves,[(254,537)])
         for key in ("Enter","Tab","Backspace"):
             v=await self.touch.action(self.action_request({"kind":"key","key":key}))
             self.assertEqual(v.status_code,200)
         self.assertEqual(self.page.keyboard.presses,
                          ["Enter","Tab","Backspace"])
+
+    async def test_nested_scroll_uses_exact_owner_gesture_position_without_click(self):
+        result=await self.touch.action(self.action_request({'kind':'scroll','delta':-240,'x':0.25,'y':0.75}))
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(self.page.mouse.moves,[(127,806)])
+        self.assertEqual(self.page.mouse.scrolls,[(0,-240)])
+        self.assertEqual(self.page.mouse.clicks,[])
+
+    async def test_invalid_scroll_coordinates_never_move_or_scroll(self):
+        for extra in [{'x':True,'y':.5},{'x':-1,'y':.5},{'x':.5},{'x':.5,'y':float('nan')}]:
+            r=await self.touch.action(self.action_request({'kind':'scroll','delta':200,**extra}))
+            self.assertEqual(r.status_code,400)
+        self.assertEqual(self.page.mouse.moves,[]);self.assertEqual(self.page.mouse.scrolls,[])
 
     async def test_password_never_leaks_to_text_field_or_result(self):
         secret="SYNTHETIC_NOT_A_PASSWORD!123"
