@@ -72,7 +72,17 @@ def install(ns):
             return {**result, 'navigation': {'status': 'unconfirmed',
                 'error': safe_navigation_failure(exc), 'retry_automatically': False},
                 'next_step': 'Inspect this owned browser with browser_status/browser_snapshot; do not log in again or repeat a write.'}
-        return {**result, 'navigation': {'status': 'completed', 'retry_automatically': False},
+        # The creation receipt describes about:blank, not the visited account.
+        # Return a fresh guarded read; never repeat navigation if readback fails.
+        try:
+            status = unpack(await registry['browser_status'].fn(session_id=handle))
+            if not isinstance(status, dict) or status.get('session_id') != handle:
+                raise ValueError('invalid owned status')
+        except Exception:
+            status = {'url': None, 'title': None, 'authentication': {
+                'stage': 'unverified', 'authenticated': None,
+                'reason': 'post_navigation_readback_unavailable'}}
+        return {**result, **status, 'navigation': {'status': 'completed', 'retry_automatically': False},
                 'next_step': 'Read browser_status/browser_snapshot to verify the destination and account.'}
 
     registry['browser_start'].fn = start

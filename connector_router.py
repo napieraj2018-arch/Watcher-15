@@ -151,6 +151,15 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
     Unknown requests and ambiguous account choices fail closed.
     This tool NEVER publishes and does not accept content, URLs or secrets.
     """
+    if service == 'facebook' and isinstance(operation,str) and operation.casefold().startswith('użyj konta meta '):
+        from meta_command import parse_command, MetaCommandError
+        try:
+            return {**parse_command(operation), 'status':'private_meta_preview_workflow_required',
+                    'binding_source':'current_owner_private_checkpoint',
+                    'browser_started':False, 'published':False,
+                    'next_step':'Resolve alias in private registry; verify identity and exact group; freeze ordered permalink, show preview, require exact approval, journal once, verify receipt.'}
+        except MetaCommandError as exc:
+            return {'status':'unsupported_request','error':str(exc),'browser_started':False,'published':False}
     if (type(service) is not str or type(operation) is not str
         or type(brand) is not str or service not in SERVICES
         or operation not in OPERATIONS or brand not in BRANDS):

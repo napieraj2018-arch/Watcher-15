@@ -69,6 +69,15 @@ class TaskService:
     def __init__(self,vault,registry,guard):
         self.vault,self.registry,self.guard=vault,registry,guard
         self.starting_task=contextvars.ContextVar('aib_durable_start',default=None)
+        self.start_checkpoint=contextvars.ContextVar('aib_durable_start_checkpoint',default=None)
+        self.admission_checkpoint=hasattr(guard,'before_provider_start')
+        if self.admission_checkpoint:
+            previous=guard.before_provider_start
+            async def admitted(profile):
+                if previous is not None: await previous(profile)
+                pending=self.start_checkpoint.get()
+                if pending is not None and pending[0]==profile: await pending[1]()
+            guard.before_provider_start=admitted
         self.stopping=set()
         self.internal_sessions={}
         self.finalizers=set()
@@ -134,6 +143,8 @@ class TaskService:
                 validate_checkpoint(args); data.update(args); await self.save(row,data,task_claim)
             elif action=='start':
                 if data['session_state'] not in {'none','saved_closed'}: raise TaskError('TASK_SESSION_NOT_CLOSED')
+                if set(args)-{'mode','headless'} or type(args.get('mode','write')) is not str or args.get('mode','write') not in {'read_only','write'} or type(args.get('headless',False)) is not bool:
+                    raise TaskError('TASK_START_ARGUMENTS_INVALID')
                 # A durable ticket survives process changes; no browser starts while its caller is absent.
                 inventory=self.guard.safe_sessions()
                 if inventory:
@@ -146,12 +157,19 @@ class TaskService:
                     data['queued']=True; await self.save(row,data,task_claim)
                     return {**self.public(row,data),'queue_reason':'profile_busy' if profile_busy else 'capacity','started':False}
                 # Checkpoint BEFORE a possibly billable provider create.
-                data['queued']=False; data['session_state']='starting'; await self.save(row,data,task_claim)
+                async def checkpoint_start():
+                    data['queued']=False; data['session_state']='starting'; await self.save(row,data,task_claim)
+                # An admission race/refusal must not strand a never-started task
+                # in global recovery. The real guard calls this under its lock,
+                # after all refusals and BEFORE any billable provider creation.
+                if not self.admission_checkpoint: await checkpoint_start()
                 try:
                     token=self.starting_task.set(task_id)
+                    checkpoint_token=self.start_checkpoint.set((data['profile'],checkpoint_start))
                     try:
-                        result=await self.invoke('browser_start',{'profile':data['profile'],'mode':'write','headless':False})
+                        result=await self.invoke('browser_start',{'profile':data['profile'],'mode':args.get('mode','write'),'headless':args.get('headless',False)})
                     finally:
+                        self.start_checkpoint.reset(checkpoint_token)
                         self.starting_task.reset(token)
                     self.bindings[task_id]=(task_claim,result['session_id'])
                     if hasattr(self.guard,'authorize'):
@@ -257,6 +275,7 @@ def install(ns):
         For create/checkpoint, data_json accepts ONLY last_confirmed_step (string),
         remaining_steps (string array), status (string), required_permissions (string array).
         For browser, data_json contains the selected browser tool's arguments WITHOUT session_id.
+        For start, data_json may contain mode (read_only/write) and headless (boolean).
         begin accepts safe operation metadata; confirm requires a receipt string.
         """
         return await service.run(action,task_id,task_claim,profile,title,data_json,operation_id,browser_tool,expected_text)
