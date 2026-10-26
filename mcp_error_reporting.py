@@ -6,10 +6,10 @@ from __future__ import annotations
 from collections.abc import Callable, MutableMapping
 from typing import Any, NoReturn
 
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 from playwright._impl._errors import TargetClosedError
 
-FIX_REVISION = "2026-10-23.1"
+FIX_REVISION = "2026-10-26.1"
 BUSY_MESSAGE = (
     "AI_BROWSER_BUSY: The configured browser session limit is occupied. "
     "Use browser_sessions to inspect it. Do not stop another active task or "
@@ -31,6 +31,13 @@ REMOTE_TIMEOUT_MESSAGE = (
     "automatically repeat writes or authentication."
 )
 
+REMOTE_OPERATION_MESSAGE = (
+    "AI_BROWSER_REMOTE_OPERATION_UNCONFIRMED: The remote browser could not "
+    "confirm this operation. Inspect browser_status and browser_snapshot for "
+    "this same owned session before continuing. Do not automatically repeat "
+    "writes or authentication; reconcile an uncertain session before release."
+)
+
 PROFILE_ORIGIN_BLOCKED_MESSAGE = (
     "AI_BROWSER_PROFILE_RESTORE_PROVIDER_RESTRICTED: The remote browser "
     "provider blocks an origin in this saved profile. The portable state was "
@@ -48,6 +55,10 @@ def classify_known_remote_failure(exc: Exception) -> str | None:
         return PAGE_CLOSED_MESSAGE
     if isinstance(exc, PlaywrightTimeoutError):
         return REMOTE_TIMEOUT_MESSAGE
+    if isinstance(exc, PlaywrightError):
+        # Includes observed ERR_ABORTED navigation. Never parse or expose the
+        # provider's private URL, error text or exception chain, and never retry.
+        return REMOTE_OPERATION_MESSAGE
     from steel_context_fix import ProfileRestoreOriginBlocked
     if isinstance(exc, ProfileRestoreOriginBlocked):
         return PROFILE_ORIGIN_BLOCKED_MESSAGE

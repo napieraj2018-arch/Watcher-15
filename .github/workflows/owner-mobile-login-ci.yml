@@ -10,6 +10,8 @@ on:
       - "meta_command.py"
       - "test_meta_command.py"
       - "connector_router.py"
+      - "mcp_error_reporting.py"
+      - "test_mcp_error_reporting.py"
       - "test_durable_tasks.py"
       - "test_steel_captcha.py"
       - "auth_status_v052.py"

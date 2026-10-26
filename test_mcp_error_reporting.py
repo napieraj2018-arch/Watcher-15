@@ -72,6 +72,26 @@ class ErrorReportingTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.sanitize.assert_not_called()
 
+    def test_real_navigation_abort_is_actionable_and_never_leaks_url(self):
+        from playwright.async_api import Error
+        with self.assertRaises(AnticipatedToolError) as caught:
+            self.handler(Error('Page.goto: net::ERR_ABORTED at https://private.test/?token=SECRET'))
+        self.assertEqual(str(caught.exception),fix.REMOTE_OPERATION_MESSAGE)
+        self.assertNotIn('SECRET',str(caught.exception))
+        self.assertNotIn('private.test',str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(self.calls,[])
+
+    def test_other_real_playwright_errors_keep_unknown_outcome_without_retry(self):
+        from playwright.async_api import Error
+        for detail in ('net::ERR_CONNECTION_RESET SECRET','Page.evaluate: private script SECRET'):
+            with self.assertRaises(AnticipatedToolError) as caught:self.handler(Error(detail))
+            self.assertEqual(str(caught.exception),fix.REMOTE_OPERATION_MESSAGE)
+            self.assertTrue(caught.exception.__suppress_context__)
+
+    def test_spoofed_navigation_abort_is_not_reclassified(self):
+        self.assertIsNone(fix.classify_known_remote_failure(RuntimeError('net::ERR_ABORTED SECRET')))
+
     def test_playwright_timeout_subclass_uses_same_static_message(self):
         from playwright.async_api import TimeoutError as PlaywrightTimeoutError
         class SpecificTimeout(PlaywrightTimeoutError):
