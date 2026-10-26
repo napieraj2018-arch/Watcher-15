@@ -37,6 +37,26 @@ class Tests(unittest.IsolatedAsyncioTestCase):
  async def test_blank_start_does_not_navigate(self):
   s,m,g,calls,_=await self.setup();r=await s._tool_manager._tools['browser_start'].fn(profile='Synthetic-A')
   self.assertEqual(calls,[]);await s._tool_manager._tools['browser_stop'].fn(session_id=r['session_id'])
+ async def test_start_returns_current_destination_and_auth_not_blank_receipt(self):
+  s,m,g,calls,_=await self.setup()
+  status=s._tool_manager._tools['browser_status']
+  async def current(session_id):
+   g.authorize(session_id)
+   return {'session_id':session_id,'url':'https://example.test/login/',
+           'title':'Sign in','authentication':{'stage':'login_form','authenticated':False}}
+  status.fn=current
+  r=await s._tool_manager._tools['browser_start'].fn(profile='Synthetic-A',start_url='https://example.test/')
+  self.assertEqual(r['url'],'https://example.test/login/')
+  self.assertFalse(r['authentication']['authenticated']);self.assertEqual(len(calls),1)
+  await s._tool_manager._tools['browser_stop'].fn(session_id=r['session_id'])
+ async def test_readback_failure_keeps_capability_without_repeating_navigation(self):
+  s,m,g,calls,_=await self.setup()
+  async def broken(**kw):raise RuntimeError('PRIVATE_VALUE')
+  s._tool_manager._tools['browser_status'].fn=broken
+  r=await s._tool_manager._tools['browser_start'].fn(profile='Synthetic-A',start_url='https://example.test/')
+  self.assertEqual(r['authentication']['stage'],'unverified');self.assertIsNone(r['url'])
+  self.assertNotIn('PRIVATE_VALUE',str(r));self.assertEqual(len(calls),1)
+  await s._tool_manager._tools['browser_stop'].fn(session_id=r['session_id'])
  async def test_invalid_urls_do_not_create(self):
   s,m,g,calls,_=await self.setup()
   for url in ['file:///secret','javascript:alert(1)','https://user:password@example.test/']:

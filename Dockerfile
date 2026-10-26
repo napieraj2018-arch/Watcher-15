@@ -48,6 +48,8 @@ COPY session_ownership/multi_capability_guard.py /app/multi_capability_guard.py
 COPY session_ownership/owner_mobile_handoff.py /app/owner_mobile_handoff.py
 COPY session_ownership/owner_mobile_touch.py /app/owner_mobile_touch.py
 COPY connector_router.py /app/connector_router.py
+COPY meta_command.py test_meta_command.py /app/
+RUN python /app/test_meta_command.py
 COPY operator_catalog.py /app/operator_catalog.py
 COPY durable_tasks.py /app/durable_tasks.py
 COPY test_durable_tasks.py /app/test_durable_tasks.py

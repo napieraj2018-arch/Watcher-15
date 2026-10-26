@@ -69,6 +69,10 @@ class Tests(unittest.IsolatedAsyncioTestCase):
  async def test_quarantine_no_create(self):
   self.guard.safe_sessions=lambda:[{'state':'provider_reconciliation_required'}]
   with self.assertRaises(TaskError):await self.call('start')
+ async def test_invalid_start_mode_does_not_change_checkpoint(self):
+  for args in ['{"mode":{}}','{"mode":"admin"}','{"headless":"false"}','{"profile":"other"}']:
+   with self.assertRaisesRegex(TaskError,'TASK_START_ARGUMENTS_INVALID'):await self.call('start',data_json=args)
+  self.assertEqual((await self.call('get'))['session_state'],'none')
  async def test_click_needs_readback_and_never_replays(self):
   await self.call('start');kw={'operation_id':'op-one','browser_tool':'browser_click','data_json':'{"ref":"e1"}'}
   await self.call('browser',**kw);r=await self.call('browser',**kw);self.assertFalse(r['executed']);self.assertTrue(r['verification_required']);self.assertEqual(self.clicks,1)
@@ -111,6 +115,56 @@ class Tests(unittest.IsolatedAsyncioTestCase):
  async def test_no_public_claim_in_list(self):
   self.assertNotIn(self.claim,canonical(await self.s.run('list')))
 class InstalledContract(unittest.IsolatedAsyncioTestCase):
+ async def installed(self):
+  import sys
+  from pathlib import Path
+  sys.path.insert(0,str(Path(__file__).parent/'session_ownership'/'tests'))
+  from test_owner_parallel_mcp import MultiManager
+  from test_sdk_contract import fake_mcp
+  from multi_capability_guard import MultiCapabilityGuard
+  import durable_tasks
+  manager=MultiManager();mcp=fake_mcp(manager)
+  guard=MultiCapabilityGuard(mcp,manager,capacity=5,watchdog_enabled=False);guard.install()
+  vault=MemoryVault();ns={'mcp':mcp,'_AIB_OWNER_PARALLEL_GUARD':guard}
+  with patch.object(durable_tasks,'Vault',return_value=vault):durable_tasks.install(ns)
+  service=ns['_AIB_DURABLE_TASKS']
+  task=await service.run('create',profile='Synthetic-Race',title='Admission race')
+  return manager,mcp,guard,vault,service,{'task_id':task['task_id'],'task_claim':task['task_claim']}
+ async def test_admission_race_does_not_create_false_durable_recovery(self):
+  manager,mcp,guard,vault,service,args=await self.installed()
+  original=mcp._tool_manager._tools['browser_start'].fn
+  other=[]
+  async def raced(**kw):
+   checkpoint_token=service.start_checkpoint.set(None)
+   task_token=service.starting_task.set(None)
+   try:other.append(await original(profile='Synthetic-Race',mode='read_only'))
+   finally:
+    service.start_checkpoint.reset(checkpoint_token);service.starting_task.reset(task_token)
+   return await original(**kw)
+  mcp._tool_manager._tools['browser_start'].fn=raced
+  with self.assertRaisesRegex(Exception,'PARALLEL_PROFILE_BUSY'):await service.run('start',**args)
+  state=await service.run('get',task_id=args['task_id'])
+  self.assertEqual(state['session_state'],'none');self.assertTrue(vault.rows[args['task_id']]['resumable'])
+  self.assertEqual(manager.counter,1);self.assertFalse(guard.quarantined)
+  await service.run('release',**args)
+  await mcp._tool_manager._tools['browser_stop'].fn(session_id=other[0]['session_id'])
+ async def test_durable_intent_is_saved_before_provider_create(self):
+  manager,mcp,guard,vault,service,args=await self.installed()
+  previous=manager.start
+  async def observed(*a,**kw):
+   _,state=await service.load(args['task_id'])
+   self.assertEqual(state['session_state'],'starting');self.assertFalse(vault.rows[args['task_id']]['resumable'])
+   return await previous(*a,**kw)
+  manager.start=observed
+  r=await service.run('start',data_json='{"mode":"read_only","headless":true}',**args)
+  self.assertEqual(r['browser']['mode'],'read_only')
+ async def test_unknown_provider_start_keeps_recovery_block(self):
+  manager,mcp,guard,vault,service,args=await self.installed()
+  async def unknown(*a,**kw):raise RuntimeError('UNCERTAIN_PROVIDER')
+  manager.start=unknown
+  with self.assertRaisesRegex(RuntimeError,'UNCERTAIN_PROVIDER'):await service.run('start',**args)
+  self.assertEqual((await service.run('get',task_id=args['task_id']))['session_state'],'starting')
+  self.assertFalse(vault.rows[args['task_id']]['resumable'])
  async def test_expected_task_refusal_uses_sdk_public_error_type(self):
   from mcp.server.mcpserver import MCPServer
   from mcp.server.mcpserver.exceptions import ToolError

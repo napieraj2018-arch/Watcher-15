@@ -58,6 +58,7 @@ class MultiCapabilityGuard:
         # see them. This admission-scoped phase explains at most one new
         # manager record until the start result is checked and leased.
         self.starting: tuple[str, frozenset[str]] | None = None
+        self.before_provider_start = None  # Durable intent, after admission, before create.
         self.start_cleanups: dict[str, object] = {}
         self.cleanup_tasks: set[asyncio.Task] = set()
         self.close_tasks: dict[str, asyncio.Task] = {}
@@ -341,6 +342,8 @@ class MultiCapabilityGuard:
                     if getattr(session, "profile", None) == profile:
                         self.quarantined = True
                         raise OwnershipError("PARALLEL_PROFILE_UNMANAGED")
+            if self.before_provider_start is not None:
+                await self.before_provider_start(profile)
             prior = set(self.sessions())
             pending = self.pending_start.set(profile)
             self.starting = (profile, frozenset(prior))
