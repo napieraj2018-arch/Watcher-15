@@ -42,6 +42,10 @@ class IndexedSelector:
         if len(self.value_path) > 4:
             raise R158EvidenceError("R158_INDEX_SELECTOR_INVALID")
 
+# Exact IndexedDB structure verified from owner Floot pages/browser-check.tsx.
+R158_SELECTOR = IndexedSelector(database="aibrowser_neutral_check",
+                                store="markers", key="marker")
+
 
 def _items(value: Any) -> list:
     return value if isinstance(value, list) and len(value) <= 1024 else []
@@ -113,6 +117,8 @@ def compare_protected_candidate(*, profile: str, archived_at: float,
     """Inspect exact R158 candidate in trusted process; never output values."""
     if profile != PROFILE:
         raise R158EvidenceError("R158_PROFILE_SCOPE_DENIED")
+    if selector != R158_SELECTOR:
+        raise R158EvidenceError("R158_INDEX_SELECTOR_INVALID")
     if (not isinstance(selector, IndexedSelector)
             or not isinstance(archived_at, (int, float)) or isinstance(archived_at, bool)
             or not isinstance(observed_at, (int, float)) or isinstance(observed_at, bool)
