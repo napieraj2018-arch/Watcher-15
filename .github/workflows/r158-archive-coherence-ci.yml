@@ -1,0 +1,47 @@
+name: R158 private historical snapshot coherence - offline regressions
+on:
+  pull_request:
+    branches: [ai-browser-cloud]
+    paths:
+      - 'r158_archive_provenance.py'
+      - 'test_r158_archive_provenance.py'
+      - '.github/workflows/r158-archive-coherence-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r158-private-coherence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  neutral-only:
+    name: Synthetic tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile bounded neutral-only comparator
+        run: python -m py_compile r158_archive_provenance.py test_r158_archive_provenance.py
+      - name: Verify synthetic protected archive cases and existing neutral admission
+        run: python -m unittest -v test_r158_archive_provenance test_native_context_trial
+      - name: Assert no backend credentials or vault network required
+        run: |
+          python - <<'PY'
+          import importlib
+          m = importlib.import_module('r158_archive_provenance')
+          assert not hasattr(m, 'restore_profile')
+          assert not hasattr(m, 'connect_vault')
+          assert m.PROFILE == 'Acceptance-20261023-R158'
+          print('NEUTRAL_ONLY_NO_VAULT_INPUT_NO_DEPLOY')
+          PY
