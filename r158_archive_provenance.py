@@ -111,7 +111,7 @@ def _cookie_fresh(cookie: dict | None, when: float) -> bool | None:
     return bool(expiry > when)
 
 
-def compare_protected_candidate(*, profile: str, archived_at: float,
+def compare_protected_candidate(*, profile: str, source_updated_at: float,
                                 decrypted_state: dict, selector: IndexedSelector,
                                 observed_at: float) -> dict[str, bool | None]:
     """Inspect exact R158 candidate in trusted process; never output values."""
@@ -120,17 +120,17 @@ def compare_protected_candidate(*, profile: str, archived_at: float,
     if selector != R158_SELECTOR:
         raise R158EvidenceError("R158_INDEX_SELECTOR_INVALID")
     if (not isinstance(selector, IndexedSelector)
-            or not isinstance(archived_at, (int, float)) or isinstance(archived_at, bool)
+            or not isinstance(source_updated_at, (int, float)) or isinstance(source_updated_at, bool)
             or not isinstance(observed_at, (int, float)) or isinstance(observed_at, bool)
-            or not math.isfinite(archived_at) or not math.isfinite(observed_at)
-            or observed_at < archived_at):
+            or not math.isfinite(source_updated_at) or not math.isfinite(observed_at)
+            or observed_at < source_updated_at):
         raise R158EvidenceError("R158_TIME_OR_SELECTOR_INVALID")
     (c, l, d), unique, cookie = _extract(decrypted_state, selector)
     present = (c is not None, l is not None, d is not None)
     equal = bool(unique and all(present)
                  and hmac.compare_digest(c, l) and hmac.compare_digest(c, d))
     encoded_equal = bool(unique and all(present) and unquote(c) == l == d)
-    valid_at_archive = _cookie_fresh(cookie, archived_at)
+    valid_at_archive = _cookie_fresh(cookie, source_updated_at)
     valid_now = _cookie_fresh(cookie, observed_at)
     return {
         "cookie_present": present[0],
@@ -139,9 +139,9 @@ def compare_protected_candidate(*, profile: str, archived_at: float,
         "unique_exact_source": unique,
         "exact_three_store_equal": equal,
         "decoded_cookie_equal_only": bool(encoded_equal and not equal),
-        "cookie_valid_at_archive": valid_at_archive,
+        "cookie_valid_at_source": valid_at_archive,
         "cookie_valid_now": valid_now,
-        "coherent_at_archive": bool(equal and valid_at_archive is True),
+        "coherent_at_source": bool(equal and valid_at_archive is True),
         "live_saved_close_reopen_verified": False,
         "real_account_authenticated": False,
     }
@@ -156,7 +156,7 @@ def compare_protected_batch(candidates: list[dict], *, selector: IndexedSelector
     """
     if not isinstance(candidates, list) or len(candidates) > MAX_VERSIONS:
         raise R158EvidenceError("R158_BATCH_SIZE_INVALID")
-    counts = {"candidate_count": 0, "coherent_at_archive_count": 0,
+    counts = {"candidate_count": 0, "coherent_at_source_count": 0,
               "currently_valid_coherent_count": 0,
               "unknown_cookie_lifetime_count": 0,
               "invalid_or_ambiguous_count": 0, "live_verified": False}
@@ -164,11 +164,11 @@ def compare_protected_batch(candidates: list[dict], *, selector: IndexedSelector
         if not isinstance(row, dict) or row.get("protected") is not True:
             raise R158EvidenceError("R158_UNPROTECTED_CANDIDATE_DENIED")
         proof = compare_protected_candidate(
-            profile=row.get("profile"), archived_at=row.get("archived_at"),
+            profile=row.get("profile"), source_updated_at=row.get("source_updated_at"),
             decrypted_state=row.get("state"), selector=selector, observed_at=observed_at)
         counts["candidate_count"] += 1
-        if proof["coherent_at_archive"]:
-            counts["coherent_at_archive_count"] += 1
+        if proof["coherent_at_source"]:
+            counts["coherent_at_source_count"] += 1
             if proof["cookie_valid_now"] is True:
                 counts["currently_valid_coherent_count"] += 1
         if proof["cookie_valid_now"] is None:
