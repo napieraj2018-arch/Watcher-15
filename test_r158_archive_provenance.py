@@ -40,6 +40,19 @@ class ProtectedProvenance(unittest.TestCase):
         self.assertFalse(p["live_saved_close_reopen_verified"])
         self.assertFalse(p["real_account_authenticated"])
 
+    def test_unicode_marker_equality_is_total_and_never_returns_value(self):
+        # Python hmac.compare_digest(str, str) rejects non-ASCII strings.
+        # Forensic evidence must not crash or leak the neutral marker.
+        token = "SYNTHETIC-Łódź-🧪"
+        valid = result(fixture(token))
+        self.assertTrue(valid["coherent_at_source"])
+        self.assertNotIn(token, repr(valid))
+        wrong = fixture(token)
+        wrong["origins"][0]["localStorage"][0]["value"] = token + "-different"
+        mismatch = result(wrong)
+        self.assertFalse(mismatch["coherent_at_source"])
+        self.assertNotIn(token, repr(mismatch))
+
     def test_all_present_but_mismatched_rejected(self):
         s = fixture()
         s["origins"][0]["indexedDB"][0]["stores"][0]["records"][0]["value"] = "old"
