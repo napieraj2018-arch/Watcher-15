@@ -4,12 +4,11 @@ import json
 import unittest
 
 from r158_archive_provenance import (
-    PROFILE, IndexedSelector, R158EvidenceError,
+    PROFILE, IndexedSelector, R158_SELECTOR, R158EvidenceError,
     compare_protected_candidate as check, compare_protected_batch as batch,
 )
 
-SELECT = IndexedSelector(database="neutral-idb", store="state", key="marker",
-                         value_path=("value",))
+SELECT = R158_SELECTOR
 SAVED = 1793048000.0
 NOW = SAVED + 1000
 SECRET = "SYNTHETIC_DO_NOT_PRINT_TEST_MARKER_zf7c8"
@@ -22,8 +21,8 @@ def fixture(value=SECRET):
                          secure=True, httpOnly=False)],
         "origins": [dict(origin="https://ai-browser-vault.floot.app",
                          localStorage=[dict(name="aibrowser_public_test_marker", value=value)],
-                         indexedDB=[dict(name="neutral-idb", stores=[dict(name="state",
-                         records=[dict(key="marker", value=dict(value=value))])])])],
+                         indexedDB=[dict(name="aibrowser_neutral_check", stores=[dict(name="markers",
+                         records=[dict(key="marker", value=value)])])])],
     }
 
 
@@ -43,7 +42,7 @@ class ProtectedProvenance(unittest.TestCase):
 
     def test_all_present_but_mismatched_rejected(self):
         s = fixture()
-        s["origins"][0]["indexedDB"][0]["stores"][0]["records"][0]["value"]["value"] = "old"
+        s["origins"][0]["indexedDB"][0]["stores"][0]["records"][0]["value"] = "old"
         p = result(s)
         self.assertTrue(all(p[k] for k in (
             "cookie_present", "local_storage_present", "indexed_db_present")))
@@ -99,7 +98,7 @@ class ProtectedProvenance(unittest.TestCase):
     def test_encoded_cookie_never_counts_exact(self):
         s = fixture("abc%2Bdef")
         s["origins"][0]["localStorage"][0]["value"] = "abc+def"
-        s["origins"][0]["indexedDB"][0]["stores"][0]["records"][0]["value"]["value"] = "abc+def"
+        s["origins"][0]["indexedDB"][0]["stores"][0]["records"][0]["value"] = "abc+def"
         p = result(s)
         self.assertTrue(p["decoded_cookie_equal_only"])
         self.assertFalse(p["coherent_at_archive"])
@@ -131,6 +130,12 @@ class ProtectedProvenance(unittest.TestCase):
         with self.assertRaisesRegex(R158EvidenceError, "R158_TIME_OR_SELECTOR_INVALID"):
             check(profile=PROFILE, archived_at=float("nan"),
                   decrypted_state=fixture(), selector=SELECT, observed_at=NOW)
+
+    def test_other_indexed_database_cannot_be_scanned(self):
+        other = IndexedSelector(database="unrelated-db", store="markers", key="marker")
+        with self.assertRaisesRegex(R158EvidenceError, "R158_INDEX_SELECTOR_INVALID"):
+            check(profile=PROFILE, archived_at=SAVED,
+                  decrypted_state=fixture(), selector=other, observed_at=NOW)
 
     def test_narrow_selector(self):
         with self.assertRaisesRegex(R158EvidenceError, "R158_INDEX_SELECTOR_INVALID"):
