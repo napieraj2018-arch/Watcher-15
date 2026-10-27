@@ -93,7 +93,7 @@ def portable_cookies_for_provider(state):
 
 
 def native_context_trial_payload(payload, profile, binding, state=None):
-    """Disposable canary only: isolate provider navigation-context replay.
+    """Exact named disposable canaries only: isolate provider navigation-context replay.
 
     Steel documents request-level sessionContext as replacing profile context.
     Its public frame-navigation handler replays that context on each visit.
@@ -102,7 +102,7 @@ def native_context_trial_payload(payload, profile, binding, state=None):
     the experiment to customer profiles; their existing context is retained.
     """
     result = copy.deepcopy(payload)
-    if (profile == 'Acceptance-20261023-Rollback'
+    if (profile in ('Acceptance-20261023-Rollback', 'Acceptance-20261023-R158')
             and binding.get('hydrated') is True
             and binding.get('profile_id')):
         if 'sessionContext' in result:
@@ -815,7 +815,7 @@ def install(ns):
                 await await_profile_ready(original_request, binding['profile_id'])
                 payload['profileId'] = binding['profile_id']
             snapshot = None
-            if (profile == 'Acceptance-20261023-Rollback'
+            if (profile in ('Acceptance-20261023-Rollback', 'Acceptance-20261023-R158')
                     and binding.get('hydrated') is True and binding['profile_id']):
                 snapshot = await manager._load_portable_state(profile)
             payload = native_context_trial_payload(payload, profile, binding, snapshot)

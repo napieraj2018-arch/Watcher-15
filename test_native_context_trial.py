@@ -28,13 +28,15 @@ class Trial(unittest.TestCase):
 
     def test_exact_hydrated_canary_only(self):
         before = copy.deepcopy(self.payload)
-        value = policy(self.payload, 'Acceptance-20261023-Rollback', self.binding, self.state)
-        self.assertEqual(value, {**before, 'sessionContext': {'cookies': self.state['cookies']}})
+        for profile in ('Acceptance-20261023-Rollback', 'Acceptance-20261023-R158'):
+            with self.subTest(profile=profile):
+                value = policy(self.payload, profile, self.binding, self.state)
+                self.assertEqual(value, {**before, 'sessionContext': {'cookies': self.state['cookies']}})
         self.assertEqual(self.payload, before)
 
     def test_real_profiles_never_receive_experimental_context_override(self):
         for profile in ['WordPress - Napieraj i Synowie', 'Google - Weterynarz',
-                        'Meta - Anita', 'Acceptance-20261023-R158',
+                        'Meta - Anita', 'Acceptance-20261023-R158-other',
                         'Acceptance-20261023-Rollback-other']:
             self.assertEqual(policy(self.payload, profile, self.binding), self.payload)
 
@@ -43,18 +45,26 @@ class Trial(unittest.TestCase):
             self.assertEqual(policy(self.payload, profile, self.binding), self.payload)
 
     def test_new_or_unverified_canary_is_unchanged(self):
-        for binding in [{}, {'hydrated': False, 'profile_id': 'test-id'},
-                        {'hydrated': True}, {'hydrated': 1, 'profile_id': 'test-id'}]:
-            self.assertEqual(policy(self.payload, 'Acceptance-20261023-Rollback', binding), self.payload)
+        # R158 must not inherit the experimental provider override when
+        # a native profile has not been independently verified as hydrated.
+        for profile in ('Acceptance-20261023-Rollback', 'Acceptance-20261023-R158'):
+            for binding in [{}, {'hydrated': False, 'profile_id': 'test-id'},
+                            {'hydrated': True}, {'hydrated': 1, 'profile_id': 'test-id'}]:
+                with self.subTest(profile=profile, binding=binding):
+                    self.assertEqual(policy(self.payload, profile, binding), self.payload)
 
     def test_explicit_context_is_never_silently_discarded(self):
-        with self.assertRaisesRegex(Failure, 'NATIVE_PROFILE_CONTEXT_CONFLICT'):
-            policy({**self.payload, 'sessionContext': {'cookies': []}},
-                   'Acceptance-20261023-Rollback', self.binding)
+        for profile in ('Acceptance-20261023-Rollback', 'Acceptance-20261023-R158'):
+            with self.subTest(profile=profile):
+                with self.assertRaisesRegex(Failure, 'NATIVE_PROFILE_CONTEXT_CONFLICT'):
+                    policy({**self.payload, 'sessionContext': {'cookies': []}},
+                           profile, self.binding)
 
     def test_snapshot_required_before_canary_create(self):
-        with self.assertRaisesRegex(Failure, 'PROFILE_COOKIE_SNAPSHOT_REQUIRED'):
-            policy(self.payload, 'Acceptance-20261023-Rollback', self.binding)
+        for profile in ('Acceptance-20261023-Rollback', 'Acceptance-20261023-R158'):
+            with self.subTest(profile=profile):
+                with self.assertRaisesRegex(Failure, 'PROFILE_COOKIE_SNAPSHOT_REQUIRED'):
+                    policy(self.payload, profile, self.binding)
 
     def test_partitioned_cookie_preserves_cross_site_flag(self):
         for flag in [True, False]:
