@@ -6,6 +6,8 @@ on:
     branches: [ai-browser-cloud]
     paths:
       - 'steel_context_fix.py'
+      - 'r158_archive_provenance.py'
+      - 'test_r158_archive_provenance.py'
       - 'native_origin_readback.py'
       - 'bootstrap.py'
       - 'Dockerfile'
@@ -40,6 +42,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Private R158 evidence comparator — synthetic data only
+        run: python3 -m unittest -v test_r158_archive_provenance test_native_context_trial
       - name: Full production Docker regression without provider credentials
         run: docker build --progress=plain -t aib-profile-readback .
       - name: Actual Chromium persistence canaries, three independent runs, no network or Steel
