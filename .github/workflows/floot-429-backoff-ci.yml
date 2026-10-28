@@ -1,0 +1,52 @@
+name: Floot HTTP 429 fail-closed retry-after regressions
+on:
+  pull_request:
+    branches: [ai-browser-cloud]
+    paths:
+      - 'provider_recovery_gate.py'
+      - 'recovery_boot_maintenance.py'
+      - 'bootstrap.py'
+      - 'test_provider_recovery_gate.py'
+      - 'test_recovery_boot_maintenance.py'
+      - '.github/workflows/floot-429-backoff-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aib-floot-429-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-recovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install 'httpx>=0.28,<1'
+      - name: Compile sources and test typed retry-after and fail-closed maintenance
+        run: |
+          python -m py_compile provider_recovery_gate.py recovery_boot_maintenance.py bootstrap.py
+          python -m unittest -v test_provider_recovery_gate test_recovery_boot_maintenance
+  production-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build actual production Docker image (no vault, Steel, cookies or keys)
+        run: docker build --progress=plain -t aib-floot-429-guard .
+      - name: Verify maintenance stays fail-closed in network-isolated production image
+        run: |
+          docker run --rm --network none --entrypoint python aib-floot-429-guard -m unittest -v test_provider_recovery_gate test_recovery_boot_maintenance
