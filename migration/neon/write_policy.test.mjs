@@ -7,7 +7,8 @@ const UID='00000000-0000-4000-8000-000000000011';
 const CLAIM='Q'.repeat(48);
 const STATE='ciphertext_only_synthetic_marker_2026';
 const validGate={mode:'neon_primary',write_enabled:true,source_frozen:true,
-  owner_reconciled:true,epoch:2};
+  owner_reconciled:true,source_manifest_verified:true,
+  destination_manifest_verified:true,epoch:2};
 function denied(fn,code){
  assert.throws(fn,e=>e instanceof VaultMutationError&&e.code===code);
 }
