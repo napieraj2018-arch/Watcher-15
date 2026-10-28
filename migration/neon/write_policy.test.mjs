@@ -35,17 +35,27 @@ test('only exact operations are available; nothing deletes profiles',()=>{
  }
 });
 test('profile save validates exact name and encrypted-only bounded input',()=>{
- assert.deepEqual(validateVaultMutation('profile_save',{profile:'Neutral-test',state:STATE}),
-  {profile:'Neutral-test',state:STATE});
+ assert.deepEqual(validateVaultMutation('profile_save',{profile:'Neutral-test',state:STATE,expected_sha256:null}),
+  {profile:'Neutral-test',state:STATE,expected_sha256:null});
  for(const profile of ['', '../another', 'Meta/Login', '\nTest',
   'long'.repeat(50)]){
-  denied(()=>validateVaultMutation('profile_save',{profile,state:STATE}),'invalid_profile');
+  denied(()=>validateVaultMutation('profile_save',{profile,state:STATE,expected_sha256:null}),'invalid_profile');
  }
- denied(()=>validateVaultMutation('profile_save',{profile:'Neutral',state:'x'}),'state_invalid');
+ denied(()=>validateVaultMutation('profile_save',{profile:'Neutral',state:'x',expected_sha256:null}),'state_invalid');
  denied(()=>validateVaultMutation('profile_save',{
-  profile:'Neutral',state:'x'.repeat(8000001)}),'state_invalid');
+  profile:'Neutral',state:'x'.repeat(8000001),expected_sha256:null}),'state_invalid');
  denied(()=>validateVaultMutation('profile_save',{
-  profile:'Neutral',state:STATE,unknown:'WRITE'}),'unsupported_field');
+  profile:'Neutral',state:STATE,expected_sha256:null,unknown:'WRITE'}),'unsupported_field');
+});
+test('profile saves refuse stale or missing parent-state CAS token',()=>{
+ denied(()=>validateVaultMutation('profile_save',{
+   profile:'Neutral-test',state:STATE}),'missing_field');
+ denied(()=>validateVaultMutation('profile_save',{
+   profile:'Neutral-test',state:STATE,expected_sha256:'garbage'}),
+   'expected_profile_hash_invalid');
+ assert.equal(validateVaultMutation('profile_save',{
+   profile:'Neutral-test',state:STATE,expected_sha256:'a'.repeat(64)}).expected_sha256,
+   'a'.repeat(64));
 });
 test('engine binds are explicit UUID and cannot set arbitrary fields',()=>{
  assert.equal(validateVaultMutation('engine_bind',{
