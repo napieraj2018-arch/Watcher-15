@@ -163,7 +163,11 @@ class ConnectorFirstRouting(unittest.TestCase):
     def test_all_allowlisted_routes_are_only_hints(self):
         for key in API_ROUTE:
             service,operation=key
-            brand="anita" if service in {"instagram","facebook","google_business","wordpress"} else ""
+            brand=("anita" if service in {"instagram","facebook","google_business","wordpress"}
+                   else "weterynarz" if service=="google_search_console"
+                   else "nkw" if service=="youtube"
+                   else "aibrowser" if service in {"github","render"}
+                   else "")
             p=plan_operation(service,operation,brand)
             self.assertEqual(p["router_version"],ROUTER_VERSION)
             self.assertFalse(p["published"])
@@ -176,6 +180,96 @@ class ConnectorFirstRouting(unittest.TestCase):
             route=plan_operation(service,operation,"anita")
             self.assertEqual(route["status"],"browser_fallback_may_be_required")
             self.assertNotIn("action",route)
+
+
+    def test_owner_video_routing_is_account_bound_and_never_authenticated_by_hint(self):
+        for operation,action in (
+                ("video_read", "vidiq_get_videos_by_ids"),
+                ("channel_analytics", "vidiq_channel_analytics"),
+                ("video_update", "vidiq_update_video"),
+                ("thumbnail_update", "vidiq_update_video_thumbnail"),
+                ("video_upload", "vidiq_video_upload")):
+            with self.subTest(operation=operation):
+                p=plan_operation("youtube", operation, "nkw")
+                self.assertEqual(p["status"], "available_route_hint_only")
+                self.assertEqual(p["plugin"], "vidIQ")
+                self.assertEqual(p["action"], action)
+                self.assertEqual(p["expected_account_id"], "UC7EQ32QjfKQ7bFiVdGAhB-A")
+                self.assertEqual(p["browser_profile_if_required"], "NKW - YouTube Studio")
+                self.assertTrue(p["browser_fallback_requires_live_identity_check"])
+                self.assertEqual(p["account_authenticated"], "not_checked")
+                self.assertFalse(p["browser_started"])
+                self.assertFalse(p["published"])
+                self.assertEqual(
+                    p["requires_concrete_content_for_write"],
+                    operation in {"video_update","thumbnail_update","video_upload"})
+        self.assertEqual(plan_operation("youtube", "video_upload")["status"],
+                         "choose_target_brand")
+
+    def test_search_console_quota_blocked_connector_never_claims_live_data(self):
+        for brand,site,property_id,profile in (
+            ("anita","https://architekt.radom.pl",
+             "sc-domain:architekt.radom.pl","Google - Architekt - GSC"),
+            ("weterynarz","https://weterynarz.radom.pl",
+             "sc-domain:weterynarz.radom.pl","Google - Weterynarz"),
+        ):
+            for op in ("search_analytics", "url_inspect"):
+                with self.subTest(brand=brand, operation=op):
+                    p=plan_operation("google_search_console",op,brand)
+                    self.assertEqual(p["status"],"browser_fallback_may_be_required")
+                    self.assertEqual(p["expected_site_url"],site)
+                    self.assertEqual(p["expected_connected_property"],property_id)
+                    self.assertEqual(p["browser_profile_if_required"],profile)
+                    self.assertEqual(p["preferred_path"],"existing_saved_browser_profile")
+                    self.assertTrue(p["requires_live_property_and_content_readback"])
+                    self.assertTrue(p["ignore_placeholder_zero_rows"])
+                    self.assertEqual(p["observed_connector_limitation"],
+                                     "windsor_free_account_quota_sample_rows_20261028")
+                    self.assertEqual(p["account_authenticated"],"not_checked")
+                    self.assertNotIn("action",p)
+                    self.assertFalse(p["browser_started"])
+                    self.assertFalse(p["published"])
+    def test_repository_and_render_use_owner_account_app_not_browser_credentials(self):
+        for service,ops in (
+            ("github", (("issue_read","fetch_issue"),("pr_read","fetch_pr"),
+                        ("pr_create","create_pull_request"))),
+            ("render", (("service_status","get_service"),("deploy_history","list_deploys"),
+                        ("deploy","trigger_deploy"))),
+        ):
+            for op,action in ops:
+                with self.subTest(service=service,operation=op):
+                    p=plan_operation(service,op,"aibrowser")
+                    self.assertEqual(p["action"],action)
+                    self.assertFalse(p["browser_fallback_permitted"])
+                    self.assertEqual(p["account_authenticated"],"not_checked")
+                    self.assertFalse(p["browser_started"])
+                    self.assertFalse(p["published"])
+                    self.assertEqual(p["requires_concrete_content_for_write"],
+                                     op in {"pr_create","deploy"})
+        self.assertEqual(plan_operation("github","pr_read","anita")["status"],
+                         "choose_target_brand")
+        self.assertEqual(plan_operation("render","deploy")["status"],
+                         "choose_target_brand")
+
+    def test_drive_routes_are_only_scoped_lookup_hints(self):
+        for op,action in (("file_search","search"),("file_metadata","get_file_metadata")):
+            p=plan_operation("google_drive",op)
+            self.assertEqual(p["plugin"],"Google_Drive")
+            self.assertEqual(p["action"],action)
+            self.assertTrue(p["requires_verified_drive_scope"])
+            self.assertFalse(p["browser_fallback_permitted"])
+            self.assertFalse(p["browser_started"])
+            self.assertFalse(p["published"])
+        self.assertEqual(plan_operation("google_drive","file_search","nkw")["status"],
+                         "choose_target_brand")
+
+    def test_new_brand_aliases_do_not_grant_social_cross_account_access(self):
+        for bad_brand in ("nkw", "aibrowser"):
+            for service in ("instagram","facebook","google_business","wordpress","gmail"):
+                p=plan_operation(service,"read",bad_brand)
+                self.assertEqual(p["status"],"unsupported_request")
+                self.assertFalse(p["published"])
+                self.assertFalse(p["browser_started"])
 
 
 if __name__=="__main__":

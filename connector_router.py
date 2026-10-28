@@ -11,17 +11,21 @@ from __future__ import annotations
 from copy import deepcopy
 from verification_status import email_confirmation_plan
 
-ROUTER_VERSION = "2026-10-23.1"
-BRANDS = frozenset(("", "anita", "weterynarz"))
+ROUTER_VERSION = "2026-10-28.1"
+BRANDS = frozenset(("", "anita", "weterynarz", "nkw", "aibrowser"))
 SERVICES = frozenset((
     "instagram", "facebook", "gmail", "wordpress", "google_business",
     "windsor", "metricool", "browser",
+    "youtube", "google_search_console", "github", "render", "google_drive",
 ))
 OPERATIONS = frozenset((
     "read", "post", "image_post", "reel", "story", "carousel",
     "highlights", "reviews", "email_read", "email_draft", "email_send", "email_verify",
     "wordpress_read", "wordpress_draft", "wordpress_publish",
     "business_reviews", "business_post", "analytics",
+    "video_read", "video_update", "thumbnail_update", "video_upload", "channel_analytics",
+    "search_analytics", "url_inspect", "issue_read", "pr_read", "pr_create",
+    "service_status", "deploy_history", "deploy", "file_search", "file_metadata",
 ))
 BRAND_TARGET = {
     "anita": {
@@ -88,6 +92,38 @@ API_ROUTE = {
                                 ("verified_account_id", "selected_fields")),
     ("metricool", "analytics"): ("Metricool", "selected_brand", "getAnalyticsDataByMetrics",
                                   ("verified_brand_id",)),
+    # Direct account connectors are hints only; none of these routes grants
+    # an API token, starts a browser, signs in or changes remote content.
+    ("youtube", "video_read"): ("vidIQ", "youtube", "vidiq_get_videos_by_ids",
+                                 ("verified_channel_id", "video_ids")),
+    ("youtube", "channel_analytics"): ("vidIQ", "youtube", "vidiq_channel_analytics",
+                                        ("verified_channel_id", "date_range")),
+    ("youtube", "video_update"): ("vidIQ", "youtube", "vidiq_update_video",
+                                   ("verified_channel_id", "video_id", "approved_metadata")),
+    ("youtube", "thumbnail_update"): ("vidIQ", "youtube", "vidiq_update_video_thumbnail",
+                                       ("verified_channel_id", "video_id", "approved_thumbnail")),
+    ("youtube", "video_upload"): ("vidIQ", "youtube", "vidiq_video_upload",
+                                   ("verified_channel_id", "approved_media_source", "metadata")),
+    # Search Console provider choice is handled below: at 28 Oct the
+    # connected Windsor Free plan returned only dummy rows after a quota
+    # warning; never present those values as SEO measurements.
+    ("github", "issue_read"): ("GitHub", "repository", "fetch_issue",
+                                ("verified_repo", "issue_number")),
+    ("github", "pr_read"): ("GitHub", "repository", "fetch_pr",
+                             ("verified_repo", "pr_number")),
+    ("github", "pr_create"): ("GitHub", "repository", "create_pull_request",
+                               ("verified_repo", "reviewed_head_and_base", "approved_diff")),
+    ("render", "service_status"): ("Render", "web_service", "get_service",
+                                    ("verified_workspace_id", "verified_service_id")),
+    ("render", "deploy_history"): ("Render", "web_service", "list_deploys",
+                                    ("verified_workspace_id", "verified_service_id")),
+    ("render", "deploy"): ("Render", "web_service", "trigger_deploy",
+                            ("verified_workspace_id", "verified_service_id",
+                             "accepted_exact_commit", "idle_provider_gate")),
+    ("google_drive", "file_search"): ("Google_Drive", "drive", "search",
+                                       ("verified_drive_scope", "query")),
+    ("google_drive", "file_metadata"): ("Google_Drive", "drive", "get_file_metadata",
+                                         ("verified_drive_scope", "file_id")),
 }
 
 # Explicitly unsupported by the currently verified connector action schema.
@@ -96,10 +132,15 @@ NO_VERIFIED_API = frozenset((
     ("instagram", "highlights"),
     ("facebook", "reel"),
     ("facebook", "story"),
+    # The existing authenticated owner browser is the current safe route.
+    # Windsor sample rows must never be treated as real Search Analytics.
+    ("google_search_console", "search_analytics"),
+    ("google_search_console", "url_inspect"),
 ))
 WRITES = frozenset((
     "post","image_post","reel","story","carousel","email_send",
     "email_draft","wordpress_draft","wordpress_publish","business_post",
+    "video_update","thumbnail_update","video_upload","pr_create","deploy",
 ))
 
 # Reuse the current catalogue for generic reads; do not invent new write aliases.
@@ -165,6 +206,21 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
         or operation not in OPERATIONS or brand not in BRANDS):
         return {"status":"unsupported_request",
                 "browser_started":False, "published":False}
+    # Account selectors are explicit, never guessed from the last used session.
+    if service == "youtube" and brand != "nkw":
+        return {"status":"choose_target_brand", "valid_brands":["nkw"],
+                "browser_started":False, "published":False}
+    if service == "google_search_console" and brand not in {"anita", "weterynarz"}:
+        return {"status":"choose_target_brand", "valid_brands":["anita", "weterynarz"],
+                "browser_started":False, "published":False}
+    if service in {"github", "render"} and brand != "aibrowser":
+        return {"status":"choose_target_brand", "valid_brands":["aibrowser"],
+                "browser_started":False, "published":False}
+    if service == "google_drive" and brand:
+        return {"status":"choose_target_brand", "valid_brands":[""],
+                "browser_started":False, "published":False}
+    if service not in {"youtube", "google_search_console", "github", "render", "google_drive"} and brand in {"nkw", "aibrowser"}:
+        return {"status":"unsupported_request", "browser_started":False, "published":False}
     if service in {"instagram","facebook","wordpress","google_business"} and not brand:
         return {"status":"choose_target_brand",
                 "browser_started":False,"published":False,
@@ -207,6 +263,36 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
         result["expected_site_url"]=target["wordpress"]
         # A Google profile is not automatically a WordPress login.
         result["browser_profile_if_required"]="explicit_verified_wordpress_profile"
+    elif service=="youtube":
+        result["expected_account_id"]="UC7EQ32QjfKQ7bFiVdGAhB-A"
+        result["browser_profile_if_required"]="NKW - YouTube Studio"
+        result["browser_fallback_requires_live_identity_check"]=True
+        result["browser_fallback_does_not_bypass_google_login_policy"]=True
+    elif service=="google_search_console":
+        result["expected_site_url"]=(
+            "https://architekt.radom.pl" if brand=="anita"
+            else "https://weterynarz.radom.pl"
+        )
+        result["requires_verified_property_binding"]=True
+        result["expected_connected_property"]=(
+            "sc-domain:architekt.radom.pl" if brand=="anita"
+            else "sc-domain:weterynarz.radom.pl"
+        )
+        result["browser_profile_if_required"]=(
+            "Google - Architekt - GSC" if brand=="anita"
+            else "Google - Weterynarz"
+        )
+        result["browser_fallback_requires_live_identity_check"]=True
+    elif service=="github":
+        result["expected_repo"]="napieraj2018-arch/Watcher-15"
+        result["browser_fallback_permitted"]=False
+    elif service=="render":
+        result["expected_service_id"]="srv-db34e6ks728c73bae4sg"
+        result["expected_workspace_id"]="tea-db33rcjncjis73ecbbj0"
+        result["browser_fallback_permitted"]=False
+    elif service=="google_drive":
+        result["requires_verified_drive_scope"]=True
+        result["browser_fallback_permitted"]=False
     elif service=="browser":
         result["status"]="browser_state_verification_required"
         result["browser_profile_if_required"]="explicit_owner_selected_profile"
@@ -226,6 +312,16 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
         result["status"]="browser_fallback_may_be_required"
         result["reason"]="no_verified_connector_action_for_exact_media_type"
         result["next_step"]="check_authorized_browser_profile_then_live_auth_identity"
+        if service=="google_search_console":
+            # At 2026-10-28 a real Windsor query returned a Free-account
+            # limit warning and dummy zeroes. GSC Wizard is payment-required.
+            # Do not infer real performance from a connected-account label.
+            result["reason"]="connected_api_real_data_not_verified"
+            result["observed_connector_limitation"]="windsor_free_account_quota_sample_rows_20261028"
+            result["preferred_path"]="existing_saved_browser_profile"
+            result["requires_live_property_and_content_readback"]=True
+            result["known_connector_candidate"]="Windsor_ai"
+            result["ignore_placeholder_zero_rows"]=True
         return result
     route=API_ROUTE.get((service,operation))
     if route is None:
