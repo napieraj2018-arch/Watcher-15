@@ -206,32 +206,29 @@ class ConnectorFirstRouting(unittest.TestCase):
         self.assertEqual(plan_operation("youtube", "video_upload")["status"],
                          "choose_target_brand")
 
-    def test_search_console_prefers_connected_windsor_and_browser_only_inspection(self):
+    def test_search_console_quota_blocked_connector_never_claims_live_data(self):
         for brand,site,property_id,profile in (
             ("anita","https://architekt.radom.pl",
              "sc-domain:architekt.radom.pl","Google - Architekt - GSC"),
             ("weterynarz","https://weterynarz.radom.pl",
              "sc-domain:weterynarz.radom.pl","Google - Weterynarz"),
         ):
-            p=plan_operation("google_search_console","search_analytics",brand)
-            self.assertEqual(p["plugin"],"Windsor_ai")
-            self.assertEqual(p["connector"],"searchconsole")
-            self.assertEqual(p["action"],"get_data")
-            self.assertIn("get_fields_first",p["required_inputs"])
-            self.assertEqual(p["expected_site_url"],site)
-            self.assertEqual(p["expected_connected_property"],property_id)
-            self.assertTrue(p["requires_verified_property_binding"])
-            self.assertEqual(p["account_match"],"not_checked")
-            self.assertFalse(p["browser_started"])
-
-            inspect=plan_operation("google_search_console","url_inspect",brand)
-            self.assertEqual(inspect["status"],"browser_fallback_may_be_required")
-            self.assertNotIn("action",inspect)
-            self.assertEqual(inspect["browser_profile_if_required"],profile)
-            self.assertTrue(inspect["browser_fallback_requires_live_identity_check"])
-            self.assertFalse(inspect["published"])
-            self.assertFalse(inspect["browser_started"])
-
+            for op in ("search_analytics", "url_inspect"):
+                with self.subTest(brand=brand, operation=op):
+                    p=plan_operation("google_search_console",op,brand)
+                    self.assertEqual(p["status"],"browser_fallback_may_be_required")
+                    self.assertEqual(p["expected_site_url"],site)
+                    self.assertEqual(p["expected_connected_property"],property_id)
+                    self.assertEqual(p["browser_profile_if_required"],profile)
+                    self.assertEqual(p["preferred_path"],"existing_saved_browser_profile")
+                    self.assertTrue(p["requires_live_property_and_content_readback"])
+                    self.assertTrue(p["ignore_placeholder_zero_rows"])
+                    self.assertEqual(p["observed_connector_limitation"],
+                                     "windsor_free_account_quota_sample_rows_20261028")
+                    self.assertEqual(p["account_authenticated"],"not_checked")
+                    self.assertNotIn("action",p)
+                    self.assertFalse(p["browser_started"])
+                    self.assertFalse(p["published"])
     def test_repository_and_render_use_owner_account_app_not_browser_credentials(self):
         for service,ops in (
             ("github", (("issue_read","fetch_issue"),("pr_read","fetch_pr"),
