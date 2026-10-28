@@ -104,12 +104,9 @@ API_ROUTE = {
                                        ("verified_channel_id", "video_id", "approved_thumbnail")),
     ("youtube", "video_upload"): ("vidIQ", "youtube", "vidiq_video_upload",
                                    ("verified_channel_id", "approved_media_source", "metadata")),
-    # Windsor searchconsole is already available on the owner's connected
-    # account. Do not depend on an expired GSC Wizard subscription for reads.
-    # Caller must first discover exact searchconsole fields via get_fields.
-    ("google_search_console", "search_analytics"):
-        ("Windsor_ai", "searchconsole", "get_data",
-         ("verified_property", "get_fields_first", "date_range", "dimensions")),
+    # Search Console provider choice is handled below: at 28 Oct the
+    # connected Windsor Free plan returned only dummy rows after a quota
+    # warning; never present those values as SEO measurements.
     ("github", "issue_read"): ("GitHub", "repository", "fetch_issue",
                                 ("verified_repo", "issue_number")),
     ("github", "pr_read"): ("GitHub", "repository", "fetch_pr",
@@ -135,8 +132,9 @@ NO_VERIFIED_API = frozenset((
     ("instagram", "highlights"),
     ("facebook", "reel"),
     ("facebook", "story"),
-    # URL Inspection is not supported by the verified Windsor read schema;
-    # browser fallback requires live Google identity, never a guessed API call.
+    # The existing authenticated owner browser is the current safe route.
+    # Windsor sample rows must never be treated as real Search Analytics.
+    ("google_search_console", "search_analytics"),
     ("google_search_console", "url_inspect"),
 ))
 WRITES = frozenset((
@@ -314,6 +312,16 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
         result["status"]="browser_fallback_may_be_required"
         result["reason"]="no_verified_connector_action_for_exact_media_type"
         result["next_step"]="check_authorized_browser_profile_then_live_auth_identity"
+        if service=="google_search_console":
+            # At 2026-10-28 a real Windsor query returned a Free-account
+            # limit warning and dummy zeroes. GSC Wizard is payment-required.
+            # Do not infer real performance from a connected-account label.
+            result["reason"]="connected_api_real_data_not_verified"
+            result["observed_connector_limitation"]="windsor_free_account_quota_sample_rows_20261028"
+            result["preferred_path"]="existing_saved_browser_profile"
+            result["requires_live_property_and_content_readback"]=True
+            result["known_connector_candidate"]="Windsor_ai"
+            result["ignore_placeholder_zero_rows"]=True
         return result
     route=API_ROUTE.get((service,operation))
     if route is None:
