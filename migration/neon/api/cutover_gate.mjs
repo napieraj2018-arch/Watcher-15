@@ -22,11 +22,6 @@ function verifyReceipt(payload,signature,key){
  const actual=createHmac('sha256',key).update(canonical(payload)).digest();
  return timingSafeEqual(actual,Buffer.from(signature,'hex'));
 }
-export function signSyntheticManifestForTest(payload,key){
- if(process.env.NODE_ENV==='production')throw Error('TEST_SIGNING_DISABLED');
- if(typeof key!=='string'||key.length<40)throw Error('INVALID_TEST_KEY');
- return createHmac('sha256',key).update(canonical(payload)).digest('hex');
-}
 const fail=(code)=>({cutover_allowed:false,readiness:false,reason:code});
 export function evaluateTrustedCutover({payload,signature,key}={}){
  // Signed claim is mandatory. The trusted caller owns key in an
