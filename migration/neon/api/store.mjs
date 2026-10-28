@@ -3,6 +3,7 @@
  * One production writer remains Floot. This module never makes any writes.
  */
 import postgres from 'postgres';
+import {createHash} from 'node:crypto';
 export function createStore(url){
  if(typeof url!=='string'||!url.startsWith('postgres'))throw Error('DATABASE_URL_REQUIRED');
  const sql=postgres(url,{
@@ -32,6 +33,7 @@ export function createStore(url){
    const rows=await sql`SELECT encrypted_state AS "encryptedState",updated_at AS "updatedAt"
        FROM browser_profiles WHERE profile_name=${where.name} LIMIT 1`;
    return rows[0]?{encryptedState:rows[0].encryptedState,
+      ciphertextSha256:createHash('sha256').update(rows[0].encryptedState).digest('hex'),
       updatedAt:new Date(rows[0].updatedAt).toISOString()}:null;
   }
   if(op==='engine_get'){
