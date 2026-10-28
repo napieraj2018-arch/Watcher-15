@@ -104,12 +104,12 @@ API_ROUTE = {
                                        ("verified_channel_id", "video_id", "approved_thumbnail")),
     ("youtube", "video_upload"): ("vidIQ", "youtube", "vidiq_video_upload",
                                    ("verified_channel_id", "approved_media_source", "metadata")),
+    # Windsor searchconsole is already available on the owner's connected
+    # account. Do not depend on an expired GSC Wizard subscription for reads.
+    # Caller must first discover exact searchconsole fields via get_fields.
     ("google_search_console", "search_analytics"):
-        ("GSC_Wizard", "search_console", "query_search_analytics",
-         ("verified_property", "date_range", "dimensions")),
-    ("google_search_console", "url_inspect"):
-        ("GSC_Wizard", "search_console", "inspect_url",
-         ("verified_property", "exact_page_url")),
+        ("Windsor_ai", "searchconsole", "get_data",
+         ("verified_property", "get_fields_first", "date_range", "dimensions")),
     ("github", "issue_read"): ("GitHub", "repository", "fetch_issue",
                                 ("verified_repo", "issue_number")),
     ("github", "pr_read"): ("GitHub", "repository", "fetch_pr",
@@ -135,6 +135,9 @@ NO_VERIFIED_API = frozenset((
     ("instagram", "highlights"),
     ("facebook", "reel"),
     ("facebook", "story"),
+    # URL Inspection is not supported by the verified Windsor read schema;
+    # browser fallback requires live Google identity, never a guessed API call.
+    ("google_search_console", "url_inspect"),
 ))
 WRITES = frozenset((
     "post","image_post","reel","story","carousel","email_send",
@@ -273,6 +276,15 @@ def plan_operation(service: str, operation: str, brand: str = "") -> dict:
             else "https://weterynarz.radom.pl"
         )
         result["requires_verified_property_binding"]=True
+        result["expected_connected_property"]=(
+            "sc-domain:architekt.radom.pl" if brand=="anita"
+            else "sc-domain:weterynarz.radom.pl"
+        )
+        result["browser_profile_if_required"]=(
+            "Google - Architekt - GSC" if brand=="anita"
+            else "Google - Weterynarz"
+        )
+        result["browser_fallback_requires_live_identity_check"]=True
     elif service=="github":
         result["expected_repo"]="napieraj2018-arch/Watcher-15"
         result["browser_fallback_permitted"]=False
