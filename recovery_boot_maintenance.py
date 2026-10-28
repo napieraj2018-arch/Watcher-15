@@ -13,7 +13,10 @@ import httpx
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable
 
-RETRY_SECONDS = 900  # 15 minutes, rather than a rapid crash/restart loop.
+from provider_recovery_gate import RecoveryRateLimited
+
+RETRY_SECONDS = 900
+MAX_EXPONENTIAL_BACKOFF = 21600  # 6 hours absent a longer explicit Retry-After  # 15 minutes, rather than a rapid crash/restart loop.
 REASON = "AI_BROWSER_RECOVERY_PROVIDER_RATE_LIMITED"
 
 
@@ -66,7 +69,8 @@ class _MaintenanceHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Retry-After", str(RETRY_SECONDS))
+        self.send_header("Retry-After", str(max(
+            RETRY_SECONDS, int(getattr(self.server, "next_retry_seconds", RETRY_SECONDS)))))
         self.send_header("Connection", "close")
         self.end_headers()
         if self.command != "HEAD":
@@ -78,7 +82,10 @@ class _MaintenanceHandler(BaseHTTPRequestHandler):
             # A healthy TCP listener is not evidence of an available browser.
             if route == "/health":
                 body = json.dumps({"status": "degraded", "browser_available": False,
-                                   "recovery_confirmed": False, "error": REASON}).encode()
+                                   "recovery_confirmed": False, "error": REASON,
+                                   "retry_after_seconds": max(
+                                       RETRY_SECONDS, int(getattr(
+                                           self.server, "next_retry_seconds", RETRY_SECONDS)))}).encode()
                 return self._response(200, body, "application/json; charset=utf-8")
             body = ("<!doctype html><meta charset='utf-8'><title>AI Browser — tryb ochronny</title>"
                     "<h1>AI Browser — tryb ochronny</h1>"
@@ -102,6 +109,7 @@ def wait_until_recovered(
     gate: Callable[[], object], provider_quiet: Callable[[], bool],
     *, host: str = "0.0.0.0", port: int = 10000,
     retry_seconds: float = RETRY_SECONDS,
+    initial_retry_seconds: float | None = None,
     sleeper: Callable[[float], None] = time.sleep,
     server_factory: Callable = _Server,
 ) -> None:
@@ -110,22 +118,41 @@ def wait_until_recovered(
     The real app only starts after BOTH fresh vault recovery and independent
     empty Steel provider inventory. Unknown results never become approval.
     """
-    if not 1 <= port <= 65535 or retry_seconds < 1:
+    if (not 1 <= port <= 65535 or not isinstance(retry_seconds, (int, float))
+            or not 1 <= retry_seconds <= 604800
+            or (initial_retry_seconds is not None and
+                (not isinstance(initial_retry_seconds, (int, float))
+                 or not 1 <= initial_retry_seconds <= 604800))):
         raise RuntimeError("RECOVERY_MAINTENANCE_CONFIG_INVALID")
+    delay = max(retry_seconds, initial_retry_seconds or retry_seconds)
     httpd = server_factory((host, port), _MaintenanceHandler)
     thread = threading.Thread(target=httpd.serve_forever, name="aib-maintenance", daemon=True)
     thread.start()
     print("AI_BROWSER_MAINTENANCE_ENTER " + REASON, flush=True)
     try:
         while True:
-            sleeper(retry_seconds)
+            # Expose only the bounded wait; never a provider token or response.
+            httpd.next_retry_seconds = int(delay)
+            sleeper(delay)
             try:
                 gate()
+            except RecoveryRateLimited as exc:
+                # Respect an explicit upstream window, otherwise exponential
+                # backoff prevents hammering a daily hosting cap every 15 min.
+                delay = max(exc.retry_after_seconds,
+                            min(max(delay * 2, retry_seconds),
+                                MAX_EXPONENTIAL_BACKOFF))
+                print("AI_BROWSER_MAINTENANCE_HOLD RECOVERY_RATE_LIMITED", flush=True)
+                continue
+            except Exception:
+                delay = retry_seconds
+                print("AI_BROWSER_MAINTENANCE_HOLD RECOVERY_UNCONFIRMED", flush=True)
+                continue
+            try:
                 if provider_quiet() is not True:
                     raise RuntimeError("RECOVERY_PROVIDER_UNCONFIRMED")
             except Exception:
-                # Static status only. No secrets, session IDs, errors or retries
-                # of browser-side actions can be exposed to user/host logs.
+                delay = retry_seconds
                 print("AI_BROWSER_MAINTENANCE_HOLD RECOVERY_UNCONFIRMED", flush=True)
                 continue
             print("AI_BROWSER_MAINTENANCE_CLEAR VERIFIED_FRESH_AND_PROVIDER_IDLE", flush=True)

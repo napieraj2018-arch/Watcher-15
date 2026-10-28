@@ -7,6 +7,7 @@ from threading import Thread
 import httpx
 from recovery_boot_maintenance import (_Server, _MaintenanceHandler,
     wait_until_recovered, verify_provider_idle, REASON)
+from provider_recovery_gate import RecoveryRateLimited
 
 
 class Tests(unittest.TestCase):
@@ -21,6 +22,11 @@ class Tests(unittest.TestCase):
                 self.assertEqual(health.status_code, 200)
                 self.assertEqual(health.json()['status'], 'degraded')
                 self.assertIs(health.json()['browser_available'], False)
+                self.assertEqual(health.json()['retry_after_seconds'],900)
+                srv.next_retry_seconds = 3600
+                longer = c.get(url+'/health')
+                self.assertEqual(longer.headers['retry-after'],'3600')
+                self.assertEqual(longer.json()['retry_after_seconds'],3600)
                 for route in ('/mcp/secret?token=EXAMPLE',
                               '/owner-mobile-login/touch/action',
                               '/youtube/oauth/callback?code=EXAMPLE',
@@ -66,6 +72,34 @@ class Tests(unittest.TestCase):
         self.assertNotIn('private retry detail',logs.getvalue())
         self.assertEqual(servers[0].calls,['serve','stop','close'])
 
+    def test_retry_after_is_respected_and_429_backoff_increases(self):
+        class FakeServer:
+            def serve_forever(self): pass
+            def shutdown(self): pass
+            def server_close(self): pass
+        attempts=[]; sleeps=[]
+        def gate():
+            attempts.append(1)
+            if len(attempts)<=2: raise RecoveryRateLimited(3600)
+        with redirect_stdout(io.StringIO()) as output:
+            wait_until_recovered(gate,lambda:True,port=1,
+                retry_seconds=900,initial_retry_seconds=900,
+                sleeper=sleeps.append,server_factory=lambda *_:FakeServer())
+        self.assertEqual(sleeps,[900,3600,7200])
+        self.assertEqual(len(attempts),3)
+        self.assertIn('RECOVERY_RATE_LIMITED',output.getvalue())
+        self.assertNotIn('DO_NOT_PRINT',output.getvalue())
+    def test_initial_retry_after_is_respected(self):
+        class FakeServer:
+            def serve_forever(self): pass
+            def shutdown(self): pass
+            def server_close(self): pass
+        sleeps=[]
+        with redirect_stdout(io.StringIO()):
+            wait_until_recovered(lambda:None,lambda:True,port=1,
+                initial_retry_seconds=7200,sleeper=sleeps.append,
+                server_factory=lambda *_:FakeServer())
+        self.assertEqual(sleeps,[7200])
     def test_never_treat_false_provider_quiet_as_verified(self):
         class FakeServer:
             def serve_forever(self): pass

@@ -10,7 +10,9 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime
+import math
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -18,6 +20,35 @@ VAULT = 'https://ai-browser-vault.floot.app/_api/provider-recovery'
 STEEL = 'https://api.steel.dev/v1'
 MAX_PAGES = 100
 MAX_RESPONSE = 2_000_000
+MIN_RATE_LIMIT_WAIT = 900
+MAX_RATE_LIMIT_WAIT = 604800  # one week: fail closed on an unusually long provider pause
+
+
+def retry_after_seconds(value, *, now=None):
+    """Parse bounded HTTP Retry-After without logging or exposing provider details."""
+    if not isinstance(value, str) or not (1 <= len(value) <= 96):
+        return MIN_RATE_LIMIT_WAIT
+    raw = value.strip()
+    seconds = None
+    if raw.isascii() and raw.isdecimal():
+        try:
+            seconds = int(raw)
+        except ValueError:
+            pass
+    else:
+        try:
+            deadline = parsedate_to_datetime(raw)
+            if deadline.tzinfo is None:
+                return MIN_RATE_LIMIT_WAIT
+            clock = now if now is not None else datetime.now(timezone.utc)
+            if clock.tzinfo is None:
+                return MIN_RATE_LIMIT_WAIT
+            seconds = math.ceil((deadline - clock).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            pass
+    if seconds is None or seconds <= 0:
+        return MIN_RATE_LIMIT_WAIT
+    return max(MIN_RATE_LIMIT_WAIT, min(MAX_RATE_LIMIT_WAIT, seconds))
 
 
 class RecoveryGateError(RuntimeError):
@@ -25,7 +56,11 @@ class RecoveryGateError(RuntimeError):
 
 
 class RecoveryRateLimited(RecoveryGateError):
-    """Typed HTTP 429: boot must stay fail-closed without a restart storm."""
+    """Typed HTTP 429; caller may wait but must never admit an unverified browser."""
+
+    def __init__(self, wait_seconds=MIN_RATE_LIMIT_WAIT):
+        self.retry_after_seconds = retry_after_seconds(str(wait_seconds))
+        super().__init__("RECOVERY_HTTP_429")
 
 
 def canonical(value):
@@ -67,6 +102,9 @@ class RecoveryGate:
             response = self.client.request(method, url, follow_redirects=False, **kwargs)
         except (httpx.HTTPError, OSError):
             raise RecoveryGateError('RECOVERY_CONNECTION_UNCONFIRMED') from None
+        if response.status_code == 429:
+            raise RecoveryRateLimited(retry_after_seconds(
+                response.headers.get("Retry-After"))) from None
         if response.status_code != 200:
             raise RecoveryGateError('RECOVERY_HTTP_' + str(response.status_code))
         if len(response.content) > MAX_RESPONSE:
@@ -132,12 +170,63 @@ class RecoveryGate:
             cursor = fixed_uuid(rows[-1]['id'])
         raise RecoveryGateError('RECOVERY_INVENTORY_LIMIT_REACHED')
 
+    def idle_provider_inventory(self):
+        """Full read-only Steel inventory; zero live/unknown sessions required.
+
+        This is NOT a session release or a substitute for saved-close proof.
+        It prevents a new controller from forgetting a quarantine merely
+        because Floot has no outstanding provider recovery plan.
+        """
+        seen = set()
+        cursor = None
+        for _ in range(MAX_PAGES):
+            params = {'limit': 100}
+            if cursor:
+                params['cursorId'] = cursor
+            value = self.steel('/sessions', params=params)
+            rows = value.get('sessions')
+            if not isinstance(rows, list) or len(rows) > 100:
+                raise RecoveryGateError('RECOVERY_INVENTORY_INVALID')
+            if not rows:
+                return len(seen)
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise RecoveryGateError('RECOVERY_INVENTORY_INVALID')
+                sid = fixed_uuid(row.get('id'))
+                if sid in seen:
+                    raise RecoveryGateError('RECOVERY_INVENTORY_PAGINATION_CONFLICT')
+                if row.get('status') not in {'released', 'failed'}:
+                    raise RecoveryGateError('RECOVERY_ACTIVE_OR_UNKNOWN_PROVIDER_SESSION')
+                seen.add(sid)
+            cursor = fixed_uuid(rows[-1]['id'])
+        raise RecoveryGateError('RECOVERY_INVENTORY_LIMIT_REACHED')
+
+    def verify_idle_without_plan(self):
+        """Reconcile full provider inventory and unchanged vault before boot.
+
+        No provider side effects: all Steel requests are GET. Keep results
+        private and return counts only, never IDs, cookies or credentials.
+        """
+        current = self.steel('/sessions', params={'status': 'live', 'limit': 100})
+        if current.get('sessions') != []:
+            raise RecoveryGateError('RECOVERY_PROVIDER_CHANGED_DURING_CHECK')
+        count = self.idle_provider_inventory()
+        second = self.steel('/sessions', params={'status': 'live', 'limit': 100})
+        if second.get('sessions') != []:
+            raise RecoveryGateError('RECOVERY_PROVIDER_CHANGED_DURING_CHECK')
+        after = self.inspect()
+        if after.get('ok') is not True or after.get('pending') is not False:
+            raise RecoveryGateError('RECOVERY_GATE_CHANGED_DURING_CHECK')
+        return {'status': 'no_pending_gate_provider_idle',
+                'verified_this_boot': True, 'live_sessions': 0,
+                'inventory_total': count}
+
     def run(self):
         before = self.inspect()
         if before.get('ok') is not True or type(before.get('pending')) is not bool:
             raise RecoveryGateError('RECOVERY_GATE_STATE_INVALID')
         if before['pending'] is False:
-            return {'status': 'no_pending_gate', 'verified_this_boot': False}
+            return self.verify_idle_without_plan()
         plan = before.get('gate')
         if not isinstance(plan, dict) or plan.get('version') != 1:
             raise RecoveryGateError('RECOVERY_GATE_STATE_INVALID')
@@ -185,10 +274,13 @@ def run_boot_gate():
             result = RecoveryGate(client, os.environ.get('AI_BROWSER_PROFILE_STORE_TOKEN', ''),
                                   os.environ.get('STEEL_API_KEY', '').strip()).run()
         print('AI_BROWSER_RECOVERY_GATE ' + canonical(result), flush=True)
+    except RecoveryRateLimited:
+        print('AI_BROWSER_RECOVERY_GATE_BLOCKED RECOVERY_HTTP_429', flush=True)
+        raise
     except RecoveryGateError as exc:
         print('AI_BROWSER_RECOVERY_GATE_BLOCKED ' + str(exc), flush=True)
         if str(exc) == 'RECOVERY_HTTP_429':
-            raise RecoveryRateLimited('RECOVERY_HTTP_429') from None
+            raise RecoveryRateLimited() from None
         raise RuntimeError('AI_BROWSER_RECOVERY_GATE_BLOCKED') from None
     except Exception:
         print('AI_BROWSER_RECOVERY_GATE_BLOCKED RECOVERY_UNEXPECTED_STATE', flush=True)

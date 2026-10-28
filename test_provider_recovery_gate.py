@@ -1,9 +1,10 @@
 """Fail-closed recovery tests with an exact private incident, no real account."""
 import copy,json,unittest
 import httpx
-from provider_recovery_gate import RecoveryGate,RecoveryGateError,RecoveryRateLimited,run_boot_gate,VAULT,STEEL
+from provider_recovery_gate import RecoveryGate,RecoveryGateError,RecoveryRateLimited,run_boot_gate,VAULT,STEEL,retry_after_seconds
 from unittest.mock import patch
 import io
+from datetime import datetime,timezone
 from contextlib import redirect_stdout
 S='00000000-0000-4000-8000-000000000001'
 P='00000000-0000-4000-8000-000000000002'
@@ -15,10 +16,13 @@ class Fixture:
   self.calls=[];self.plan=copy.deepcopy(PLAN);self.pending=True;self.safe=True
   self.session={'id':S,'profileId':P,'status':'released','persistProfile':True,'createdAt':'2026-10-23T18:46:39Z'}
   self.profile={'id':P,'status':'READY'};self.rows=[{'id':S,'status':'released'}]
-  self.new_live=[];self.repeat=False;self.http=200;self.ack=True;self.change=False
+  self.new_live=[];self.repeat=False;self.http=200;self.vault_http=200;self.ack=True;self.change=False
  def transport(self,r):
   self.calls.append((r.method,str(r.url)))
   if str(r.url)==VAULT:
+   if self.vault_http!=200:
+    return httpx.Response(self.vault_http,headers={'Retry-After':'3600'},
+                          json={'private':'DO_NOT_PRINT'})
    self.last_body=json.loads(r.content)
    if self.last_body['action']=='attest':
     return httpx.Response(200,json={'ok':self.ack,'verified':self.ack,'pending':False,'gate_id':G})
@@ -45,8 +49,46 @@ class Tests(unittest.TestCase):
   r=self.f.run();self.assertEqual(r['status'],'verified');self.assertEqual(r['protected_profiles'],38)
   self.assertEqual(self.f.last_body['proof']['inventory_total'],1)
   self.assertEqual(sum(u.endswith('/sessions/'+S) for _,u in self.f.calls),2)
- def test_no_pending_gate_never_touches_provider(self):
-  self.f.pending=False;self.assertEqual(self.f.run()['status'],'no_pending_gate');self.assertEqual(len(self.f.calls),1)
+ def test_no_pending_gate_requires_full_fresh_provider_idle_inventory(self):
+  self.f.pending=False
+  result=self.f.run()
+  self.assertEqual(result['status'],'no_pending_gate_provider_idle')
+  self.assertIs(result['verified_this_boot'], True)
+  self.assertEqual(result['inventory_total'],1)
+  self.assertEqual(sum(1 for method,url in self.f.calls
+                       if method=='GET' and url.startswith(STEEL)),4)
+  self.assertEqual(sum(1 for method,url in self.f.calls
+                       if method=='POST' and url==VAULT),2)
+  self.assertFalse(any(method!='GET' and url.startswith(STEEL)
+                       for method,url in self.f.calls))
+  self.assertEqual(self.f.last_body['action'],'inspect')
+ def test_no_pending_live_session_is_still_denied(self):
+  self.f.pending=False
+  self.f.new_live=[{'id':G,'status':'live'}]
+  self.denied('PROVIDER_CHANGED')
+ def test_no_pending_unknown_session_in_history_is_denied(self):
+  self.f.pending=False
+  self.f.rows.append({'id':G,'status':'unknown'})
+  self.denied('ACTIVE_OR_UNKNOWN')
+ def test_no_pending_repeated_history_cursor_denied(self):
+  self.f.pending=False;self.f.repeat=True
+  self.denied('PAGINATION_CONFLICT')
+ def test_no_pending_changed_vault_during_provider_inventory_denied(self):
+  self.f.pending=False
+  self.f.change=True
+  original=self.f.transport
+  def changing(request):
+   reply=original(request)
+   if str(request.url)==VAULT and len([v for v in self.f.calls if v[1]==VAULT])>=2:
+    return httpx.Response(200,json={'ok':True,'pending':True})
+   return reply
+  with httpx.Client(transport=httpx.MockTransport(changing)) as client:
+   with self.assertRaisesRegex(RecoveryGateError,'GATE_CHANGED'):
+    RecoveryGate(client,'synthetic-store','synthetic-steel').run()
+ def test_no_pending_provider_connection_error_denied(self):
+  self.f.pending=False
+  self.f.http=503
+  self.denied('HTTP_503')
  def test_changed_backup_denied(self):self.f.safe=False;self.denied('LOCAL_BACKUP')
  def test_local_state_changes_during_reads_denied(self):self.f.change=True;self.denied('LOCAL_STATE_CHANGED')
  def test_live_exact_session_denied(self):self.f.session['status']='live';self.denied('EXACT_SESSION_NOT_VERIFIED')
@@ -72,6 +114,21 @@ class Tests(unittest.TestCase):
   with httpx.Client(transport=httpx.MockTransport(self.f.transport)) as c:
    with self.assertRaisesRegex(RecoveryGateError,'CREDENTIALS'):RecoveryGate(c,'','')
   self.assertEqual(self.f.calls,[])
+ def test_vault_429_is_typed_and_honors_retry_after(self):
+  self.f.vault_http=429
+  with self.assertRaises(RecoveryRateLimited) as caught:self.f.run()
+  self.assertEqual(str(caught.exception),'RECOVERY_HTTP_429')
+  self.assertEqual(caught.exception.retry_after_seconds,3600)
+  self.assertEqual(len(self.f.calls),1)
+  self.assertNotIn('DO_NOT_PRINT',str(caught.exception))
+ def test_retry_after_delta_date_and_invalid_are_bounded(self):
+  now=datetime(2026,10,28,10,0,tzinfo=timezone.utc)
+  self.assertEqual(retry_after_seconds('7200'),7200)
+  self.assertEqual(retry_after_seconds('Wed, 28 Oct 2026 13:00:00 GMT',now=now),10800)
+  self.assertEqual(retry_after_seconds('1'),900)
+  self.assertEqual(retry_after_seconds('invalid-SECRET-NEVER-PRINT'),900)
+  self.assertEqual(retry_after_seconds('999999999'),604800)
+  self.assertEqual(retry_after_seconds('Wed, 28 Oct 2026 09:00:00 GMT',now=now),900)
  def test_boot_gate_429_is_typed_and_never_opens_browser(self):
   with patch.dict('os.environ', {'AI_BROWSER_ENGINE':'steel','AI_BROWSER_PROFILE_STORE_TOKEN':'fixture','STEEL_API_KEY':'fixture'}):
    with patch.object(RecoveryGate,'run',side_effect=RecoveryGateError('RECOVERY_HTTP_429')):
