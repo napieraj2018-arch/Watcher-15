@@ -28,6 +28,8 @@ function fakeDb(mode='staging_read_only',proof=PROOF,config=ACCEPTED,currentStat
    return Promise.resolve(currentState===null?[]:[{encrypted_state:currentState}]);
   if(query.includes('INSERT INTO browser_profiles'))
    return Promise.resolve([{profile_name:PROFILE}]);
+  if(query.includes('UPDATE browser_profiles'))
+   return Promise.resolve([{profile_name:PROFILE}]);
   if(query.includes('UPDATE browser_task_checkpoints'))
    return Promise.resolve([]);
   return Promise.resolve([]);
@@ -75,7 +77,8 @@ test('accepted synthetic profile save uses parameterized SQL only',async()=>{
  assert.equal(r.unchanged,false);
  const row=calls.find(x=>x.query.includes('INSERT INTO browser_profiles'));
  assert.deepEqual(row.args,[PROFILE,STATE]);
- assert.ok(row.query.includes('IS DISTINCT FROM EXCLUDED.encrypted_state'));
+ assert.ok(row.query.includes('ON CONFLICT(profile_name) DO NOTHING'));
+ assert.ok(row.query.includes('RETURNING profile_name'));
  assert.ok(!row.query.includes(STATE));
 });
 test('byte-identical replay is accepted without writing or archiving twice',async()=>{
