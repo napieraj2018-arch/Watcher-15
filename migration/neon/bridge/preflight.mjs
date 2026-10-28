@@ -37,7 +37,7 @@ export function verifyMigrationFreeze(receipt,secret,nowSeconds=Math.floor(Date.
 export function assertShadowDestination(stage){
  if(stage===null||typeof stage!=='object'||Array.isArray(stage)
    ||stage.mode!=='staging_read_only'||stage.write_enabled!==false
-   ||stage.profile_count!==0||stage.active_leases!==0
+   ||stage.profile_count!==0||stage.engine_count!==0||stage.active_leases!==0
    ||stage.inbox_ready!==true)
   deny('BRIDGE_DESTINATION_NOT_FENCED');
  return true;

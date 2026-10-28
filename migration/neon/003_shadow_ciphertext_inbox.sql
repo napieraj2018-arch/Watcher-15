@@ -56,4 +56,48 @@ CREATE TRIGGER aib_shadow_ciphertext_immutable
  FOR EACH ROW EXECUTE FUNCTION aib_shadow_deny_mutation();
 COMMENT ON TABLE aib_shadow_ciphertext_inbox IS
  'STAGING ONLY. Encrypted historical snapshots. Immutable; never a second active profile writer.';
+-- Separate restricted inbox for Steel UUID provider mapping. Never expose over HTTP.
+-- UUIDs are owner-private identity links, NOT credentials or profile ciphertext.
+-- The live-shaped browser_engine_profiles table remains completely write-fenced.
+CREATE TABLE aib_shadow_engine_bindings(
+ batch_id uuid NOT NULL,
+ profile_name text NOT NULL CHECK(length(profile_name) BETWEEN 1 AND 150),
+ provider_profile_id uuid NOT NULL,
+ source_updated_at timestamptz NOT NULL,
+ hydrated boolean NOT NULL,
+ received_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(batch_id,profile_name)
+);
+CREATE FUNCTION aib_shadow_put_engine_binding(
+ p_batch uuid,p_name text,p_provider uuid,p_time timestamptz,p_hydrated boolean
+) RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER AS $engine$
+DECLARE old_row aib_shadow_engine_bindings%ROWTYPE; inserted boolean;
+BEGIN
+ IF (SELECT mode FROM vault_migration_guard WHERE only_row) IS DISTINCT FROM 'staging_read_only'
+    OR (SELECT write_enabled FROM vault_migration_guard WHERE only_row) IS DISTINCT FROM false THEN
+  RAISE EXCEPTION 'AIB_SHADOW_MODE_UNCONFIRMED' USING ERRCODE='42501';
+ END IF;
+ IF p_batch IS NULL OR p_name IS NULL OR length(p_name) NOT BETWEEN 1 AND 150
+    OR p_provider IS NULL OR p_time IS NULL OR p_hydrated IS NULL THEN
+  RAISE EXCEPTION 'AIB_SHADOW_BINDING_INVALID' USING ERRCODE='22023';
+ END IF;
+ INSERT INTO aib_shadow_engine_bindings(batch_id,profile_name,provider_profile_id,
+   source_updated_at,hydrated)
+ VALUES(p_batch,p_name,p_provider,p_time,p_hydrated)
+ ON CONFLICT DO NOTHING RETURNING true INTO inserted;
+ IF inserted THEN RETURN true; END IF;
+ SELECT * INTO old_row FROM aib_shadow_engine_bindings
+  WHERE batch_id=p_batch AND profile_name=p_name;
+ IF NOT FOUND OR old_row.provider_profile_id<>p_provider
+    OR old_row.source_updated_at<>p_time OR old_row.hydrated<>p_hydrated THEN
+  RAISE EXCEPTION 'AIB_SHADOW_BINDING_CONFLICT' USING ERRCODE='23505';
+ END IF;
+ RETURN false;
+END;
+$engine$;
+CREATE TRIGGER aib_shadow_engine_binding_immutable
+ BEFORE UPDATE OR DELETE ON aib_shadow_engine_bindings
+ FOR EACH ROW EXECUTE FUNCTION aib_shadow_deny_mutation();
+COMMENT ON TABLE aib_shadow_engine_bindings IS
+ 'STAGING ONLY: private provider UUID mapping, exact receipt and immutable import';
 COMMIT;

@@ -13,7 +13,7 @@ and not proof of authenticated Meta accounts.
   write_enabled=false and CHECK(NOT write_enabled).
 - Existing Floot remains the ONLY production source; Render currently uses
   its existing encrypted state; all 5 Meta profiles remain there.
-- No actual profiles, history, tokens, master encryption keys, owner claims,
+- No actual profiles, history, Steel UUID bindings, tokens, master encryption keys, owner claims,
   authentication data or cookies were transferred by this setup.
 
 ## Why Neon Functions instead of adding Cloudflare immediately
@@ -43,6 +43,22 @@ connected and its limits permit the expected workload.
    migration receipt, staged replica readback and explicit rollback.
 8. No real login, MFA, CAPTCHA or identity assertion follows from a
    successful schema or synthetic test.
+
+## Private shadow transfer (unapplied, not executed)
+- The source shape was verified by count-only source metadata on 28 October:
+  66 profile names, 1216 archived revisions, 67 Steel profile bindings, 9
+  checkpoints; no source name fails the Neon name constraint.
+- `bridge/transfer.mjs` now enumerates all four categories under one
+  repeatable-read source snapshot, preserving microsecond source timestamps.
+- `003_shadow_ciphertext_inbox.sql` remains **unapplied**. It defines a separate
+  restricted, immutable Steel-binding inbox; no real provider UUIDs are copied
+  through a chat, source repository or CI.
+- The one-shot runner needs source-only read DB credentials, a restricted Neon
+  import role and short-lived owner-signed freeze proof, all provisioned
+  directly in a trusted runtime (not sent through ChatGPT).
+- This is only an import candidate. Config, exact private manifest comparison,
+  original R158 three-store reconciliation, neutral readback and rollback
+  are **NOT DONE**. Cutover remains blocked.
 
 ## Free limits
 Neon Free provides up to 100 CU-hours per project/month, 1GB data and

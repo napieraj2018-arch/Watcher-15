@@ -6,7 +6,7 @@
  */
 import postgres from 'postgres';
 import {verifyMigrationFreeze,assertShadowDestination} from './preflight.mjs';
-import {normalizeShadowRecord,shadowSummary} from './row_mapper.mjs';
+import {normalizeShadowRecord,normalizeEngineBinding,shadowSummary} from './row_mapper.mjs';
 
 const mode=process.env.AIB_BRIDGE_MODE||'dry-run';
 const validUrl=v=>typeof v==='string'&&/^postgres(?:ql)?:\/\//.test(v);
@@ -28,16 +28,19 @@ async function main(){
    idle_timeout:10,prepare:false});
  const destination=mode==='copy'?postgres(destinationURL,{
    max:1,connect_timeout:8,ssl:'require',idle_timeout:10,prepare:false}):null;
- const tally={profile:0,archive:0,task:0};
+ const tally={profile:0,archive:0,engine:0,task:0};
  try{
   if(destination){
    const [stage]=await destination`SELECT
      (SELECT mode FROM vault_migration_guard WHERE only_row) AS mode,
      (SELECT write_enabled FROM vault_migration_guard WHERE only_row) AS write_enabled,
      (SELECT count(*)::int FROM browser_profiles) AS profile_count,
+     (SELECT count(*)::int FROM browser_engine_profiles) AS engine_count,
      (SELECT count(*)::int FROM browser_control_leases) AS active_leases,
      (to_regclass('public.aib_shadow_ciphertext_inbox') IS NOT NULL
        AND to_regprocedure('aib_shadow_put_encrypted(uuid,text,text,text,timestamptz,text,jsonb)')
+         IS NOT NULL AND to_regclass('public.aib_shadow_engine_bindings') IS NOT NULL
+         AND to_regprocedure('aib_shadow_put_engine_binding(uuid,text,uuid,timestamptz,boolean)')
          IS NOT NULL) AS inbox_ready,
      current_user AS db_role`;
    assertShadowDestination(stage);
@@ -81,6 +84,27 @@ async function main(){
     for(const row of rows)await append('archive',row);
     lastId=String(rows[rows.length-1].id);
    }
+   // All 67 Steel UUID bindings are private identity mapping, not login
+   // credentials. Preserve them in a separate immutable shadow table.
+   async function appendEngine(row){
+    const v=normalizeEngineBinding(row);
+    tally.engine++;
+    if(!destination)return;
+    await destination`SELECT aib_shadow_put_engine_binding(
+      ${freeze.batch_id}::uuid,${v.sourceKey},
+      ${v.providerProfileId}::uuid,
+      ${v.sourceUpdatedAt}::timestamptz,${v.hydrated})`;
+   }
+   let lastEngine='';
+   for(;;){
+    const rows=await tx`SELECT profile_name,provider_profile_id::text AS provider_profile_id,
+       updated_at::text AS updated_at,hydrated
+       FROM browser_engine_profiles WHERE profile_name>${lastEngine}
+       ORDER BY profile_name LIMIT 50`;
+    if(rows.length===0)break;
+    for(const row of rows)await appendEngine(row);
+    lastEngine=rows[rows.length-1].profile_name;
+   }
    let lastTask='';
    for(;;){
     const rows=await tx`SELECT task_id,owner_hash,revision,encrypted_state,
@@ -95,6 +119,7 @@ async function main(){
    const [expected]=await tx`SELECT
       (SELECT count(*)::int FROM browser_profiles) AS profile,
       (SELECT count(*)::int FROM browser_profile_versions) AS archive,
+      (SELECT count(*)::int FROM browser_engine_profiles) AS engine,
       (SELECT count(*)::int FROM browser_task_checkpoints) AS task`;
    for(const k of Object.keys(tally))
     if(tally[k]!==expected[k])throw Error('BRIDGE_SNAPSHOT_COUNT_MISMATCH');
@@ -103,16 +128,20 @@ async function main(){
    const counts=await destination`SELECT source_kind AS kind,count(*)::int AS n
       FROM aib_shadow_ciphertext_inbox WHERE batch_id=${freeze.batch_id}::uuid
       GROUP BY source_kind`;
-   for(const kind of Object.keys(tally)){
+   for(const kind of ['profile','archive','task']){
     const n=counts.find(x=>x.kind===kind)?.n||0;
     if(n!==tally[kind])throw Error('BRIDGE_DESTINATION_COUNT_MISMATCH');
    }
+   const [bindings]=await destination`SELECT count(*)::int AS n
+     FROM aib_shadow_engine_bindings WHERE batch_id=${freeze.batch_id}::uuid`;
+   if(bindings.n!==tally.engine)throw Error('BRIDGE_BINDING_COUNT_MISMATCH');
   }
   // This completion is NOT the source/destination full manifest acceptance.
-  // Engine bindings + source config still require separate private verification.
+  // All Steel binding rows are staged; source config, complete byte-by-byte
+  // binding verification and provider replay still require separate acceptance.
   process.stdout.write(JSON.stringify({mode,
     snapshot_completed:true,shadow_only:true,production_cutover:false,
-    rows:shadowSummary(tally),pending_engine_binding_and_config:true})+'\n');
+    rows:shadowSummary(tally),pending_engine_binding_readback_and_config:true})+'\n');
  }finally{
   await source.end({timeout:3});
   if(destination)await destination.end({timeout:3});

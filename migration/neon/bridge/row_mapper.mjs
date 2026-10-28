@@ -56,10 +56,23 @@ export function normalizeShadowRecord(kind,row){
   throw Error('SHADOW_METADATA_TOO_LARGE');
  return {kind,sourceKey,sourceUpdatedAt:when,...state,metadata};
 }
+// Steel provider binding is private identity metadata, not portable ciphertext.
+// It travels ONLY source-DB -> restricted shadow-DB, never via chat/CI/logs.
+export function normalizeEngineBinding(row){
+ if(!row||typeof row!=='object'||Array.isArray(row)
+   ||!key(row.profile_name)
+   ||typeof row.provider_profile_id!=='string'
+   ||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.provider_profile_id)
+   ||typeof row.hydrated!=='boolean')
+  throw Error('SHADOW_ENGINE_BINDING_INVALID');
+ return {sourceKey:row.profile_name,
+  providerProfileId:row.provider_profile_id.toLowerCase(),
+  sourceUpdatedAt:stamp(row.updated_at),hydrated:row.hydrated};
+}
 export function shadowSummary(counts){
  if(!counts||typeof counts!=='object')throw Error('SHADOW_COUNTS_INVALID');
  const out={};
- for(const k of ['profile','archive','task']){
+ for(const k of ['profile','archive','engine','task']){
   if(!Number.isSafeInteger(counts[k])||counts[k]<0)
    throw Error('SHADOW_COUNTS_INVALID');
   out[k]=counts[k];

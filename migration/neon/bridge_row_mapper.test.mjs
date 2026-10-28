@@ -1,6 +1,6 @@
 import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
-import {normalizeShadowRecord,shadowSummary} from './bridge/row_mapper.mjs';
+import {normalizeShadowRecord,normalizeEngineBinding,shadowSummary} from './bridge/row_mapper.mjs';
 const state='SYNTHETIC_ENCRYPTED_ONLY_PAYLOAD_20261028';
 const now='2026-10-28T13:00:00.000Z';
 const profile={profile_name:'Acceptance-Neutral',updated_at:now,
@@ -17,7 +17,7 @@ test('profile archives pass only ciphertext, hashed privately',()=>{
  assert.equal(x.sourceUpdatedAt,now);
  assert.equal(x.encryptedState,state);
  assert.match(x.sourceSha256,/^[a-f0-9]{64}$/);
- assert.doesNotMatch(JSON.stringify(shadowSummary({profile:1,archive:0,task:0})),
+ assert.doesNotMatch(JSON.stringify(shadowSummary({profile:1,archive:0,engine:0,task:0})),
    /SYNTHETIC_ENCRYPTED/);
 });
 test('protected archive retains original revision ID, reason and timestamps',()=>{
@@ -73,4 +73,28 @@ test('unknown precision must fail closed before any import',()=>{
  assert.throws(()=>normalizeShadowRecord('task',{
   ...task,claim_expires_at:'2026-10-28T13:00:00.1234567Z'
  }),/SHADOW_SOURCE_TIMESTAMP_PRECISION_UNVERIFIED/);
+});
+
+test('binding preserves provider UUID/hydration and microsecond provenance',()=>{
+ const row={profile_name:'Acceptance-Neutral',
+  provider_profile_id:'11111111-1111-4111-8111-111111111111',
+  updated_at:'2026-10-28 13:00:00.123456+00',hydrated:true};
+ const mapped=normalizeEngineBinding(row);
+ assert.equal(mapped.sourceKey,row.profile_name);
+ assert.equal(mapped.providerProfileId,row.provider_profile_id);
+ assert.equal(mapped.sourceUpdatedAt,row.updated_at);
+ assert.equal(mapped.hydrated,true);
+ assert.deepEqual(shadowSummary({profile:66,archive:1216,engine:67,task:9}),
+   {profile:66,archive:1216,engine:67,task:9});
+});
+test('private binding must fail closed on corrupt UUID, missing boolean or Date rounding',()=>{
+ const row={profile_name:'Acceptance-Neutral',
+  provider_profile_id:'11111111-1111-4111-8111-111111111111',
+  updated_at:'2026-10-28 13:00:00.123456+00',hydrated:false};
+ assert.throws(()=>normalizeEngineBinding({...row,provider_profile_id:'leak'}),
+  /SHADOW_ENGINE_BINDING_INVALID/);
+ assert.throws(()=>normalizeEngineBinding({...row,hydrated:1}),
+  /SHADOW_ENGINE_BINDING_INVALID/);
+ assert.throws(()=>normalizeEngineBinding({...row,updated_at:new Date(now)}),
+  /SHADOW_SOURCE_TIMESTAMP_PRECISION_UNVERIFIED/);
 });

@@ -46,7 +46,7 @@ test('past expiry or over-long lease is refused',()=>{
 });
 test('destination must still be empty production-writer-fenced stage',()=>{
  const valid={mode:'staging_read_only',write_enabled:false,
-  profile_count:0,active_leases:0,inbox_ready:true};
+  profile_count:0,engine_count:0,active_leases:0,inbox_ready:true};
  assert.equal(assertShadowDestination(valid),true);
  for(const key of Object.keys(valid)){
   const invalid={...valid,[key]:key==='mode'?'neon_primary':key==='inbox_ready'?false:
