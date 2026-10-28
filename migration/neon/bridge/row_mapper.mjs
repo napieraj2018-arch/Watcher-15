@@ -4,10 +4,16 @@
  */
 import {createHash} from 'node:crypto';
 const key=v=>typeof v==='string'&&v.length>=1&&v.length<=150;
+// Preserve PostgreSQL microseconds exactly. The bridge must SELECT
+// timestamptz::text at source; parsing into JS Date silently loses 3 digits.
 const stamp=v=>{
- const d=v instanceof Date?v:new Date(v);
- if(!Number.isFinite(d.getTime()))throw Error('SHADOW_SOURCE_TIMESTAMP_INVALID');
- return d.toISOString();
+ if(typeof v!=='string'
+   ||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)$/i.test(v))
+  throw Error('SHADOW_SOURCE_TIMESTAMP_PRECISION_UNVERIFIED');
+ const validate=v.replace(' ','T').replace(/([+-][0-9]{2})$/,'$1:00');
+ if(!Number.isFinite(Date.parse(validate)))
+  throw Error('SHADOW_SOURCE_TIMESTAMP_INVALID');
+ return v; // Raw timezone-aware string, including all six fractional digits.
 };
 function protect(payload){
  if(typeof payload!=='string'||Buffer.byteLength(payload,'utf8')<20
