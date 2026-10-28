@@ -44,15 +44,33 @@ export function createWriterStore(sql,{proof}={}){
   return sql.begin(async tx=>{
    await guard(tx);
    if(operation==='profile_save'){
-    // Avoid duplicate archiving on byte-identical retries; archive trigger
-    // handles only actual changes. Exactly one writer is a cutover precondition.
-    const rows=await tx`INSERT INTO browser_profiles(profile_name,encrypted_state)
-         VALUES(${p.profile},${p.state})
-         ON CONFLICT(profile_name) DO UPDATE
-           SET encrypted_state=EXCLUDED.encrypted_state,updated_at=now()
-           WHERE browser_profiles.encrypted_state IS DISTINCT FROM EXCLUDED.encrypted_state
-         RETURNING profile_name`;
-    return {ok:true,unchanged:rows.length===0,profile:p.profile};
+    // Lost-state prevention: caller must supply SHA256 of the CURRENT encrypted
+    // version it read, or null only when creating a new profile.
+    // A duplicate of an already-saved ciphertext is harmless and does not
+    // create another rolling archive or change updated_at.
+    const old=await tx`SELECT encrypted_state FROM browser_profiles
+      WHERE profile_name=${p.profile} FOR UPDATE`;
+    if(old.length===1&&old[0].encrypted_state===p.state)
+      return {ok:true,unchanged:true,profile:p.profile};
+    if(old.length===1&&
+       p.expected_sha256!==sha(old[0].encrypted_state))
+      throw err('profile_revision_conflict');
+    if(old.length===0&&p.expected_sha256!==null)
+      throw err('profile_revision_conflict');
+    let rows;
+    if(old.length===0){
+      rows=await tx`INSERT INTO browser_profiles(profile_name,encrypted_state)
+        VALUES(${p.profile},${p.state})
+        ON CONFLICT(profile_name) DO NOTHING RETURNING profile_name`;
+    }else{
+      rows=await tx`UPDATE browser_profiles
+        SET encrypted_state=${p.state},updated_at=now()
+        WHERE profile_name=${p.profile}
+          AND encrypted_state IS DISTINCT FROM ${p.state}
+        RETURNING profile_name`;
+    }
+    if(rows.length!==1)throw err('profile_revision_conflict');
+    return {ok:true,unchanged:false,profile:p.profile};
    }
    if(operation==='engine_bind'){
     await tx`INSERT INTO browser_engine_profiles(profile_name,provider_profile_id)
