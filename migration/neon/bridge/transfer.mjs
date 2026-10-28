@@ -52,6 +52,7 @@ async function main(){
         WHERE NOT resumable) AS unresolved`;
    if(!safety||safety.leases!==0||safety.unresolved!==0)
     throw Error('BRIDGE_SOURCE_NOT_IDLE');
+   // All timestamptz fields are selected as text: Date destroys microseconds.
    async function append(kind,row){
     const v=normalizeShadowRecord(kind,row);
     tally[kind]++;
@@ -64,7 +65,7 @@ async function main(){
    }
    let lastName='';
    for(;;){
-    const rows=await tx`SELECT profile_name,encrypted_state,updated_at
+    const rows=await tx`SELECT profile_name,encrypted_state,updated_at::text AS updated_at
        FROM browser_profiles WHERE profile_name>${lastName}
        ORDER BY profile_name LIMIT 50`;
     if(rows.length===0)break;
@@ -73,8 +74,8 @@ async function main(){
    }
    let lastId='0';
    for(;;){
-    const rows=await tx`SELECT id,profile_name,encrypted_state,source_updated_at,
-       archived_at,reason FROM browser_profile_versions
+    const rows=await tx`SELECT id,profile_name,encrypted_state,source_updated_at::text AS source_updated_at,
+       archived_at::text AS archived_at,reason FROM browser_profile_versions
        WHERE id>${lastId}::bigint ORDER BY id LIMIT 50`;
     if(rows.length===0)break;
     for(const row of rows)await append('archive',row);
@@ -83,7 +84,8 @@ async function main(){
    let lastTask='';
    for(;;){
     const rows=await tx`SELECT task_id,owner_hash,revision,encrypted_state,
-       claim_hash,claim_expires_at,resumable,queued,created_at,updated_at
+       claim_hash,claim_expires_at::text AS claim_expires_at,resumable,queued,
+       created_at::text AS created_at,updated_at::text AS updated_at
        FROM browser_task_checkpoints WHERE task_id::text>${lastTask}
        ORDER BY task_id LIMIT 50`;
     if(rows.length===0)break;
