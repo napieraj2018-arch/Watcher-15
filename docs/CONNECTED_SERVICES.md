@@ -1,5 +1,64 @@
 # Połączenia API zamiast ponownego logowania
 
+## Aktualny odczyt i dostęp — 28.10.2026 (nie traktuj jako stałych uprawnień)
+
+Przy każdym następnym poleceniu właściciela wykorzystaj najpierw już
+podłączoną usługę ChatGPT **tylko gdy pozwala na realny odczyt lub zapis**
+na dokładnie wskazanym koncie. Zapisane połączenie, nazwa profilu albo
+wyświetlone zero nie dowodzi dostępu. Nie reklamuj „bez limitów 24/7”
+— bieżący Render to Free (autoDeploy off), Steel ma limit długości sesji,
+Floot Free limity hostingu. Kolejka checkpointów `aib_task` nie uruchamia
+samodzielnie pracy, gdy czat nie działa. AI Browser plugin ma już
+uprawnienie specyficzne „Allow all actions”; **nie podnoś uprawnień
+globalnych ani nie proś ponownie o ten sam dostęp**.
+
+**Rzeczywiste testy tego dnia:**
+
+- `Windsor_ai/searchconsole` udostępnia w katalogu 7 property, w tym
+  `sc-domain:weterynarz.radom.pl` i `sc-domain:architekt.radom.pl`,
+  ale bezpośredni `get_data` zwrócił komunikat, że Free dopuszcza
+  1 konto, gdy połączonych jest 15, i **dummy zeroes**. Zwracane liczby
+  NIE są prawdziwymi danymi SEO. Wstrzymaj analizy z tego API do chwili
+  potwierdzonego nieprzykładowego wyniku. `GSC Wizard` jest
+  `payment_required`; nie ponawiaj bez zmiany planu.
+- Przez **nasz istniejący AI Browser** profil `Google - Weterynarz`
+  osobno otworzył realne Google Search Console, w pasku URL Inspection
+  pokazano „weterynarz.radom.pl”, panel Przegląd miał dane indeksowania,
+  a sesję read-only zamknięto z `full_profile_saved=true`. To
+  obserwacja konkretnego panelu, **nie** certyfikat ważności konta
+  na przyszłość; sprawdzaj aktualny URL/profil, a nie sam status auth.
+- `Google - Architekt - GSC` w innym nowym read-only otworzył jedynie
+  `/search-console/about`; nie oznaczaj jako zalogowany. Sesję
+  poprawnie zamknięto `full_profile_saved=true`; jeśli brak
+  poprawnej tożsamości, właściciel autoryzuje konto sam.
+- `vidIQ` zwrócił `channels=[]` dla aktualnie podłączonego konta.
+  Właściwy NKW `UC7EQ32QjfKQ7bFiVdGAhB-A` **nie został w ten
+  sposób potwierdzony**. Nie wykonuj edycji/wysyłki na losowy kanał.
+  Przez Chrome Google może odmówić logowania z CDP; do docelowego
+  YouTube API użyj systemowego OAuth, nie stealth/obejścia zabezpieczeń.
+- `Google Drive` połączony. `GitHub` i `Render` działają przez
+  osobne aplikacje, bez potrzeby utrzymywania okna Steel. Stan
+  `provider_reconciliation_required` czytaj jako blokadę, a nie zgodę
+  na restart lub przejęcie sesji.
+- WordPress kliniki: R65 JS `#2202` i R66 JS `#2205` są wcześniej
+  potwierdzone LIVE w issue `#160`. Nie wgrywaj ich ponownie.
+  R66 dotyczy tylko karty Macieja na okulistyce, nie innych lekarzy.
+- Dla kodu `connector_router.py` nowe trasy `youtube`,
+  `google_search_console`, `github`, `render`, `google_drive`
+  oznaczają **podpowiedź sposobu obsługi**, nie uzyskanie nowych
+  uprawnień, stanu zalogowania lub wykonanie zadania.
+  Dostęp 24/7 wymaga niezależnie zatwierdzonego schedulera i
+  infrastruktury, a sesje Steel mają być krótkotrwałe i zapisywane.
+
+**Bezpieczne wdrożenie routera:** PR #181 ma być scalany po pełnym
+CI exact-head. Podczas aktywnego WordPress WRITE / public QA / closing
+nie deployować. Pusta lokalna lista sesji nie wystarczy: sprawdź
+niezależny provider-inventory, neutralne saved-close i brak kwarantanny.
+Wstrzymane poprzednio godzinowe zadania przeglądarki pozostawić
+wstrzymane. Zmiana kodu nie uzasadnia resetu cookies, Floot, Neon,
+płatności ani ponownego żądania haseł.
+
+
 Zasada: przy poleceniu publikowania Reels, posta, odczytu poczty,
 WordPress lub opinii Google najpierw sprawdź dostępne, już podłączone
 aplikacje ChatGPT. Wykonuj w nich autoryzowaną czynność BEZ uruchamiania
