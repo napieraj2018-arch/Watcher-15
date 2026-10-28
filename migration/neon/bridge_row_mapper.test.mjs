@@ -45,3 +45,32 @@ test('bad kinds and invalid input fail closed',()=>{
  assert.throws(()=>normalizeShadowRecord('task',{...task,revision:0}),
   /SHADOW_TASK_REVISION_INVALID/);
 });
+
+test('PostgreSQL source microseconds are never rounded in a profile, archive or task',()=>{
+ const raw='2026-10-28 13:00:00.123456+00';
+ const profileRow=normalizeShadowRecord('profile',{...profile,updated_at:raw});
+ assert.equal(profileRow.sourceUpdatedAt,raw);
+ assert.equal(profileRow.metadata.source_updated_at,raw);
+ const archiveRow=normalizeShadowRecord('archive',{
+  ...archive,source_updated_at:raw,archived_at:raw
+ });
+ assert.equal(archiveRow.sourceUpdatedAt,raw);
+ assert.equal(archiveRow.metadata.archived_at,raw);
+ const taskRow=normalizeShadowRecord('task',{
+  ...task,updated_at:raw,created_at:raw,claim_expires_at:raw
+ });
+ assert.equal(taskRow.sourceUpdatedAt,raw);
+ assert.equal(taskRow.metadata.created_at,raw);
+ assert.equal(taskRow.metadata.claim_expires_at,raw);
+});
+test('unknown precision must fail closed before any import',()=>{
+ assert.throws(()=>normalizeShadowRecord('profile',{
+  ...profile,updated_at:new Date(now)
+ }),/SHADOW_SOURCE_TIMESTAMP_PRECISION_UNVERIFIED/);
+ assert.throws(()=>normalizeShadowRecord('archive',{
+  ...archive,archived_at:new Date(now)
+ }),/SHADOW_SOURCE_TIMESTAMP_PRECISION_UNVERIFIED/);
+ assert.throws(()=>normalizeShadowRecord('task',{
+  ...task,claim_expires_at:'2026-10-28T13:00:00.1234567Z'
+ }),/SHADOW_SOURCE_TIMESTAMP_PRECISION_UNVERIFIED/);
+});
