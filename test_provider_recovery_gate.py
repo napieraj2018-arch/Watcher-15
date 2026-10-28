@@ -1,9 +1,10 @@
 """Fail-closed recovery tests with an exact private incident, no real account."""
 import copy,json,unittest
 import httpx
-from provider_recovery_gate import RecoveryGate,RecoveryGateError,RecoveryRateLimited,run_boot_gate,VAULT,STEEL
+from provider_recovery_gate import RecoveryGate,RecoveryGateError,RecoveryRateLimited,run_boot_gate,VAULT,STEEL,retry_after_seconds
 from unittest.mock import patch
 import io
+from datetime import datetime,timezone
 from contextlib import redirect_stdout
 S='00000000-0000-4000-8000-000000000001'
 P='00000000-0000-4000-8000-000000000002'
@@ -15,10 +16,13 @@ class Fixture:
   self.calls=[];self.plan=copy.deepcopy(PLAN);self.pending=True;self.safe=True
   self.session={'id':S,'profileId':P,'status':'released','persistProfile':True,'createdAt':'2026-10-23T18:46:39Z'}
   self.profile={'id':P,'status':'READY'};self.rows=[{'id':S,'status':'released'}]
-  self.new_live=[];self.repeat=False;self.http=200;self.ack=True;self.change=False
+  self.new_live=[];self.repeat=False;self.http=200;self.vault_http=200;self.ack=True;self.change=False
  def transport(self,r):
   self.calls.append((r.method,str(r.url)))
   if str(r.url)==VAULT:
+   if self.vault_http!=200:
+    return httpx.Response(self.vault_http,headers={'Retry-After':'3600'},
+                          json={'private':'DO_NOT_PRINT'})
    self.last_body=json.loads(r.content)
    if self.last_body['action']=='attest':
     return httpx.Response(200,json={'ok':self.ack,'verified':self.ack,'pending':False,'gate_id':G})
@@ -72,6 +76,21 @@ class Tests(unittest.TestCase):
   with httpx.Client(transport=httpx.MockTransport(self.f.transport)) as c:
    with self.assertRaisesRegex(RecoveryGateError,'CREDENTIALS'):RecoveryGate(c,'','')
   self.assertEqual(self.f.calls,[])
+ def test_vault_429_is_typed_and_honors_retry_after(self):
+  self.f.vault_http=429
+  with self.assertRaises(RecoveryRateLimited) as caught:self.f.run()
+  self.assertEqual(str(caught.exception),'RECOVERY_HTTP_429')
+  self.assertEqual(caught.exception.retry_after_seconds,3600)
+  self.assertEqual(len(self.f.calls),1)
+  self.assertNotIn('DO_NOT_PRINT',str(caught.exception))
+ def test_retry_after_delta_date_and_invalid_are_bounded(self):
+  now=datetime(2026,10,28,10,0,tzinfo=timezone.utc)
+  self.assertEqual(retry_after_seconds('7200'),7200)
+  self.assertEqual(retry_after_seconds('Wed, 28 Oct 2026 13:00:00 GMT',now=now),10800)
+  self.assertEqual(retry_after_seconds('1'),900)
+  self.assertEqual(retry_after_seconds('invalid-SECRET-NEVER-PRINT'),900)
+  self.assertEqual(retry_after_seconds('999999999'),604800)
+  self.assertEqual(retry_after_seconds('Wed, 28 Oct 2026 09:00:00 GMT',now=now),900)
  def test_boot_gate_429_is_typed_and_never_opens_browser(self):
   with patch.dict('os.environ', {'AI_BROWSER_ENGINE':'steel','AI_BROWSER_PROFILE_STORE_TOKEN':'fixture','STEEL_API_KEY':'fixture'}):
    with patch.object(RecoveryGate,'run',side_effect=RecoveryGateError('RECOVERY_HTTP_429')):
