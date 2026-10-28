@@ -29,4 +29,5 @@ jobs:
           node --check migration/neon/api/index.mjs
           node --check migration/neon/api/core.mjs
           node --check migration/neon/api/store.mjs
+          node --check migration/neon/diagnostics/dbcheck.mjs
           node --test migration/neon/*.test.mjs
