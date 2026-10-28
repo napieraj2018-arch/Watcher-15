@@ -77,6 +77,7 @@ export function rejectUnsafeWriteGate(gate){
   // No trust in request data: caller must obtain gate in the same DB TX.
   if(!obj(gate)||gate.mode!=='neon_primary'||gate.write_enabled!==true
      ||gate.source_frozen!==true||gate.owner_reconciled!==true
+     ||gate.source_manifest_verified!==true||gate.destination_manifest_verified!==true
      ||!Number.isSafeInteger(gate.epoch)||gate.epoch<1)
     fail('NEON_CUTOVER_NOT_ACCEPTED',503);
 }
