@@ -163,7 +163,11 @@ class ConnectorFirstRouting(unittest.TestCase):
     def test_all_allowlisted_routes_are_only_hints(self):
         for key in API_ROUTE:
             service,operation=key
-            brand="anita" if service in {"instagram","facebook","google_business","wordpress"} else ""
+            brand=("anita" if service in {"instagram","facebook","google_business","wordpress"}
+                   else "weterynarz" if service=="google_search_console"
+                   else "nkw" if service=="youtube"
+                   else "aibrowser" if service in {"github","render"}
+                   else "")
             p=plan_operation(service,operation,brand)
             self.assertEqual(p["router_version"],ROUTER_VERSION)
             self.assertFalse(p["published"])
