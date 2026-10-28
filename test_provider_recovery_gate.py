@@ -49,8 +49,46 @@ class Tests(unittest.TestCase):
   r=self.f.run();self.assertEqual(r['status'],'verified');self.assertEqual(r['protected_profiles'],38)
   self.assertEqual(self.f.last_body['proof']['inventory_total'],1)
   self.assertEqual(sum(u.endswith('/sessions/'+S) for _,u in self.f.calls),2)
- def test_no_pending_gate_never_touches_provider(self):
-  self.f.pending=False;self.assertEqual(self.f.run()['status'],'no_pending_gate');self.assertEqual(len(self.f.calls),1)
+ def test_no_pending_gate_requires_full_fresh_provider_idle_inventory(self):
+  self.f.pending=False
+  result=self.f.run()
+  self.assertEqual(result['status'],'no_pending_gate_provider_idle')
+  self.assertIs(result['verified_this_boot'], True)
+  self.assertEqual(result['inventory_total'],1)
+  self.assertEqual(sum(1 for method,url in self.f.calls
+                       if method=='GET' and url.startswith(STEEL)),4)
+  self.assertEqual(sum(1 for method,url in self.f.calls
+                       if method=='POST' and url==VAULT),2)
+  self.assertFalse(any(method!='GET' and url.startswith(STEEL)
+                       for method,url in self.f.calls))
+  self.assertEqual(self.f.last_body['action'],'inspect')
+ def test_no_pending_live_session_is_still_denied(self):
+  self.f.pending=False
+  self.f.new_live=[{'id':G,'status':'live'}]
+  self.denied('PROVIDER_CHANGED')
+ def test_no_pending_unknown_session_in_history_is_denied(self):
+  self.f.pending=False
+  self.f.rows.append({'id':G,'status':'unknown'})
+  self.denied('ACTIVE_OR_UNKNOWN')
+ def test_no_pending_repeated_history_cursor_denied(self):
+  self.f.pending=False;self.f.repeat=True
+  self.denied('PAGINATION_CONFLICT')
+ def test_no_pending_changed_vault_during_provider_inventory_denied(self):
+  self.f.pending=False
+  self.f.change=True
+  original=self.f.transport
+  def changing(request):
+   reply=original(request)
+   if str(request.url)==VAULT and len([v for v in self.f.calls if v[1]==VAULT])>=2:
+    return httpx.Response(200,json={'ok':True,'pending':True})
+   return reply
+  with httpx.Client(transport=httpx.MockTransport(changing)) as client:
+   with self.assertRaisesRegex(RecoveryGateError,'GATE_CHANGED'):
+    RecoveryGate(client,'synthetic-store','synthetic-steel').run()
+ def test_no_pending_provider_connection_error_denied(self):
+  self.f.pending=False
+  self.f.http=503
+  self.denied('HTTP_503')
  def test_changed_backup_denied(self):self.f.safe=False;self.denied('LOCAL_BACKUP')
  def test_local_state_changes_during_reads_denied(self):self.f.change=True;self.denied('LOCAL_STATE_CHANGED')
  def test_live_exact_session_denied(self):self.f.session['status']='live';self.denied('EXACT_SESSION_NOT_VERIFIED')
