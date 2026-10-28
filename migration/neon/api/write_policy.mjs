@@ -39,8 +39,12 @@ function exact(data,allow){
 export function validateVaultMutation(action,body){
   // Unsupported side effects are NEVER inferred from an ambiguous payload.
   if(action==='profile_save'){
-    exact(body,['profile','state']);
-    return {profile:name(body.profile),state:encrypted(body.state,MAX_STATE)};
+    exact(body,['profile','state','expected_sha256']);
+    const expected=body.expected_sha256;
+    if(expected!==null&&(typeof expected!=='string'||!SHA.test(expected)))
+      fail('expected_profile_hash_invalid',400);
+    return {profile:name(body.profile),state:encrypted(body.state,MAX_STATE),
+      expected_sha256:expected};
   }
   if(action==='engine_bind'){
     only(body,['profile','profile_id','hydrated']);
