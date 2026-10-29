@@ -158,6 +158,24 @@ except RecoveryRateLimited as retry_limit:
         host=os.environ.get('AI_BROWSER_HOST', '0.0.0.0'),
         port=int(os.environ.get('AI_BROWSER_PORT', os.environ.get('PORT', '10000'))),
     )
+except RuntimeError as boot_failure:
+    # An unreachable/disabled vault is NOT a verified idle provider.
+    # Do not crash/restart and forget the quarantine: serve only maintenance.
+    # A fresh vault reconciliation AND independent Steel check must both pass
+    # before the browser payload is ever downloaded or any session is started.
+    if str(boot_failure) != 'AI_BROWSER_RECOVERY_GATE_BLOCKED':
+        raise
+    from recovery_boot_maintenance import (
+        wait_until_recovered, verify_provider_idle, REASON_UNAVAILABLE,
+    )
+    wait_until_recovered(
+        run_boot_gate,
+        lambda: verify_provider_idle(os.environ.get('STEEL_API_KEY', '').strip()),
+        reason=REASON_UNAVAILABLE,
+        initial_retry_seconds=900,
+        host=os.environ.get('AI_BROWSER_HOST', '0.0.0.0'),
+        port=int(os.environ.get('AI_BROWSER_PORT', os.environ.get('PORT', '10000'))),
+    )
 key = derive(master, "app-code")
 req = urllib.request.Request(PAYLOAD_URL, headers={"User-Agent": "AI-Browser-Bootstrap/0.4.1"})
 with urllib.request.urlopen(req, timeout=30) as resp:
