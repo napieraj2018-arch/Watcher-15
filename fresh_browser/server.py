@@ -10,6 +10,8 @@ import json
 import os
 import re
 import secrets
+import socket
+import uuid
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,6 +27,7 @@ ROOT = Path(__file__).resolve().parent
 PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 DB_URL = os.environ.get("AIB_FRESH_DATABASE_URL", "")
 ADMIN = os.environ.get("AIB_FRESH_ADMIN_TOKEN", "")
+MCP_TOKEN = os.environ.get("AIB_FRESH_MCP_TOKEN", "")
 DATA_KEY = os.environ.get("AIB_FRESH_DATA_KEY", "")
 COOKIE = "aib_fresh_session"
 VIEWPORT = {"width": 1280, "height": 800}
@@ -74,6 +77,8 @@ def safe_url(raw: str) -> str:
             raise HTTPException(400, "Adres wymaga domeny")
     else:
         raise HTTPException(400, "Nie otwieramy adresów IP")
+    if parts.port not in (None, 443):
+        raise HTTPException(400, "Niedozwolony port")
     return raw.strip()
 
 def database():
@@ -111,6 +116,7 @@ def db_create(name: str):
 def db_save(name: str, encrypted: bytes, rev: int):
     with database() as conn:
         with conn.cursor() as cur:
+            cur.execute("INSERT INTO fresh_browser.profile_versions (name,revision,sealed_state) SELECT name,revision,sealed_state FROM fresh_browser.profiles WHERE name=%s AND revision=%s ON CONFLICT DO NOTHING", (name, rev))
             cur.execute("UPDATE fresh_browser.profiles SET sealed_state=%s, revision=revision+1, updated_at=NOW() WHERE name=%s AND revision=%s RETURNING revision",
                         (encrypted, name, rev))
             row = cur.fetchone()
@@ -137,11 +143,17 @@ def logged_in(request: Request) -> bool:
         return False
 
 def require(request: Request):
+    service = request.headers.get("authorization", "")
+    if len(MCP_TOKEN) >= 32 and hmac.compare_digest(service, "Bearer " + MCP_TOKEN):
+        return
     if not logged_in(request):
         raise HTTPException(401, "Najpierw zaloguj się do nowej przeglądarki Neon.")
 
 def require_mutation(request: Request):
     require(request)
+    origin = request.headers.get("origin")
+    if origin and origin != str(request.base_url).rstrip("/"):
+        raise HTTPException(403, "Niezgodne źródło żądania")
     if request.headers.get("x-aib-request") != "same-origin":
         raise HTTPException(403, "Brak potwierdzenia żądania z panelu.")
 
@@ -153,6 +165,9 @@ class BrowserWorkspace:
         self.context = None
         self.profile = None
         self.rev = None
+        self.lease = None
+        self.history = []
+        self.human = False
 
     async def _ensure_engine(self):
         if self.browser is None:
@@ -163,7 +178,11 @@ class BrowserWorkspace:
     async def _save(self):
         if self.context is None:
             return
+        await self.assert_lease()
         data = await self.context.storage_state(indexed_db=True)
+        data["aib_tabs"] = [p.url for p in self.context.pages if p.url.startswith("https://")]
+        data["aib_history"] = self.history[-200:]
+        data["aib_profile"] = self.profile
         blob = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
         encrypted = seal(blob)
         nxt = await asyncio.to_thread(db_save, self.profile, encrypted, self.rev)
@@ -178,23 +197,77 @@ class BrowserWorkspace:
             self.context = None
             self.profile = None
             self.rev = None
+            if self.lease:
+                await asyncio.to_thread(self.lease.close)
+                self.lease = None
+            self.human = False
+
+    async def assert_lease(self):
+        if not self.lease or self.lease.closed:
+            raise HTTPException(409, "Utracono blokadę profilu; zatrzymano sterowanie.")
+        try:
+            await asyncio.to_thread(self.lease.execute, "SELECT 1")
+        except Exception:
+            raise HTTPException(409, "Utracono blokadę profilu; wymagane sprawdzenie zapisu.") from None
 
     async def open(self, name: str):
         if self.profile == name and self.context is not None:
             return
         await self._close_current()
+        lease = await asyncio.to_thread(database)
+        lease.autocommit = True
+        got = await asyncio.to_thread(lambda: lease.execute("SELECT pg_try_advisory_lock(hashtextextended(%s,0))", ("fresh:" + name,)).fetchone()[0])
+        if not got:
+            await asyncio.to_thread(lease.close)
+            raise HTTPException(409, "Profil jest używany przez inny proces.")
+        self.lease = lease
         row = await asyncio.to_thread(db_load, name)
         if not row:
+            await asyncio.to_thread(lease.close)
+            self.lease = None
             raise HTTPException(404, "Profil nie istnieje")
         sealed, version = row
         try:
             state = json.loads(unseal(sealed))
         except Exception:
+            await asyncio.to_thread(lease.close)
+            self.lease = None
             raise HTTPException(409, "Nie można odczytać zaszyfrowanego profilu; nie nadpisano go.") from None
-        await self._ensure_engine()
+        try:
+            await self._ensure_engine()
+        except Exception:
+            await asyncio.to_thread(lease.close)
+            self.lease = None
+            raise
+        if state.get("aib_profile", name) != name:
+            await asyncio.to_thread(lease.close)
+            self.lease = None
+            raise HTTPException(409, "Niezgodność profilu; dane zachowano.")
         ctx = await self.browser.new_context(
-            storage_state=state, viewport=VIEWPORT, accept_downloads=False)
-        await ctx.new_page()
+            storage_state={k: state[k] for k in ("cookies", "origins")}, viewport=VIEWPORT, accept_downloads=False,
+            service_workers="block")
+        async def guard(route):
+            try:
+                url = route.request.url
+                if url.startswith(("data:", "blob:", "about:")):
+                    await route.continue_(); return
+                host = urlsplit(safe_url(url)).hostname
+                addresses = await asyncio.to_thread(socket.getaddrinfo, host, 443, type=socket.SOCK_STREAM)
+                if not addresses or any(not ipaddress.ip_address(a[4][0]).is_global for a in addresses):
+                    await route.abort(); return
+                await route.continue_()
+            except Exception:
+                await route.abort()
+        await ctx.route("**/*", guard)
+        self.history = state.get("aib_history", [])
+        for url in state.get("aib_tabs", [])[:10]:
+            page = await ctx.new_page()
+            try:
+                await page.goto(safe_url(url), wait_until="domcontentloaded", timeout=20000)
+            except Exception:
+                pass
+        if not ctx.pages:
+            await ctx.new_page()
         self.context = ctx
         self.profile = name
         self.rev = version
@@ -207,14 +280,56 @@ class BrowserWorkspace:
             raise HTTPException(409, "Brak karty przeglądarki")
         return pages[-1]
 
-    async def action(self, data: dict):
+    async def action(self, data: dict, automated=False):
         name = profile_name(data.get("name", ""))
         op = data.get("action")
         async with self.lock:
             await self.open(name)
+            await self.assert_lease()
+            if automated and self.human:
+                raise HTTPException(409, "Właściciel przejął sterowanie; poczekaj na oddanie sterowania.")
             page = self.page()
             try:
-                if op == "open":
+                if op == "handoff":
+                    self.human = bool(data.get("human", True))
+                elif op == "snapshot":
+                    return {"url": safe_display_url(page.url), "title": await page.title(),
+                            "text": (await page.locator("body").inner_text())[:16000],
+                            "elements": await page.locator("a,button,input,textarea,select").evaluate_all("els => els.slice(0,150).map((e,i)=>({index:i,tag:e.tagName,type:e.type||'',label:(e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'').slice(0,120)}))")}
+                elif op == "upload":
+                    index = int(data.get("index", -1))
+                    if not 0 <= index < 150:
+                        raise HTTPException(400, "Nieprawidłowy element pliku")
+                    field = page.locator("a,button,input,textarea,select").nth(index)
+                    if await field.get_attribute("type") != "file":
+                        raise HTTPException(400, "To nie jest pole pliku")
+                    raw = base64.b64decode(data.get("base64", ""), validate=True)
+                    if len(raw) > 8_000_000:
+                        raise HTTPException(400, "Maksymalny plik: 8 MB")
+                    filename = re.sub(r"[^A-Za-z0-9._-]", "_", str(data.get("filename", "upload.bin")))[:120]
+                    await field.set_input_files({"name": filename, "mimeType": "application/octet-stream", "buffer": raw})
+                elif op == "fill":
+                    index = int(data.get("index", -1))
+                    if not 0 <= index < 150:
+                        raise HTTPException(400, "Nieprawidłowy element")
+                    field = page.locator("a,button,input,textarea,select").nth(index)
+                    if automated and await field.get_attribute("type") == "password":
+                        raise HTTPException(403, "Hasła wpisuje właściciel w panelu")
+                    await field.fill(str(data.get("text", ""))[:10000])
+                elif op == "click_element":
+                    index = int(data.get("index", -1))
+                    if not 0 <= index < 150:
+                        raise HTTPException(400, "Nieprawidłowy element")
+                    await page.locator("a,button,input,textarea,select").nth(index).click(timeout=10000)
+                elif op == "back":
+                    await page.go_back(wait_until="domcontentloaded", timeout=20000)
+                elif op == "forward":
+                    await page.go_forward(wait_until="domcontentloaded", timeout=20000)
+                elif op == "reload":
+                    await page.reload(wait_until="domcontentloaded", timeout=20000)
+                elif op == "new_tab":
+                    await self.context.new_page()
+                elif op == "open":
                     pass
                 elif op == "go":
                     await page.goto(safe_url(data.get("url", "")), wait_until="domcontentloaded", timeout=25000)
@@ -247,8 +362,10 @@ class BrowserWorkspace:
                 else:
                     raise HTTPException(400, "Nieznane polecenie")
                 await page.wait_for_timeout(400)
+                if op in {"go", "back", "forward"}:
+                    self.history.append({"url": page.url, "time": int(time.time())})
                 await self._save()
-                return {"ok": True, "title": (await page.title())[:200],
+                return {"ok": True, "human": self.human, "title": (await page.title())[:200],
                         "url": safe_display_url(page.url)}
             except HTTPException:
                 raise
@@ -281,7 +398,18 @@ workspace = BrowserWorkspace()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    async def autosave():
+        while True:
+            await asyncio.sleep(15)
+            async with workspace.lock:
+                if workspace.context:
+                    try:
+                        await workspace._save()
+                    except Exception:
+                        workspace.human = True
+    saver = asyncio.create_task(autosave())
     yield
+    saver.cancel()
     try:
         await workspace.shutdown()
     except Exception:
@@ -296,7 +424,7 @@ async def headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' data:; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+    response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' data:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
     return response
 
 @app.get("/", response_class=HTMLResponse)
@@ -369,6 +497,115 @@ async def screen(request: Request, name: str):
     require(request)
     png = await workspace.screenshot(name)
     return Response(png, media_type="image/png")
+
+FIXTURE = """<!doctype html><title>AI Browser acceptance</title><form><input id='field' placeholder='Neutral test'><button type='button' onclick="document.querySelector('output').textContent=document.querySelector('input').value">Check</button></form><output></output>"""
+
+async def acceptance(args):
+    name = profile_name(args.get("name", ""))
+    if not name.startswith("acceptance-"):
+        raise HTTPException(400, "Dedicated synthetic profile required")
+    phase = args.get("text", "seed")
+    async with workspace.lock:
+        if workspace.context is not None:
+            raise HTTPException(409, "Close your owned profile first")
+        if phase == "seed" and not await asyncio.to_thread(db_create, name):
+            raise HTTPException(409, "Synthetic profile already exists")
+        await workspace.open(name)
+        page = workspace.page()
+        await workspace.context.route("https://aib-acceptance.invalid/**", lambda r: r.fulfill(status=200, content_type="text/html", body=FIXTURE))
+        await page.goto("https://aib-acceptance.invalid/")
+        if phase == "seed":
+            await page.locator("#field").fill("neutral-form-ok")
+            await page.locator("button").click()
+            assert await page.locator("output").inner_text() == "neutral-form-ok"
+            await page.evaluate("""async () => {
+                document.cookie='acceptance=neon-v2; Secure; SameSite=Strict; path=/';
+                localStorage.setItem('acceptance','neon-v2');
+                await new Promise((resolve,reject)=>{
+                  const q=indexedDB.open('aib_acceptance',1);
+                  q.onupgradeneeded=()=>q.result.createObjectStore('data');
+                  q.onerror=reject;
+                  q.onsuccess=()=>{const db=q.result,t=db.transaction('data','readwrite');t.objectStore('data').put('neon-v2','marker');t.oncomplete=()=>{db.close();resolve()};t.onerror=reject;};
+                });
+            }""")
+            workspace.history.append({"url": page.url, "time": int(time.time())})
+            await workspace._close_current()
+            return {"phase": "seed", "form": True, "saved_closed": True}
+        checks = await page.evaluate("""async () => ({cookie:document.cookie.includes('acceptance=neon-v2'),localStorage:localStorage.getItem('acceptance')==='neon-v2',indexedDB:await new Promise((resolve,reject)=>{const q=indexedDB.open('aib_acceptance',1);q.onerror=reject;q.onsuccess=()=>{const db=q.result;if(!db.objectStoreNames.contains('data')){db.close();resolve(false);return;}const t=db.transaction('data'),r=t.objectStore('data').get('marker');r.onsuccess=()=>{db.close();resolve(r.result==='neon-v2')};r.onerror=reject;}})})""")
+        checks['history'] = any(x.get('url') == 'https://aib-acceptance.invalid/' for x in workspace.history)
+        await workspace._close_current()
+        return {"phase": "verify", "checks": checks, "all_passed": all(checks.values()), "saved_closed": True}
+
+def db_checkpoint(task_id, payload=None, revision=None):
+    with database() as conn:
+        if payload is None:
+            row = conn.execute("SELECT sealed_state,revision FROM fresh_browser.tasks WHERE id=%s", (task_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "Brak zadania")
+            return {"id": task_id, "checkpoint": json.loads(unseal(bytes(row[0]))), "revision": row[1]}
+        raw = json.dumps(payload).encode()
+        if len(raw) > 50000:
+            raise HTTPException(400, "Za duży checkpoint")
+        if revision is None:
+            row = conn.execute("INSERT INTO fresh_browser.tasks (id,sealed_state) VALUES (%s,%s) ON CONFLICT DO NOTHING RETURNING revision", (task_id,seal(raw))).fetchone()
+        else:
+            row = conn.execute("UPDATE fresh_browser.tasks SET sealed_state=%s,revision=revision+1 WHERE id=%s AND revision=%s RETURNING revision", (seal(raw),task_id,revision)).fetchone()
+        if not row:
+            raise HTTPException(409, "Konflikt checkpointu")
+        return {"id": task_id, "revision": row[0]}
+
+@app.get("/api/status")
+async def status(request: Request):
+    require(request)
+    return {"profile": workspace.profile, "human": workspace.human, "revision": workspace.rev}
+
+@app.post("/mcp")
+async def mcp(request: Request):
+    supplied = request.headers.get("authorization", "")
+    if len(MCP_TOKEN) < 32 or not hmac.compare_digest(supplied, "Bearer " + MCP_TOKEN):
+        raise HTTPException(401, "MCP authorization required")
+    msg = await request.json()
+    method, ident = msg.get("method"), msg.get("id")
+    if ident is None:
+        return Response(status_code=202)
+    if method == "server/discover":
+        result = {"supportedVersions": ["2026-07-28"], "capabilities": {"tools": {}}}
+    elif method == "initialize":
+        result = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "AI Browser Neon Fresh", "version": "2.0.0"}}
+    elif method == "ping":
+        result = {}
+    elif method == "tools/list":
+        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
+    elif method == "tools/call":
+        try:
+            if msg.get("params", {}).get("name") != "fresh_browser":
+                raise HTTPException(400, "Unknown tool")
+            args = msg["params"].get("arguments", {})
+            action = args.get("action")
+            if action == "acceptance":
+                value = await acceptance(args)
+            elif action == "list_profiles":
+                value = {"profiles": await asyncio.to_thread(db_list)}
+            elif action == "create_profile":
+                value = {"created": await asyncio.to_thread(db_create, profile_name(args.get("name", "")))}
+            elif action == "checkpoint":
+                task_id = profile_name(args.get("task_id", ""))
+                value = await asyncio.to_thread(db_checkpoint,task_id,args.get("checkpoint"),args.get("revision"))
+            elif action == "screenshot":
+                png = await workspace.screenshot(profile_name(args.get("name", "")))
+                return {"jsonrpc": "2.0", "id": ident, "result": {"content": [{"type": "image", "mimeType": "image/png", "data": base64.b64encode(png).decode()}]}}
+            elif action == "handoff":
+                raise HTTPException(403, "Only the owner may change control mode")
+            else:
+                value = await workspace.action(args, automated=True)
+            result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}]}
+        except HTTPException as exc:
+            result = {"isError": True, "content": [{"type": "text", "text": str(exc.detail)}]}
+        except Exception:
+            result = {"isError": True, "content": [{"type": "text", "text": "Operation failed; verify before retry"}]}
+    else:
+        return {"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "Method not found"}}
+    return {"jsonrpc": "2.0", "id": ident, "result": result}
 
 if __name__ == "__main__":
     key = secrets.token_bytes(32)
