@@ -10,7 +10,7 @@ import postgres from 'postgres';
 import {verifyMigrationFreeze,assertShadowDestination} from './preflight.mjs';
 import {planRestrictedColdRestore,expectedColdReceipt} from './cold_restore_plan.mjs';
 import {validateColdBackup} from './cold_backup.mjs';
-import {stageAndVerifyColdRestore} from './private_stage_writer.mjs';
+import {stageAndVerifyBatched} from './private_batch_stage.mjs';
 
 const deny=code=>{throw Error(code)};
 const S3_HOST='br-ancient-firefly-baqgm1x0.storage.c-8.eu-central-1.aws.neon.tech';
@@ -99,7 +99,7 @@ async function main(){
    freezeKey:process.env.AIB_MIGRATION_HMAC_KEY,stage,role:stage.db_role});
   const source=validateColdBackup(bytes,expected).records;
   // Cold staging is NEVER permission to choose a new primary writer.
-  const done=await stageAndVerifyColdRestore(db,plan,source,
+  const done=await stageAndVerifyBatched(db,plan,source,
    {expiresAtSeconds:receipt.expires_at});
   process.stdout.write(JSON.stringify(done)+'\n');
  }finally{await db.end({timeout:3})}
