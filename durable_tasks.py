@@ -5,7 +5,9 @@ blocked until independent readback. This is the existing single-owner beta,
 not tenant authorization or an unattended background agent.
 """
 from __future__ import annotations
-import asyncio, base64, contextvars, copy, hashlib, hmac, json, os, re, secrets, time, uuid
+import asyncio, base64, contextvars, copy, hashlib, hmac, json, math, os, re, secrets, time, uuid
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Literal
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -21,6 +23,31 @@ ACTIONS = {'browser_navigate','browser_snapshot','browser_status','browser_auth_
  'browser_new_tab','browser_switch_tab','browser_close_tab','browser_back',
  'browser_forward','browser_reload','browser_set_viewport','browser_page_metadata'}
 READS = {'browser_snapshot','browser_status','browser_auth_status','browser_tabs','browser_page_metadata'}
+VAULT_RATE_LIMIT_DEFAULT_SECONDS = 900
+VAULT_RATE_LIMIT_MAX_SECONDS = 86400
+
+
+def vault_retry_after_seconds(value, *, now=None):
+    """Bound a vault 429 cooldown without reading or logging its response body."""
+    if not isinstance(value, str) or not 1 <= len(value) <= 96:
+        return VAULT_RATE_LIMIT_DEFAULT_SECONDS
+    raw = value.strip()
+    seconds = None
+    if re.fullmatch(r'[0-9]{1,10}', raw):
+        seconds = int(raw)
+    else:
+        try:
+            deadline = parsedate_to_datetime(raw)
+            if deadline.tzinfo is not None:
+                clock = now if now is not None else datetime.now(timezone.utc)
+                if clock.tzinfo is not None:
+                    seconds = math.ceil((deadline - clock).total_seconds())
+        except (ValueError, TypeError, OverflowError):
+            pass
+    if seconds is None or seconds <= 0:
+        return VAULT_RATE_LIMIT_DEFAULT_SECONDS
+    return max(VAULT_RATE_LIMIT_DEFAULT_SECONDS,
+               min(VAULT_RATE_LIMIT_MAX_SECONDS, seconds))
 
 def canonical(v): return json.dumps(v, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
 def unpack(v):
@@ -28,8 +55,10 @@ def unpack(v):
     return v
 
 def validate_checkpoint(data):
-    if not isinstance(data,dict) or set(data)-{'last_confirmed_step','remaining_steps','status','required_permissions'}:
+    if not isinstance(data,dict) or set(data)-{'last_confirmed_step','remaining_steps','status','required_permissions','handoff_after_saved_close'}:
         raise TaskError('TASK_CHECKPOINT_FIELDS_INVALID')
+    if 'handoff_after_saved_close' in data and type(data['handoff_after_saved_close']) is not bool:
+        raise TaskError('TASK_HANDOFF_FLAG_INVALID')
     if len(canonical(data))>20000: raise TaskError('TASK_CHECKPOINT_TOO_LARGE')
     if 'remaining_steps' in data and (not isinstance(data['remaining_steps'],list) or len(data['remaining_steps'])>100 or any(not isinstance(x,str) or len(x)>1000 for x in data['remaining_steps'])):
         raise TaskError('TASK_STEPS_INVALID')
@@ -41,6 +70,10 @@ class Vault:
         self.key=hmac.new(raw,b'task-checkpoint-v1',hashlib.sha256).digest()
         self.owner=hashlib.sha256(os.environ.get('AI_BROWSER_MCP_TOKEN','').encode()).hexdigest()
         self.token=os.environ.get('AI_BROWSER_PROFILE_STORE_TOKEN','')
+        # One vault writer lane per controller. A 429 blocks all calls for a
+        # bounded period, not just this task, preventing a Free-tier retry storm.
+        self._http_lock=asyncio.Lock()
+        self._rate_limit_until=0.0
         if not raw or not self.token: raise TaskError('TASK_VAULT_NOT_CONFIGURED')
         url=os.environ.get('AI_BROWSER_PROFILE_STORE_URL','')
         if url!='https://ai-browser-vault.floot.app/_api/profile-vault':
@@ -57,13 +90,21 @@ class Vault:
             return json.loads(AESGCM(self.key).decrypt(raw[:12],raw[12:],(self.owner+tid).encode()))
         except Exception: raise TaskError('TASK_CHECKPOINT_DECRYPT_FAILED') from None
     async def request(self,**body):
-        try:
-            async with httpx.AsyncClient(timeout=20,follow_redirects=False) as c:
-                r=await c.post(self.url,headers={'authorization':'Bearer '+self.token},json=body)
-            if r.status_code==409: raise TaskError('TASK_CONFLICT_OR_RECOVERY_REQUIRED')
-            if r.status_code!=200: raise TaskError('TASK_VAULT_HTTP_'+str(r.status_code))
-            return r.json()
-        except (httpx.HTTPError,ValueError): raise TaskError('TASK_VAULT_UNCONFIRMED') from None
+        async with self._http_lock:
+            if time.monotonic()<self._rate_limit_until:
+                raise TaskError('TASK_VAULT_RATE_LIMITED')
+            try:
+                async with httpx.AsyncClient(timeout=20,follow_redirects=False) as c:
+                    r=await c.post(self.url,headers={'authorization':'Bearer '+self.token},json=body)
+                if r.status_code==429:
+                    self._rate_limit_until=time.monotonic()+vault_retry_after_seconds(
+                        r.headers.get('retry-after'))
+                    raise TaskError('TASK_VAULT_RATE_LIMITED')
+                if r.status_code==409: raise TaskError('TASK_CONFLICT_OR_RECOVERY_REQUIRED')
+                if r.status_code!=200: raise TaskError('TASK_VAULT_HTTP_'+str(r.status_code))
+                return r.json()
+            except (httpx.HTTPError,ValueError):
+                raise TaskError('TASK_VAULT_UNCONFIRMED') from None
 
 class TaskService:
     def __init__(self,vault,registry,guard):
@@ -109,6 +150,23 @@ class TaskService:
     def authorize(self,data,claim):
         if not isinstance(claim,str) or not hmac.compare_digest(data.get('claim_hash',''),hashlib.sha256(claim.encode()).hexdigest()):
             raise TaskError('TASK_NOT_OWNED')
+    async def release_verified_handoff(self,row,data,claim):
+        """Opt-in only: release a claim after a durable saved_closed receipt.
+
+        If the vault refuses/limits the release, the previously committed
+        saved-close state remains untouched. Its claim expires normally;
+        never falsely claim that another chat can resume immediately.
+        """
+        if data.get('handoff_after_saved_close') is not True:
+            return False
+        if data.get('session_state')!='saved_closed':
+            raise TaskError('TASK_SAVE_CLOSE_REQUIRED')
+        try:
+            await self.vault.request(action='release',task_id=data['task_id'],
+                                     claim=claim,expected_revision=row['revision'])
+        except TaskError:
+            return False
+        return True
     async def create(self,profile,title,checkpoint):
         if not PROFILE.fullmatch(profile or '') or not isinstance(title,str) or not 1<=len(title)<=200:
             raise TaskError('TASK_INPUT_INVALID')
@@ -116,7 +174,8 @@ class TaskService:
         tid=str(uuid.uuid4()); claim=secrets.token_hex(32)
         data={'task_id':tid,'owner':self.vault.owner,'profile':profile,'title':title,
           'last_confirmed_step':'','remaining_steps':[],'status':'ready','operations':{},
-          'session_state':'none','queued':False,'created_at':int(time.time()),**checkpoint,
+          'session_state':'none','queued':False,'handoff_after_saved_close':False,
+          'created_at':int(time.time()),**checkpoint,
           'claim_hash':hashlib.sha256(claim.encode()).hexdigest()}
         r=await self.vault.request(action='create',task_id=tid,claim=claim,state=self.vault.seal(tid,data))
         return {**self.public(r,data),'task_claim':claim}
@@ -188,11 +247,15 @@ class TaskService:
                     result=await self.invoke('browser_stop',{'session_id':handle})
                 finally:
                     self.stopping.discard(task_id)
-                if result.get('full_profile_saved') is not True or result.get('stopped') is not True:
+                if (result.get('full_profile_saved') is not True
+                        or result.get('profile_saved') is not True
+                        or result.get('stopped') is not True):
                     raise TaskError('TASK_FULL_SAVE_UNCONFIRMED')
                 self.bindings.pop(task_id,None); self.internal_sessions.pop(task_id,None); data['session_state']='saved_closed'
                 data['last_saved_at']=int(time.time()); await self.save(row,data,task_claim)
-                return {**self.public(row,data),'saved_close':result}
+                handoff=await self.release_verified_handoff(row,data,task_claim)
+                return {**self.public(row,data),'saved_close':result,
+                        'claim_released':handoff,'handoff_requested':data.get('handoff_after_saved_close') is True}
             elif action=='release':
                 if data['session_state'] not in {'none','saved_closed'}: raise TaskError('TASK_SAVE_CLOSE_REQUIRED')
                 await self.vault.request(action='release',task_id=task_id,claim=task_claim,expected_revision=row['revision'])
@@ -246,7 +309,10 @@ class TaskService:
             return self.public(row,data)
 
     async def saved_stop(self,internal_sid,result):
-        if not isinstance(result,dict) or result.get('full_profile_saved') is not True or result.get('stopped') is not True:
+        if (not isinstance(result,dict)
+                or result.get('full_profile_saved') is not True
+                or result.get('profile_saved') is not True
+                or result.get('stopped') is not True):
             return
         for tid,(claim,handle) in list(self.bindings.items()):
             if tid in self.stopping: continue
@@ -256,7 +322,8 @@ class TaskService:
                 self.authorize(data,claim)
                 data['session_state']='saved_closed'; data['last_saved_at']=int(time.time())
                 await self.save(row,data,claim)
-                self.bindings.pop(tid,None)
+                self.bindings.pop(tid,None); self.internal_sessions.pop(tid,None)
+                await self.release_verified_handoff(row,data,claim)
 
 
 def install(ns):
@@ -272,8 +339,11 @@ def install(ns):
         For browser mutations use one stable operation_id. An uncertain operation must be verified,
         never retried. begin/confirm also journal authorized connector operations; confirm requires
         a real external receipt. No passwords, tokens or private credentials in data_json.
-        For create/checkpoint, data_json accepts ONLY last_confirmed_step (string),
-        remaining_steps (string array), status (string), required_permissions (string array).
+        For create/checkpoint, data_json accepts last_confirmed_step (string),
+        remaining_steps (string array), status (string), required_permissions
+        (string array), and handoff_after_saved_close (boolean, opt-in).
+        Only an exact full-profile-saved stop permits automatic claim release.
+        This does not adopt, restart or schedule an active browser.
         For browser, data_json contains the selected browser tool's arguments WITHOUT session_id.
         For start, data_json may contain mode (read_only/write) and headless (boolean).
         begin accepts safe operation metadata; confirm requires a receipt string.
