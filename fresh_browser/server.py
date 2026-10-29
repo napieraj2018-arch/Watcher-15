@@ -584,6 +584,8 @@ async def mcp(request: Request):
         result = {}
     elif method == "tools/list":
         result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
+        for name, description in [("profile_list", "List new Neon Fresh profile metadata only. No legacy Floot data."), ("browser_sessions", "List active Neon Fresh sessions only.")]:
+            result["tools"].append({"name":name,"description":description,"inputSchema":{"type":"object","properties":{}}})
     elif method == "tools/call":
         try:
             tool_name = msg.get("params", {}).get("name")
