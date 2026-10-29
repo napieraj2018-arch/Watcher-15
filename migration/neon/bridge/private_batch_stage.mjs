@@ -5,14 +5,14 @@
  * a separately authorized restricted DB role remain mandatory in the caller.
  *
  * Every batch is individually idempotent, verified for complete attendance,
- * limited to 48 records and 768 KiB JSON. Partial uploads remain staging only.
+ * limited to 48 records and 2 MiB JSON. Partial uploads remain staging only.
  * Final exact ciphertext/readback comparison is compulsory before any use.
  */
 import {reassembleShadowRows} from './private_stage_writer.mjs';
 import {verifyColdRestoreParity} from './restore_parity.mjs';
 
 const MAX_ROWS=48;
-const MAX_JSON_BYTES=768*1024;
+const MAX_JSON_BYTES=2*1024*1024;
 const fail=code=>{throw Error(code)};
 const QUERIES=Object.freeze({
  ciphertext: [
