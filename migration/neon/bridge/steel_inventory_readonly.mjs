@@ -15,6 +15,9 @@
 const API='https://api.steel.dev/v1';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PAGE_LIMIT=100,MAX_PAGES=100,MAX_RESPONSE_BYTES=2000000;
+// Confirmed against the official Steel SDK (sessionslist.py and session_list_params.py).
+const PROJECT=/^[A-Za-z0-9][A-Za-z0-9._-]{5,127}$/;
+const hasOwn=(o,k)=>Object.prototype.hasOwnProperty.call(o,k);
 const deny=code=>{throw Error(code)};
 const safeId=v=>typeof v==='string'&&UUID.test(v);
 const parsedCursor=v=>{
@@ -47,15 +50,19 @@ async function boundedResponse(response){
   return payload;
  }finally{try{await reader.cancel()}catch{};try{reader.releaseLock()}catch{}}
 }
-export function createSteelReadonlyClient({apiKey,request=fetch,now=()=>new Date()}={}){
+export function createSteelReadonlyClient({apiKey,projectId,request=fetch,now=()=>new Date()}={}){
  if(typeof apiKey!=='string'||apiKey.length<24||apiKey.length>1024||
     /[\r\n]/.test(apiKey)||typeof request!=='function')
   deny('STEEL_INVENTORY_AUTH_UNAVAILABLE');
+ if(typeof projectId!=='string'||!PROJECT.test(projectId))
+  deny('STEEL_INVENTORY_PROJECT_UNVERIFIED');
  async function get(path,params){
   if(path!=='/sessions'||!params||typeof params!=='object')
    deny('STEEL_INVENTORY_ROUTE_DENIED');
   const q=new URLSearchParams();
   q.set('limit',String(PAGE_LIMIT));
+  if(params.scope==='project')q.set('projectId',projectId);
+  else if(params.scope!=='organization')deny('STEEL_INVENTORY_SCOPE_DENIED');
   if(params.status!==undefined){
    if(params.status!=='live')deny('STEEL_INVENTORY_STATUS_DENIED');
    q.set('status','live');
@@ -76,13 +83,21 @@ export function createSteelReadonlyClient({apiKey,request=fetch,now=()=>new Date
   if(result.status===401||result.status===403)deny('STEEL_INVENTORY_ACCESS_DENIED');
   if(result.status!==200)deny('STEEL_INVENTORY_HTTP_UNCONFIRMED');
   const body=await boundedResponse(result);
-  if(!Array.isArray(body.sessions)||body.sessions.length>PAGE_LIMIT)
+  if(!Array.isArray(body.sessions)||body.sessions.length>PAGE_LIMIT||
+     !hasOwn(body,'nextCursor'))
+   deny('STEEL_INVENTORY_INVALID_RESPONSE');
+  // Steel's paginated list response uses nextCursor (nullable); absent is
+  // not the same as a complete page. Null is the only end marker.
+  parsedCursor(body.nextCursor);
+  if(body.totalCount!==undefined&&
+     (!Number.isSafeInteger(body.totalCount)||body.totalCount<0))
    deny('STEEL_INVENTORY_INVALID_RESPONSE');
   return body;
  }
  async function emptyLive(){
-  const body=await get('/sessions',{status:'live'});
-  if(body.sessions.length!==0||body.nextCursor||body.nextCursorId)
+  const body=await get('/sessions',{scope:'organization',status:'live'});
+  if(body.sessions.length!==0||body.nextCursor!==null||
+     (body.totalCount!==undefined&&body.totalCount!==0))
    deny('STEEL_INVENTORY_LIVE_OR_AMBIGUOUS');
  }
  async function inspect(){
@@ -90,18 +105,21 @@ export function createSteelReadonlyClient({apiKey,request=fetch,now=()=>new Date
   await emptyLive();
   const seen=new Set(),statuses={released:0,failed:0};
   let cursor,stopped=false,pages=0;
+  const cursorSeen=new Set();
   for(let index=0;index<MAX_PAGES;index++){
-   const params=cursor?{cursorId:cursor}:{};
+   const params=cursor?{scope:'project',cursorId:cursor}:{scope:'project'};
    const page=await get('/sessions',params);
    pages++;
    if(page.sessions.length===0){
-    if(page.nextCursor||page.nextCursorId)
+    if(page.nextCursor!==null||
+       (page.totalCount!==undefined&&page.totalCount!==seen.size))
      deny('STEEL_INVENTORY_PAGINATION_CONFLICT');
     stopped=true;break;
    }
    for(const r of page.sessions){
     if(!r||typeof r!=='object'||Array.isArray(r)||!safeId(r.id))
      deny('STEEL_INVENTORY_INVALID_SESSION');
+    if(r.projectId!==projectId)deny('STEEL_INVENTORY_WRONG_PROJECT');
     const id=r.id.toLowerCase();
     if(seen.has(id))deny('STEEL_INVENTORY_DUPLICATE_SESSION');
     seen.add(id);
@@ -109,12 +127,17 @@ export function createSteelReadonlyClient({apiKey,request=fetch,now=()=>new Date
      deny('STEEL_INVENTORY_ACTIVE_OR_UNKNOWN_SESSION');
     statuses[r.status]++;
    }
-   const last=page.sessions.at(-1).id.toLowerCase();
-   const advertised=parsedCursor(page.nextCursor??page.nextCursorId);
-   cursor=advertised||last;
-   if(cursor===params.cursorId)deny('STEEL_INVENTORY_PAGINATION_CONFLICT');
-   // A truncated or inconsistent page is not a reason to assume complete.
-   // Always request the empty terminal page.
+   const advertised=parsedCursor(page.nextCursor);
+   if(advertised===null){
+    if(page.totalCount!==undefined&&page.totalCount!==seen.size)
+     deny('STEEL_INVENTORY_PAGINATION_CONFLICT');
+    stopped=true;break;
+   }
+   if(advertised===cursor||cursorSeen.has(advertised))
+    deny('STEEL_INVENTORY_PAGINATION_CONFLICT');
+   cursorSeen.add(advertised);
+   cursor=advertised;
+   // The provider has advertised another page, so we must read it.
   }
   if(!stopped)deny('STEEL_INVENTORY_PAGE_LIMIT');
   await emptyLive();
@@ -124,6 +147,7 @@ export function createSteelReadonlyClient({apiKey,request=fetch,now=()=>new Date
   return Object.freeze({
    status:'STEEL_READONLY_HISTORY_IDLE',
    observed_at:observed.toISOString(),
+   project_verified_by_id:true,
    total:seen.size,pages,
    released:statuses.released,failed:statuses.failed,
    live_sessions:0,
