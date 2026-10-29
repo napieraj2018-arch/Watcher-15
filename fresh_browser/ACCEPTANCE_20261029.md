@@ -10,10 +10,10 @@ Verified through authenticated calls to the new backend:
 - Restricted SQL runtime: no role/database creation, no BYPASSRLS, no inherited memberships; no schema CREATE or profile DELETE grants. The previous API-created privileged role could not be altered by the database owner and is no longer configured as the application runtime.
 - Eight security/ownership tests and fifteen bridge/proxy tests passed. Browser UI physical-device acceptance is separate.
 
-Private Sites bridge remains owner-only. It proxies the panel at `/fresh` and MCP at `/mcp`, with distinct server-side service credentials. No credentials in repository or client HTML. Sites deployment uses its own source repository and environment secrets.
+Private Sites bridge remains owner-only. Final bridge source `4037196f8f7bfbe433d0b716ba96d1c87dd0ba90`, successful deployment `appgdep_6ae3803e8120819195f158f5a5d44740`. Cloudflare `redirect:error` was corrected to `manual`, with redirects rejected without forwarding credentials. It proxies the panel at `/fresh` and MCP at `/mcp`, with distinct server-side service credentials. No credentials in repository or client HTML. Sites deployment uses its own source repository and environment secrets.
 
 Open gates — do not claim completion:
-- The existing connected ChatGPT tool invocation still reports internal error. Direct authenticated backend RPC works; this is not equivalent to successful host tool execution.
+- Connected ChatGPT `profile_list` successfully returned the two new synthetic profiles after the Cloudflare transport correction; connected `browser_sessions` returned []. Full `fresh_browser` actions are published but not exposed in this chat's initial tool registry. A fresh chat/plugin schema refresh is still needed to validate action execution through that new tool. Direct backend browser RPC is separately verified.
 - Owner completed Apple credentials and MFA for panel access, but the cloud browser's subsequent redirect was blocked by its URL policy. No workaround attempted. No external account login inside the new Chromium profile has been verified.
 - Real iPhone touch/keyboard/upload and true account save-close-reopen require owner acceptance.
 - Free Render is not 24/7 production hosting. No upgrade or purchase made.
