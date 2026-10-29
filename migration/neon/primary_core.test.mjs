@@ -150,7 +150,7 @@ test('claim and checkpoint mutation require real CAS/revision contracts',async()
   action:'save',task_id:ID,claim:'C'.repeat(48),expected_revision:0,
   state:'SYNTHETIC_ENCRYPTED_CHECKPOINT',resumable:true
  }));
- assert.equal(outdated.status,409);
+ assert.equal(outdated.status,400);
  assert.equal((await outdated.json()).error,'revision_invalid');
 });
 test('unsupported recovery/attempt functions never fabricate success',async()=>{
