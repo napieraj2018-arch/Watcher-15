@@ -718,7 +718,7 @@ async def owner_tabs(request: Request, name: str):
     grant = require_owner(request)
     if name != grant["name"]:
         raise HTTPException(403, "Ten link nie udostępnia innego profilu.")
-    return await workspace.tabs(name)
+    return await workspace.tabs(name, owner_context=grant["context"])
 
 @app.post("/owner/api/logout")
 async def owner_logout(request: Request, response: Response):
