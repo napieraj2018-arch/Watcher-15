@@ -135,3 +135,72 @@ controller bootstrap cutover and rollback acceptance remain absent.
 NEON_BOOT_ASSET_COPY_VERIFIED=true; CANDIDATE_JSON_API_CI_PASS=true;
 ACTIVE_DB_PROFILE_ROWS=0; RESTRICTED_ROLE=false;
 REAL_ACCOUNT_AUTH_RESTORED=false; PRODUCTION_CUTOVER=false.**
+
+## Execution checkpoint — 29 October 2026, 11:04–11:15 UTC
+
+This is a newly verified checkpoint under the owner's explicit migration order.
+No real profile mutation, role provisioning, release, deployment or store switch
+was performed.
+
+### Actual private backup verification
+- Downloaded the existing private Neon Storage object again through a 900-second
+  authorized download link, inside the private local verification process.
+- Exact compressed length 28,701,566 bytes and pinned SHA-256 PASS.
+- Ran the existing PR180 cold_backup.mjs and row_mapper.mjs validators from
+  exact code HEAD 663007d878949838fb6bb8844f5304804079c7b1 against the actual bytes
+  and the independently fetched immutable database receipt.
+- All 7,833 records verified: 68 profiles, 1,292 archives, 69 engine bindings,
+  11 task checkpoints, 3 config values, 6,390 events, zero source leases and
+  zero source account attempts. Record-stream digest, duplicate checks,
+  timestamps and mappings PASS.
+- R158: 20 rolling + 20 forensic + 1 pre-verified protected archive, no other
+  protected R158 rows. Total protected archives 78.
+- Temporary downloaded bytes and receipt-bearing runner were deleted after
+  validation. No private rows, signed URL, provider UUIDs or credentials were
+  committed or returned to model output.
+- This confirms the retained snapshot's integrity ONLY. It is not a fresh
+  Floot delta, source freeze, operational import or browser authentication test.
+
+### Fresh operational observations
+- Neon SQL at 2026-10-29T11:04:25Z: operational profiles=0, archives=0, tasks=0;
+  all four staging inboxes=0; immutable receipt=1;
+  mode=staging_read_only; write_enabled=false.
+- Postgres role inventory still contains neondb_owner only. No aib_import_*
+  role exists. No previously refused role creation was retried through any
+  tool, identity or alternate interface.
+- Inspected the Neon plugin permission setting: app-specific setting already
+  **Allow all actions**. Therefore another generic owner consent or toggling
+  this setting is not an established remedy for the earlier safety refusal.
+  The retained reports do not contain its detailed rejection rationale.
+  No exposed tool in this execution provides an appeal/authorization action
+  for that historical refusal. Resolve the original operation through the
+  platform's authorized review; do not substitute owner import or manual SQL
+  to evade it.
+- browser_sessions again returned an internal MCP error, not an idle receipt.
+- The explicitly requested Cloud Browser opened the Steel dashboard, but its
+  visible account/team identity did not match the expected project identity.
+  No provider inventory, API keys, private sessions or profile data were
+  accessed under that identity; no sign-out/cookie deletion was performed.
+  The correct owner identity must be verified before inspecting sessions.
+- Render service: AutoDeploy=no; one configured instance; LIVE deploy
+  dep-dbh95gon74is73cmpek0, commit
+  f759faa353e5de5e7392c4aceb3bbe70e6263524.
+- Latest matching app log at 2026-10-29T11:01:32Z still reports
+  RECOVERY_HTTP_429 and maintenance due to provider rate limiting.
+  No restart or production configuration change was attempted.
+- No additional Floot quota calls were made before the previously reported
+  reset. Do not infer current source integrity or freeze from the cold backup.
+
+### Next permitted execution, not another audit loop
+1. Resolve the original importer permission refusal through authorized review.
+   Verify a legitimately limited importer on the actual import connection.
+2. Verify the intended Steel account/project and complete exact-session
+   saved-close reconciliation plus full inventory; obtain a fresh source freeze.
+3. Run the existing private importer and independent per-record database readback.
+4. Complete actual neutral three-store restore and real-account identity checks.
+5. Only then permit one epoch-fenced Neon writer and execute the validated
+   rollback/cutover procedure.
+
+**REAL_PROFILES_IMPORTED=0; CONFIRMED_LOGINS_AFTER_NEON_REOPEN=0;
+PRODUCTION_NEON_PRIMARY=false; ROLLBACK_EXECUTION_TESTED=false.
+Floot remains the configured production store; private backup retained.**
