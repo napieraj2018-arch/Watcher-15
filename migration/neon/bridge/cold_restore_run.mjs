@@ -11,6 +11,7 @@ import {verifyMigrationFreeze,assertShadowDestination} from './preflight.mjs';
 import {planRestrictedColdRestore,expectedColdReceipt} from './cold_restore_plan.mjs';
 import {validateColdBackup} from './cold_backup.mjs';
 import {stageAndVerifyBatched} from './private_batch_stage.mjs';
+import {checkRestrictedImporter} from './import_role_gate.mjs';
 
 const deny=code=>{throw Error(code)};
 const S3_HOST='br-ancient-firefly-baqgm1x0.storage.c-8.eu-central-1.aws.neon.tech';
@@ -89,7 +90,9 @@ async function main(){
  const signed=verifyMigrationFreeze(receipt,process.env.AIB_MIGRATION_HMAC_KEY);
  const db=postgres(uri,{max:1,connect_timeout:8,ssl:'require',idle_timeout:8,prepare:false});
  try{
-  const stage=await getStage(db),privateReceipt=await pinnedReceipt(db,signed.batch_id);
+  const stage=await getStage(db);
+  await checkRestrictedImporter(db);
+  const privateReceipt=await pinnedReceipt(db,signed.batch_id);
   const expected=expectedColdReceipt(privateReceipt);
   const link=boundedSignedUrl(process.env.AIB_COLD_BACKUP_GET_URL,
     privateReceipt.private_object_key);
