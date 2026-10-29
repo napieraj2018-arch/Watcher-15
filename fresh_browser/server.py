@@ -5,6 +5,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+from html import escape
 import ipaddress
 import json
 import os
@@ -175,6 +176,68 @@ class BrowserWorkspace:
         self.tab_ids = {}
         self.tab_sequence = 0
         self.navigation_failures = []
+        # Failed restore must not erase the original tab on the next autosave.
+        self.pending_urls = {}
+        self.failed_pages = set()
+        self.restore_origins = []
+
+    def saved_url(self, page):
+        return page.url if page.url.startswith("https://") else self.pending_urls.get(page, "")
+
+    def navigation_state(self, page):
+        if page in self.failed_pages:
+            return "failed"
+        return "ready" if page.url.startswith("https://") else "empty"
+
+    async def navigate(self, page, raw, *, restoring=False):
+        target = safe_url(raw)
+        self.pending_urls[page] = target
+        parts = urlsplit(target)
+        # Retry only restoration of a bare home page after a transient network
+        # failure. Never replay a form, login callback, query, path or HTTP 429.
+        retry_root = (restoring and parts.path in ("", "/")
+                      and not parts.query and not parts.fragment)
+        for attempt in range(2):
+            try:
+                response = await page.goto(target, wait_until="domcontentloaded",
+                                           timeout=12000 if attempt == 0 else 8000)
+            except Exception as exc:
+                retryable = any(code in str(exc) for code in (
+                    "net::ERR_FAILED", "net::ERR_CONNECTION_RESET",
+                    "net::ERR_CONNECTION_CLOSED", "net::ERR_TIMED_OUT",
+                    "net::ERR_NAME_NOT_RESOLVED"))
+                if (attempt == 0 and retry_root and retryable
+                        and not page.url.startswith("https://")):
+                    await page.wait_for_timeout(500)
+                    continue
+                self.pending_urls[page] = target
+                self.failed_pages.add(page)
+                self.navigation_failures.append({"tab": self.tab_id(page),
+                    "origin": safe_display_url(target), "failure": "page_load_failed",
+                    "time": int(time.time())})
+                self.navigation_failures = self.navigation_failures[-10:]
+                if not page.url.startswith("https://"):
+                    # Visible diagnostic, not a successful empty white frame.
+                    # Only the origin is shown; paths/tokens stay private.
+                    await page.goto("about:blank", wait_until="domcontentloaded", timeout=3000)
+                    await page.set_content(
+                        "<!doctype html><meta charset='utf-8'><title>Nie udało się wczytać strony</title>"
+                        "<style>body{font:24px system-ui;background:#152232;color:#eef4fa;"
+                        "padding:44px;line-height:1.5}h1{font-size:30px}</style>"
+                        "<h1>Strona nie została wczytana</h1><p>" + escape(safe_display_url(target)) +
+                        "</p><p>Zapisany profil i adres są zachowane.</p>"
+                        "<p>Użyj przycisku <b>Odśwież stronę</b> w panelu. "
+                        "Nie wpisuj ponownie hasła na pustym ekranie.</p>",
+                        wait_until="domcontentloaded", timeout=5000)
+                return False
+            else:
+                if response is not None and response.status >= 400:
+                    self.failed_pages.add(page)
+                    return False
+                self.pending_urls.pop(page, None)
+                self.failed_pages.discard(page)
+                return True
+        return False
 
     def register_page(self, page):
         if page in self.tab_ids:
@@ -186,12 +249,15 @@ class BrowserWorkspace:
             # Blank popups must not steal the page containing the login form.
             if frame == page.main_frame and page.url.startswith("https://"):
                 self.active_page = page
+                self.pending_urls.pop(page, None)
+                self.failed_pages.discard(page)
         def failed(request):
             try:
                 main_document = request.is_navigation_request() and request.frame == page.main_frame
             except Exception:
                 return
             if main_document:
+                self.failed_pages.add(page)
                 code = str(request.failure or "")
                 self.navigation_failures.append({
                     "tab": ident, "origin": safe_display_url(request.url),
@@ -202,6 +268,7 @@ class BrowserWorkspace:
             try:
                 request = response.request
                 if response.status >= 400 and request.is_navigation_request() and request.frame == page.main_frame:
+                    self.failed_pages.add(page)
                     self.navigation_failures.append({"tab": ident, "origin": safe_display_url(response.url),
                                                      "status": response.status, "time": int(time.time())})
                     self.navigation_failures = self.navigation_failures[-10:]
@@ -220,8 +287,9 @@ class BrowserWorkspace:
         tabs = []
         for p in self.context.pages:
             self.register_page(p)
-            tabs.append({"id": self.tab_ids[p], "url": safe_display_url(p.url),
-                         "title": (await p.title())[:150], "active": p is current})
+            tabs.append({"id": self.tab_ids[p], "url": safe_display_url(self.saved_url(p)),
+                         "title": (await p.title())[:150], "active": p is current,
+                         "navigation": self.navigation_state(p)})
         return {"tabs": tabs, "navigation_failures": self.navigation_failures[-5:]}
 
     async def _ensure_engine(self):
@@ -235,8 +303,15 @@ class BrowserWorkspace:
             return
         await self.assert_lease()
         data = await self.context.storage_state(indexed_db=True)
-        saved_pages = [p for p in self.context.pages if p.url.startswith("https://")]
-        data["aib_tabs"] = [p.url for p in saved_pages]
+        saved_pages = [p for p in self.context.pages if self.saved_url(p)]
+        data["aib_tabs"] = [self.saved_url(p) for p in saved_pages]
+        # Retain unvisited origin data only for failed, still-blank restores.
+        # Successfully visited/logout origins are never resurrected.
+        pending_origins = {safe_display_url(self.pending_urls[p]) for p in saved_pages
+                           if not p.url.startswith("https://") and p in self.pending_urls}
+        present = {o["origin"] for o in data.get("origins", [])}
+        data.setdefault("origins", []).extend(o for o in self.restore_origins
+            if o.get("origin") in pending_origins and o.get("origin") not in present)
         current = self.page()
         data["aib_active_tab"] = saved_pages.index(current) if current in saved_pages else 0
         data["aib_history"] = self.history[-200:]
@@ -263,6 +338,9 @@ class BrowserWorkspace:
             self.active_page = None
             self.tab_ids = {}
             self.navigation_failures = []
+            self.pending_urls = {}
+            self.failed_pages = set()
+            self.restore_origins = []
 
     async def assert_lease(self):
         if not self.lease or self.lease.closed:
@@ -323,12 +401,10 @@ class BrowserWorkspace:
                 await route.abort()
         await ctx.route("**/*", guard)
         self.history = state.get("aib_history", [])
+        self.restore_origins = state.get("origins", [])
         for url in state.get("aib_tabs", [])[:10]:
             page = await ctx.new_page()
-            try:
-                await page.goto(safe_url(url), wait_until="domcontentloaded", timeout=20000)
-            except Exception:
-                pass
+            await self.navigate(page, url, restoring=True)
         if not ctx.pages:
             await ctx.new_page()
         self.context = ctx
@@ -368,7 +444,8 @@ class BrowserWorkspace:
                 if op == "handoff":
                     self.human = bool(data.get("human", True))
                 elif op == "snapshot":
-                    return {"url": safe_display_url(page.url), "title": await page.title(),
+                    return {"url": safe_display_url(self.saved_url(page)), "title": await page.title(),
+                            "navigation": self.navigation_state(page),
                             "text": (await page.locator("body").inner_text())[:16000],
                             "elements": await page.locator("a,button,input,textarea,select").evaluate_all("els => els.slice(0,150).map((e,i)=>({index:i,tag:e.tagName,type:e.type||'',label:(e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'').slice(0,120)}))")}
                 elif op == "tabs":
@@ -412,14 +489,17 @@ class BrowserWorkspace:
                 elif op == "forward":
                     await page.go_forward(wait_until="domcontentloaded", timeout=20000)
                 elif op == "reload":
-                    await page.reload(wait_until="domcontentloaded", timeout=20000)
+                    if not page.url.startswith("https://") and page in self.pending_urls:
+                        await self.navigate(page, self.pending_urls[page])
+                    else:
+                        await page.reload(wait_until="domcontentloaded", timeout=20000)
                 elif op == "new_tab":
                     page = await self.context.new_page()
                     self.active_page = page
                 elif op == "open":
                     pass
                 elif op == "go":
-                    await page.goto(safe_url(data.get("url", "")), wait_until="domcontentloaded", timeout=25000)
+                    await self.navigate(page, data.get("url", ""))
                 elif op == "click":
                     x, y = float(data.get("x", -1)), float(data.get("y", -1))
                     viewport = page.viewport_size or VIEWPORT
@@ -453,8 +533,10 @@ class BrowserWorkspace:
                 if op in {"go", "back", "forward"}:
                     self.history.append({"url": page.url, "time": int(time.time())})
                 await self._save()
-                return {"ok": True, "human": self.human, "title": (await page.title())[:200],
-                        "url": safe_display_url(page.url)}
+                navigation = self.navigation_state(page)
+                return {"ok": navigation != "failed", "human": self.human,
+                        "title": (await page.title())[:200], "navigation": navigation,
+                        "url": safe_display_url(self.saved_url(page))}
             except HTTPException:
                 raise
             except Exception:
@@ -470,7 +552,8 @@ class BrowserWorkspace:
                 page = self.page()
                 png = await page.screenshot(type="png", animations="disabled", timeout=12000)
                 if with_metadata:
-                    return png, {"X-AIB-Page": self.tab_id(page), "X-AIB-Origin": safe_display_url(page.url),
+                    return png, {"X-AIB-Page": self.tab_id(page), "X-AIB-Origin": safe_display_url(self.saved_url(page)),
+                                 "X-AIB-Navigation": self.navigation_state(page),
                                  "X-AIB-Tabs": str(len(self.context.pages))}
                 return png
             except Exception:
@@ -635,7 +718,7 @@ async def owner_tabs(request: Request, name: str):
     grant = require_owner(request)
     if name != grant["name"]:
         raise HTTPException(403, "Ten link nie udostępnia innego profilu.")
-    return await workspace.tabs(name, owner_context=grant["context"])
+    return await workspace.tabs(name)
 
 @app.post("/owner/api/logout")
 async def owner_logout(request: Request, response: Response):
@@ -725,6 +808,37 @@ async def acceptance(args):
         page = await workspace.context.new_page()
         await workspace.context.route("https://aib-acceptance.invalid/**", lambda r: r.fulfill(status=200, content_type="text/html", body=FIXTURE))
         await page.goto("https://aib-acceptance.invalid/")
+        if phase == "navigation":
+            probe = await workspace.context.new_page()
+            target = "https://aib-restore.invalid/"
+            requests = []
+            async def fail_once(route):
+                requests.append(1)
+                if len(requests) == 1:
+                    await route.abort("failed")
+                else:
+                    await route.fulfill(status=200, content_type="text/html", body=FIXTURE)
+            await workspace.context.route(target, fail_once)
+            recovered = await workspace.navigate(probe, target, restoring=True)
+            bad = await workspace.context.new_page()
+            bad_target = "https://aib-offline.invalid/"
+            await workspace.context.route(bad_target, lambda r: r.abort("failed"))
+            unavailable = await workspace.navigate(bad, bad_target, restoring=True)
+            workspace.active_page = bad
+            await workspace._save()
+            row = await asyncio.to_thread(db_load, name)
+            saved = json.loads(unseal(row[0]))
+            checks = {"transient_get_recovered": recovered and len(requests) == 2,
+                      "failed_load_not_success": unavailable is False,
+                      "visible_error_instead_of_blank": "Strona nie została wczytana" in await bad.locator("body").inner_text(),
+                      "failed_tab_url_preserved": bad_target in saved.get("aib_tabs", []),
+                      "navigation_status_failed": workspace.navigation_state(bad) == "failed"}
+            await probe.close()
+            await bad.close()
+            workspace.active_page = page
+            await workspace._close_current()
+            return {"phase": "navigation", "checks": checks,
+                    "all_passed": all(checks.values()), "saved_closed": True}
         if phase == "tabs":
             workspace.active_page = page
             popup = await workspace.context.new_page()
