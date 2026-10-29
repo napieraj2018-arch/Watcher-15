@@ -28,3 +28,52 @@ The user already approved migration of their own accounts, but approval is not p
 Backup source and encrypted application boot assets are privately retained in Neon; original Floot data remains unchanged. Stop on uncertainty; do not retry writes with different IDs, skip identity rechecks or reset/clear provider quarantine to make a test pass. The current staging is intentionally not production-ready.
 
 **Status: PRIVATE_BACKUP_VERIFIED, ASSETS_MIRRORED, OFFLINE_RESTORE_TESTS_PASS, STAGING_API_DENY_TESTS_PASS; POSTGRES_IMPORTED=false, ACCOUNTS_RESTORED=false, PRODUCTION_SWITCHED=false.**
+
+## Additional implementation — 29 October 2026, user explicitly requested full import
+
+**Fresh read-only evidence:** At 09:50 UTC source Floot reported 68 profiles,
+1292 archives, 69 engine bindings, 11 tasks, 0 active leases, 0 unresolved
+checkpoints and 0 changed profiles/tasks since the protected snapshot.
+Neon SQL reported exactly 0 operational profiles and 0 encrypted/config/event
+shadow inbox rows, while the immutable private backup receipt still exists.
+Neon roles: only `neondb_owner` (not a restricted importer). Browser MCP
+`browser_sessions` and `profile_list` returned internal errors, so an
+independent current Steel full inventory/saved-close proof is UNAVAILABLE.
+
+**Actual implementation after that read:**
+- `bridge/private_batch_stage.mjs` performs bounded JSONB set-based writes
+  through ONLY four existing guarded STAGING append functions. Maximum
+  48 records / 2 MiB serialized JSON per call; actual largest source profile
+  is 1,342,052 bytes and fits this limit.
+- The full 7,833-record REAL private backup was verified, mapped into
+  176 bounded batch requests, then assembled back and compared to the
+  source byte-for-byte in a trusted offline mock. PASS on all eight categories.
+  This **did not insert real data into Neon PostgreSQL**.
+- All four SQL batch forms passed live Neon PostgreSQL 17 `EXPLAIN`.
+  A separate synthetic real-SQL transaction inserted one fixture into each
+  of the four STAGING inboxes, verified all four receipts, then ROLLED BACK
+  completely. Real inbox count remains zero and writer guard unchanged.
+- `bridge/import_role_gate.mjs` checks the actual connected role grants:
+  disallows owner membership, role creation, schema CREATE, any write privilege
+  to operational vault tables, and UPDATE/DELETE/TRUNCATE against STAGING.
+  Requires limited SELECT/INSERT plus four append function EXECUTE grants.
+  The read-only query was actually run in Neon and correctly identified the
+  current `neondb_owner` as TOO PRIVILEGED. No role creation retried.
+- Private `bridge/cold_restore_run.mjs` now uses batch staging and mandatory
+  privilege attestation. All new synthetic batch/role tests PASS and the
+  entire PR test workflow is green at the corresponding exact head.
+
+**P0 remaining beyond importer privilege:** The actual Render controller
+still hardcodes Floot provider recovery and task-vault origins, and
+`bootstrap.py` still downloads its two encrypted packages from Floot.
+The private copies of these two packages are safe in Neon Storage but
+production bootstrap has NOT been switched; the Neon asset endpoint is still
+fail-closed without an owner-configured digest. Protocol-compatible controller
+and CAS changes plus a safe current Steel session state must be verified
+before choosing Neon as the sole operational writer.
+
+**Do not claim import complete:** `POSTGRES_IMPORTED=false`,
+`LIVE_ACCOUNTS_REOPENED=false`, `SINGLE_WRITER_CUTOVER=false`.
+A previous tool rejected restricted role provisioning. Do not evade that
+restriction by using an owner connection or a different endpoint. Provider
+authorization for truly limited import access is required first.
