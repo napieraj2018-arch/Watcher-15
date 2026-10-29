@@ -17,7 +17,7 @@ test('runner requires separately provided limited credentials and signed freeze'
   'AIB_MIGRATION_RECEIPT_JSON','AIB_MIGRATION_HMAC_KEY',
   'AIB_COLD_BACKUP_GET_URL','verifyMigrationFreeze',
   'getStage','assertShadowDestination','RESTORE_RESTRICTED_DB_ROLE_REQUIRED',
-  'planRestrictedColdRestore','stageAndVerifyColdRestore'
+  'planRestrictedColdRestore','stageAndVerifyBatched'
  ])assert.ok(s.includes(token),'Missing required gate: '+token);
  assert.doesNotMatch(s,/CREATE\s+ROLE|DROP\s+TABLE|ALTER\s+ROLE|UPDATE\s+vault_migration_guard|setInterval|fetch\('http:\/\//i);
 });
