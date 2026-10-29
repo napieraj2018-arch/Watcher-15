@@ -1,48 +1,28 @@
 <!doctype html>
-<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AI Browser 2.0</title>
 <style>
-:root{color-scheme:dark;font:16px system-ui,-apple-system,sans-serif;background:#101722;color:#edf3fa}
-*{box-sizing:border-box}body{margin:0 auto;max-width:1280px;padding:16px}
-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid #394657;padding-bottom:14px}
-h1{font-size:1.35rem;margin:0}h2{font-size:1.08rem;margin:14px 0}
-a{color:#b9dcff}p{line-height:1.4}.sub{font-size:.89rem;color:#b0bfcc}
-.panel{background:#1a2534;border:1px solid #36485b;border-radius:12px;padding:14px;margin:16px 0}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
-input,select,button{font:inherit;padding:11px 12px;border-radius:8px;border:1px solid #536578;background:#111b29;color:#fff;min-width:0}
-input{flex:1;min-width:180px}button{cursor:pointer;background:#245a80;border-color:#417ca5}button.secondary{background:#283746}button:disabled{opacity:.55}
-label{font-size:.9rem}#screen{display:block;width:100%;height:auto;touch-action:manipulation;border-radius:8px;background:#e8e8e8;cursor:crosshair}
-#imageFrame{overflow:hidden;max-width:1280px;margin:10px auto}#message{color:#bce7d7;min-height:1.4em}#error{color:#ffa9a9;min-height:1.4em}
-.hidden{display:none}small{color:#b2bccb}.instructions{color:#b2c3d3}nav{font-size:.9rem}
-@media(max-width:600px){body{padding:10px}.panel{padding:10px}.row>*{flex:1}header{align-items:start}}
-</style></head>
-<body>
-<header><div><h1>AI Browser 2.0</h1><div class="sub">Twoje profile i zapisane sesje</div></div>
-<nav><a href="https://ai-browser-cloud.onrender.com" target="_blank" rel="noopener">Stara przeglądarka Floot ↗</a></nav></header>
-<div id="error"></div><div id="message"></div>
-<section id="loginBox" class="panel">
-<h2>Logowanie administratora</h2><p class="instructions">Wpisz klucz <b>AIB_FRESH_ADMIN_TOKEN</b> z ustawień nowej usługi Render. Klucz nie jest zapisywany w telefonie.</p>
-<div class="row"><input id="adminKey" type="password" autocomplete="off" placeholder="Klucz administratora"><button id="loginBtn">Zaloguj</button></div>
-<small>Nowa instancja nie importuje istniejących logowań. Logujesz się do stron od początku.</small>
-</section>
-<main id="appBox" class="hidden">
-<section class="panel">
-<div class="row"><label for="profile">Profil:</label><select id="profile"></select><button id="openBtn">Otwórz</button><button class="secondary" id="refreshProfiles">Odśwież listę</button></div>
-<div class="row"><input id="newProfile" placeholder="np. gmail, wordpress, youtube" maxlength="40"><button id="createBtn">Utwórz nowy profil</button></div>
-<small>Każdy profil ma własne zaszyfrowane cookies, localStorage i obsługiwany przez Playwright stan IndexedDB w osobnej bazie Neon.</small>
-</section>
-<section class="panel">
-<div class="row"><input id="website" type="url" placeholder="https://accounts.google.com/"><button id="goBtn">Przejdź</button></div>
-<div class="row"><button class="secondary" id="phoneBtn">Widok telefonu</button><button class="secondary" id="desktopBtn">Widok komputera</button><button class="secondary" id="humanBtn">Przejmij sterowanie</button><button class="secondary" id="agentBtn">Oddaj sterowanie ChatGPT</button><button class="secondary" id="prevBtn">Wstecz</button><button class="secondary" id="reloadBtn">Odśwież stronę</button><button class="secondary" id="screenBtn">Odśwież obraz</button><button class="secondary" id="saveBtn">Zapisz profil</button><button class="secondary" id="closeBtn">Zamknij profil</button></div>
-<p class="sub" id="site">Zacznij od wybrania profilu.</p>
-<div id="imageFrame"><img id="screen" alt="Ekran zdalnej przeglądarki; dotknij, aby kliknąć" width="1280" height="800"></div>
-<small>Dotknięcie obrazu kliknie w przeglądarce. Aby wpisać login lub hasło, kliknij pole na obrazie i użyj poniższego formularza.</small>
-<div class="row"><input id="keyboard" type="password" autocomplete="off" placeholder="Tekst do wpisania"><button id="typeBtn">Wpisz</button><button id="maskBtn" class="secondary">Ukryj tekst</button></div>
-<div class="row"><button id="enterBtn">Enter</button><button id="tabBtn" class="secondary">Tab</button><button id="selectBtn" class="secondary">Zaznacz wszystko</button><button id="backBtn" class="secondary">Usuń znak</button></div>
-<div class="row"><button id="scrollUp" class="secondary">↑ Przewiń</button><button id="scrollDown" class="secondary">↓ Przewiń</button><button id="logoutBtn" class="secondary">Wyloguj z panelu</button></div>
-</section>
-</main>
-<script>
+:root{color-scheme:dark;font:16px/1.45 system-ui,-apple-system,sans-serif;background:#101722;color:#edf3fa}
+*{box-sizing:border-box}body{margin:0 auto;max-width:1100px;padding:16px 16px max(24px,env(safe-area-inset-bottom))}header{padding:4px 0 14px}h1{font-size:1.35rem;margin:0}h2{font-size:1rem;margin:0 0 12px}.sub,small{color:#afbfcd;font-size:.86rem}p{margin:8px 0}.panel{background:#1a2534;border:1px solid #36485b;border-radius:14px;padding:14px;margin:12px 0}.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin:10px 0}.buttons{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}.control{grid-template-columns:repeat(2,minmax(0,1fr))}.stack{display:grid;gap:8px;margin:10px 0}input,select,button{font:inherit;min-width:0;max-width:100%;border-radius:10px;border:1px solid #536578;padding:12px;background:#111b29;color:#fff}input,select{width:100%;min-height:48px}button{cursor:pointer;background:#245a80;border-color:#417ca5;min-height:48px;line-height:1.3;white-space:normal;overflow-wrap:break-word}button.secondary{background:#283746}button:disabled,select:disabled{opacity:.55;cursor:wait}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #78c3ff;outline-offset:2px}.control button{font-size:.94rem}.buttons button{font-size:.88rem}label{display:block;font-size:.9rem;margin:4px 0 6px}details{border-top:1px solid #36485b;margin-top:14px;padding-top:12px}summary{cursor:pointer;min-height:36px;color:#cbdbe8}#screen{display:block;width:100%;height:auto;border-radius:10px;touch-action:manipulation;background:#101722}#imageFrame{margin:12px auto;max-width:100%;overflow:hidden}#emptyScreen{border:1px dashed #536578;border-radius:10px;padding:24px 16px;text-align:center;color:#afbfcd}#site{overflow-wrap:anywhere}#message:not(:empty),#error:not(:empty){padding:10px 12px;border-radius:10px;margin:8px 0;font-size:.9rem}#message{color:#bce7d7;background:#18392e}#error{color:#ffc2c2;background:#45252b}.hidden{display:none!important}.help{margin:8px 0 12px;font-size:.85rem;color:#afbfcd}#profile{font-size:1rem}.keyboardActions{grid-template-columns:repeat(2,minmax(0,1fr))}a{color:#b9dcff}
+@media(min-width:700px){.workspace{display:grid;grid-template-columns:270px minmax(0,1fr);gap:16px;align-items:start}.workspace>.panel{margin-top:0}.control{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:420px){body{padding:12px 10px max(24px,env(safe-area-inset-bottom))}.panel{padding:12px}.row{gap:8px}.row>button{padding:10px 12px}.buttons{gap:8px}.control button{font-size:.88rem}.buttons button{padding:10px 6px}.keyboardActions{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style></head><body>
+<header><h1>AI Browser 2.0</h1><div class="sub">Twoja przeglądarka i zapisane profile</div></header>
+<div id="error" role="alert"></div><div id="message" role="status" aria-live="polite"></div>
+<section id="loginBox" class="panel"><h2>Dostęp do przeglądarki</h2><p class="help">Jeśli otwierasz przeglądarkę przez prywatny panel ChatGPT, zaloguj się do tego panelu. Bezpośredni dostęp do serwera wymaga klucza administratora.</p><div class="stack"><label for="adminKey">Klucz administratora</label><input id="adminKey" type="password" autocomplete="off"><button id="loginBtn">Zaloguj</button></div></section>
+<main id="appBox" class="hidden workspace">
+<section class="panel"><h2>Wybierz profil</h2><label for="profile">Zapisany profil</label><select id="profile"></select><div class="stack"><button id="openBtn">Otwórz profil</button><button id="refreshProfiles" class="secondary">Odśwież listę</button></div><p class="help">Każdy profil zachowuje własne logowanie. Do Google wybierz <b>google-youtube</b>.</p><details><summary>Nowy profil</summary><label for="newProfile">Nazwa profilu</label><div class="stack"><input id="newProfile" placeholder="np. gmail lub wordpress" maxlength="40" autocapitalize="none" spellcheck="false"><button id="createBtn">Utwórz profil</button></div></details></section>
+<section class="panel"><label for="website">Adres strony</label><div class="row"><input id="website" type="url" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://accounts.google.com/"><button id="goBtn">Przejdź</button></div>
+<div class="buttons control"><button id="humanBtn">Przejmij sterowanie</button><button id="agentBtn" class="secondary">Oddaj ChatGPT</button></div>
+<div class="buttons"><button id="prevBtn" class="secondary">Wstecz</button><button id="reloadBtn" class="secondary">Odśwież stronę</button><button id="saveBtn" class="secondary">Zapisz profil</button></div>
+<p id="site" class="sub">Wybierz profil i kliknij „Otwórz profil”.</p><div id="imageFrame"><div id="emptyScreen">Ekran strony pojawi się po otwarciu profilu.</div><img id="screen" class="hidden" alt="Ekran zdalnej przeglądarki. Dotknij wybranego pola, aby kliknąć."></div>
+<p class="help">Aby wpisać tekst, dotknij pola na ekranie strony i użyj klawiatury poniżej.</p>
+<label for="keyboard">Tekst do wpisania w zaznaczonym polu</label><input id="keyboard" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Login, hasło lub inny tekst">
+<div class="buttons control"><button id="typeBtn">Wpisz tekst</button><button id="maskBtn" class="secondary">Pokaż tekst</button></div>
+<div class="buttons keyboardActions"><button id="enterBtn">Enter</button><button id="tabBtn" class="secondary">Tab</button><button id="selectBtn" class="secondary">Zaznacz wszystko</button><button id="backBtn" class="secondary">Usuń znak</button></div>
+<div class="buttons control"><button id="scrollUp" class="secondary">↑ Przewiń</button><button id="scrollDown" class="secondary">↓ Przewiń</button></div>
+<details><summary>Więcej opcji</summary><div class="buttons control"><button id="phoneBtn" class="secondary">Widok telefonu</button><button id="desktopBtn" class="secondary">Widok komputera</button><button id="screenBtn" class="secondary">Odśwież obraz</button><button id="closeBtn" class="secondary">Zapisz i zamknij</button></div><button id="logoutBtn" class="secondary">Wyloguj z panelu</button></details>
+</section></main><script>
 "use strict";
 const el = (id)=>document.getElementById(id);
 let busy = false;
@@ -55,28 +35,41 @@ async function api(path,method="GET",body=undefined){
  return reply;
 }
 function selected(){const v=el("profile").value;if(!v)throw new Error("Najpierw utwórz lub wybierz profil.");return v;}
-function setBusy(v){busy=v;document.querySelectorAll("button").forEach(b=>b.disabled=v);}
+function setBusy(v){busy=v;document.querySelectorAll("button,select").forEach(b=>b.disabled=v);}
 async function run(fn){if(busy)return;setBusy(true);try{await fn()}catch(e){notify(e.message||"Nieznany błąd",true)}finally{setBusy(false)}}
+function clearScreen(message="Ekran strony pojawi się po otwarciu profilu."){
+ const img=el("screen"), prev=img.dataset.objectUrl;
+ img.removeAttribute("src");img.classList.add("hidden");
+ if(prev)URL.revokeObjectURL(prev);delete img.dataset.objectUrl;
+ el("emptyScreen").textContent=message;el("emptyScreen").classList.remove("hidden");
+}
 async function refreshProfiles(){
- const data=await api("./api/profiles");const old=el("profile").value;el("profile").replaceChildren();
- for(const p of data.profiles){el("profile").add(new Option(p.name,p.name));}
- if(data.profiles.some(p=>p.name===old))el("profile").value=old;
+ const data=await api("./api/profiles"), old=el("profile").value;
+ const profiles=[...data.profiles].sort((a,b)=>Number(a.name.startsWith("acceptance-"))-Number(b.name.startsWith("acceptance-"))||a.name.localeCompare(b.name));
+ el("profile").replaceChildren();
+ for(const p of profiles)el("profile").add(new Option(p.name+(p.name.startsWith("acceptance-")?" (test)":""),p.name));
+ const preferred=profiles.find(p=>p.name===old)||profiles.find(p=>p.name==="google-youtube")||profiles.find(p=>!p.name.startsWith("acceptance-"));
+ el("profile").value=preferred?preferred.name:"";
+ if(!preferred)el("profile").add(new Option("Wybierz profil", "", true, true));
 }
 async function screenshot(){
  const name=selected();const response=await fetch("./api/screen?name="+encodeURIComponent(name)+"&v="+Date.now(),{credentials:"same-origin",cache:"no-store"});
  if(!response.ok){let error=await response.json().catch(()=>({detail:"Brak obrazu"}));throw new Error(error.detail||"Brak obrazu");}
  const blob=await response.blob(), u=URL.createObjectURL(blob), img=el("screen");
- const prev=img.dataset.objectUrl;img.src=u;img.dataset.objectUrl=u;if(prev)URL.revokeObjectURL(prev);
+ const prev=img.dataset.objectUrl;img.src=u;img.dataset.objectUrl=u;img.classList.remove("hidden");el("emptyScreen").classList.add("hidden");if(prev)URL.revokeObjectURL(prev);
 }
 async function command(action,payload={}){
  const result=await api("./api/action","POST",{name:selected(),action,...payload});
  el("site").textContent=(result.title||"")+(result.url?" · "+result.url:"");
- if(!result.closed)await screenshot();
- else{el("site").textContent="Profil bezpiecznie zamknięty.";el("screen").removeAttribute("src");}
+ if(!result.closed){
+  if(result.url==="Nowa karta")clearScreen("Nowa karta. Wpisz adres powyżej i kliknij „Przejdź”.");
+  else try{await screenshot()}catch(e){notify("Polecenie wykonane. Nie udało się odświeżyć obrazu: "+e.message,true);return result;}
+ }
+ else{el("site").textContent="Profil bezpiecznie zamknięty.";clearScreen("Profil zapisany i zamknięty. Kliknij „Otwórz profil”, aby wrócić.");}
  notify(result.human?"Sterowanie ręczne — ChatGPT wstrzymany.":result.closed?"Profil zapisany i zamknięty.":"Gotowe; profil zapisano w Neon.");
 }
 function wire(id,fn){el(id).addEventListener("click",()=>run(fn));}
-wire("loginBtn",async()=>{await api("./api/login","POST",{token:el("adminKey").value});el("adminKey").value="";el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");await refreshProfiles();notify("Połączono z nowym panelem Neon.");});
+wire("loginBtn",async()=>{await api("./api/login","POST",{token:el("adminKey").value});el("adminKey").value="";el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");await refreshProfiles();notify("Połączono. Wybierz profil i otwórz stronę.");});
 wire("refreshProfiles",refreshProfiles);
 wire("createBtn",async()=>{
  const name=el("newProfile").value.trim().toLowerCase();await api("./api/profiles","POST",{name});
@@ -84,7 +77,8 @@ wire("createBtn",async()=>{
  await command("open");notify("Nowy profil "+name+" zapisany w Neon.");
 });
 wire("openBtn",()=>command("open"));
-wire("goBtn",()=>{let u=el("website").value.trim();if(!u.startsWith("https://"))u="https://"+u;return command("go",{url:u});});
+el("profile").addEventListener("change",()=>{clearScreen();el("site").textContent="Wybrano "+selected()+". Kliknij „Otwórz profil”.";});
+wire("goBtn",()=>{let u=el("website").value.trim();if(!u)throw new Error("Wpisz adres strony.");if(!u.startsWith("https://"))u="https://"+u;return command("go",{url:u});});
 wire("screenBtn",screenshot);
 wire("phoneBtn",()=>command("viewport",{text:"mobile"}));
 wire("desktopBtn",()=>command("viewport",{text:"desktop"}));
@@ -106,5 +100,5 @@ wire("logoutBtn",async()=>{await api("./api/logout","POST",{});window.location.r
 el("screen").addEventListener("click",e=>run(async()=>{
  const r=e.currentTarget.getBoundingClientRect();await command("click",{x:(e.clientX-r.left)*e.currentTarget.naturalWidth/r.width,y:(e.clientY-r.top)*e.currentTarget.naturalHeight/r.height});
 }));
-(async()=>{try{await api("./api/session");el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");await refreshProfiles();notify("Neon: sesja administratora aktywna.");}catch(_){el("loginBox").classList.remove("hidden");}})();
+(async()=>{try{await api("./api/session");el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");await refreshProfiles();notify("Połączono. Wybierz profil i otwórz stronę.");}catch(_){el("loginBox").classList.remove("hidden");}})();
 </script></body></html>
