@@ -51,7 +51,7 @@ export function createWriterStore(sql,{proof}={}){
     const old=await tx`SELECT encrypted_state FROM browser_profiles
       WHERE profile_name=${p.profile} FOR UPDATE`;
     if(old.length===1&&old[0].encrypted_state===p.state)
-      return {ok:true,unchanged:true,profile:p.profile};
+      return {ok:true,unchanged:true,profile:p.profile,sha256:sha(p.state)};
     if(old.length===1&&
        p.expected_sha256!==sha(old[0].encrypted_state))
       throw err('profile_revision_conflict');
@@ -70,7 +70,7 @@ export function createWriterStore(sql,{proof}={}){
         RETURNING profile_name`;
     }
     if(rows.length!==1)throw err('profile_revision_conflict');
-    return {ok:true,unchanged:false,profile:p.profile};
+    return {ok:true,unchanged:false,profile:p.profile,sha256:sha(p.state)};
    }
    if(operation==='engine_bind'){
     await tx`INSERT INTO browser_engine_profiles(profile_name,provider_profile_id)
