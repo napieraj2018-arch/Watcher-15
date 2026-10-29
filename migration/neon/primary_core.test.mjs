@@ -20,7 +20,8 @@ function fixture({allowed=true,throwWrite=false}={}){
   calls.push({kind:'read',operation,payload});
   if(operation==='profile_list')return [{name:'Synthetic-Profile',updatedAt:'2026-10-28T09:00:00.000Z'}];
   if(operation==='profile_get')return payload.name==='Synthetic-Profile'?
-   {encryptedState:'SYNTHETIC_TEST_ENCRYPTED_V1',updatedAt:'2026-10-28T09:00:00.000Z'}:null;
+   {encryptedState:'SYNTHETIC_TEST_ENCRYPTED_V1',updatedAt:'2026-10-28T09:00:00.000Z',
+    ciphertextSha256:createHash('sha256').update('SYNTHETIC_TEST_ENCRYPTED_V1').digest('hex')}:null;
   if(operation==='engine_get')return {providerProfileId:ID,hydrated:true};
   if(operation==='task_list')return [];
   if(operation==='task_get')return payload.id===ID?
@@ -86,7 +87,21 @@ test('owner profile read returns exact-compatible JSON only after admission',asy
  const state=await api.fetch(req('/_api/profile-vault?profile=Synthetic-Profile'));
  assert.equal(state.status,200);
  assert.equal((await state.json()).state,'SYNTHETIC_TEST_ENCRYPTED_V1');
+ const again=await api.fetch(req('/_api/profile-vault?profile=Synthetic-Profile'));
+ assert.equal((await again.json()).sha256,
+  createHash('sha256').update('SYNTHETIC_TEST_ENCRYPTED_V1').digest('hex'));
  assert.ok(calls.some(c=>c.operation==='profile_get'&&c.payload.name==='Synthetic-Profile'));
+});
+test('unverified profile ciphertext readback never exposes a CAS baseline',async()=>{
+ const read=async()=>({encryptedState:'SYNTHETIC_ENCRYPTED_VALUE',
+  updatedAt:'2026-10-28T09:00:00.000Z',ciphertextSha256:'a'.repeat(64)});
+ const api=createPrimaryApi({read,mutate:async()=>{throw Error('NO_WRITES')},
+  admission:async()=>true,tokenSha256:DIGEST});
+ const response=await api.fetch(req('/_api/profile-vault?profile=Neutral-Only'));
+ assert.equal(response.status,503);
+ const data=await response.json();
+ assert.equal(data.error,'PROFILE_READBACK_UNVERIFIED');
+ assert.equal(data.state,undefined);
 });
 test('profile write fails closed without explicit expected SHA',async()=>{
  const {api}=fixture();
