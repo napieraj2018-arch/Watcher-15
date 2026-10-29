@@ -77,3 +77,61 @@ before choosing Neon as the sole operational writer.
 A previous tool rejected restricted role provisioning. Do not evade that
 restriction by using an owner connection or a different endpoint. Provider
 authorization for truly limited import access is required first.
+
+
+## Continuation at 29 Oct 2026 ~11:40 Europe/Warsaw: new compatibility work, NO cutover
+
+Read-only, freshly verified:
+- At 10:40 UTC Floot source still had **68 profiles, 1292 archives,
+  69 Steel bindings and 11 tasks**, zero control leases, zero unresolved
+  tasks, and zero updated profiles/archive revisions/tasks since the
+  original private 01:14 UTC snapshot.
+- Neon STAGING has one immutable backup receipt; **zero** live profiles,
+  zero ciphertext/engine/config/event inbox rows, staging_read_only,
+  write_enabled=false. list_postgres_roles: neondb_owner only.
+- Render LIVE still exact SHA f759faa353e5de5e7392c4aceb3bbe70e6263524,
+  not a Neon backend; AutoDeploy previously off. Browser sessions tool
+  again returned The tool failed internally, not evidence of provider idle.
+- The Floot source tool next returned Daily build limit reached (100/100)
+  with reset **2026-10-29 13:00:00 UTC / 14:00 Warsaw**. No repeated quota
+  calls or attempts to evade the limit were made.
+
+Newly implemented in the existing draft PR180:
+- migration/neon/api/primary_core.mjs: separate, **UNDEPLOYED**
+  owner-authenticated future Neon primary JSON protocol candidate for
+  profile/engine read/write and durable task list/get/claim/checkpoint/release,
+  compulsory expected_sha256 profile-save CAS and fail-closed cutover
+  admission. Disabled/missing admission refuses all private API calls;
+  profile deletion refused; unverified DB errors redacted.
+- migration/neon/api/recovery_protocol.mjs: strict read-only recovery
+  inspect compatibility, requiring a configured/verified imported gate
+  before reporting pending:false. Pending attest action remains blocked
+  until a separately verified safe transaction is implemented. No
+  provider release, reset or unknown-session adoption.
+- New primary_core.test.mjs and recovery_protocol.test.mjs include
+  bearer auth, CAS, revision, task partition, forbidden operations,
+  absent recovery, quota/untrusted-data denial tests. Exact-head
+  GitHub Actions run **40860597158 PASS** (Node22+24); prior run
+  **40860199546 PASS** recorded **147 tests passed** on Node24.
+- The primary API modules are not wired into a new active Neon Function,
+  never deployed on Render and cannot presently store any user profile.
+  The already deployed staging API/boot-assets Fn remain fail-closed.
+
+A **single one-time continuation automation** was created for
+**2026-10-29 14:10 Europe/Warsaw**, after the account's reported build
+limit reset. It must recheck actual Floot/Steel/Neon/Render state once,
+honor all rate limits, never retry previously refused role provisioning
+via another tool/privilege, and perform only explicitly safe next work.
+This scheduling is not an import, saved-close certificate or LIVE cutover.
+
+Hard blockers unchanged: legitimate **restricted** aib_import_* credential
+was previously denied by tool safety; role does not exist. Do not bypass
+with neondb_owner or different API. Live Steel inventory/save receipt
+unavailable. Original neutral three-store R158 live saved-close/reopen,
+full data transfer, fresh signed source freeze, one-writer fence,
+controller bootstrap cutover and rollback acceptance remain absent.
+
+**COLD_BACKUP_VERIFIED=true; PRIVATE_OFFLINE_REPLAY_PASS=true;
+NEON_BOOT_ASSET_COPY_VERIFIED=true; CANDIDATE_JSON_API_CI_PASS=true;
+ACTIVE_DB_PROFILE_ROWS=0; RESTRICTED_ROLE=false;
+REAL_ACCOUNT_AUTH_RESTORED=false; PRODUCTION_CUTOVER=false.**
