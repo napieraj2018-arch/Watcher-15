@@ -6,7 +6,7 @@
  */
 import postgres from 'postgres';
 import {verifyMigrationFreeze,assertShadowDestination} from './preflight.mjs';
-import {normalizeShadowRecord,normalizeEngineBinding,shadowSummary} from './row_mapper.mjs';
+import {normalizeShadowRecord,normalizeEngineBinding,normalizeConfigRow,normalizeEventRow,shadowSummary} from './row_mapper.mjs';
 
 const mode=process.env.AIB_BRIDGE_MODE||'dry-run';
 const validUrl=v=>typeof v==='string'&&/^postgres(?:ql)?:\/\//.test(v);
@@ -28,7 +28,7 @@ async function main(){
    idle_timeout:10,prepare:false});
  const destination=mode==='copy'?postgres(destinationURL,{
    max:1,connect_timeout:8,ssl:'require',idle_timeout:10,prepare:false}):null;
- const tally={profile:0,archive:0,engine:0,task:0};
+ const tally={profile:0,archive:0,engine:0,task:0,config:0,event:0};
  try{
   if(destination){
    const [stage]=await destination`SELECT
@@ -41,7 +41,11 @@ async function main(){
        AND to_regprocedure('aib_shadow_put_encrypted(uuid,text,text,text,timestamptz,text,jsonb)')
          IS NOT NULL AND to_regclass('public.aib_shadow_engine_bindings') IS NOT NULL
          AND to_regprocedure('aib_shadow_put_engine_binding(uuid,text,uuid,timestamptz,boolean)')
-         IS NOT NULL) AS inbox_ready,
+         IS NOT NULL AND to_regclass('public.aib_shadow_config_values') IS NOT NULL
+         AND to_regprocedure('aib_shadow_put_config(uuid,text,text,text)') IS NOT NULL
+         AND to_regclass('public.aib_shadow_profile_events') IS NOT NULL
+         AND to_regprocedure('aib_shadow_put_event(uuid,bigint,text,text,text,text)') IS NOT NULL)
+         AS inbox_ready,
      current_user AS db_role`;
    assertShadowDestination(stage);
    if(!/^aib_import_[a-z0-9_]{1,40}$/.test(stage.db_role))
@@ -52,8 +56,9 @@ async function main(){
    const [safety]=await tx`SELECT
       (SELECT count(*)::int FROM browser_control_leases) AS leases,
       (SELECT count(*)::int FROM browser_task_checkpoints
-        WHERE NOT resumable) AS unresolved`;
-   if(!safety||safety.leases!==0||safety.unresolved!==0)
+        WHERE NOT resumable) AS unresolved,
+      (SELECT count(*)::int FROM browser_account_attempts) AS account_attempts`;
+   if(!safety||safety.leases!==0||safety.unresolved!==0||safety.account_attempts!==0)
     throw Error('BRIDGE_SOURCE_NOT_IDLE');
    // All timestamptz fields are selected as text: Date destroys microseconds.
    async function append(kind,row){
@@ -116,11 +121,42 @@ async function main(){
     for(const row of rows)await append('task',row);
     lastTask=String(rows[rows.length-1].task_id);
    }
+   // Preserve the EXACT private configuration, including owner token digests.
+   // These values never enter stdout, ChatGPT, GitHub or provider-visible logs.
+   let lastConfig='';
+   for(;;){
+    const rows=await tx`SELECT config_key,config_value FROM vault_config
+      WHERE config_key>${lastConfig} ORDER BY config_key LIMIT 50`;
+    if(!rows.length)break;
+    for(const row of rows){
+     const v=normalizeConfigRow(row);tally.config++;
+     if(destination)await destination`SELECT aib_shadow_put_config(
+       ${freeze.batch_id}::uuid,${v.sourceKey},${v.configValue},${v.sourceSha256})`;
+    }
+    lastConfig=rows[rows.length-1].config_key;
+   }
+   // Preserve the full immutable owner event audit sequence and source time.
+   let lastEvent='0';
+   for(;;){
+    const rows=await tx`SELECT id::text AS id,profile_name,event_type,
+       created_at::text AS created_at FROM browser_profile_events
+       WHERE id>${lastEvent}::bigint ORDER BY id LIMIT 100`;
+    if(!rows.length)break;
+    for(const row of rows){
+     const v=normalizeEventRow(row);tally.event++;
+     if(destination)await destination`SELECT aib_shadow_put_event(
+       ${freeze.batch_id}::uuid,${v.sourceId}::bigint,
+       ${v.profileName},${v.eventType},${v.sourceCreatedAt},${v.sourceSha256})`;
+    }
+    lastEvent=String(rows[rows.length-1].id);
+   }
    const [expected]=await tx`SELECT
       (SELECT count(*)::int FROM browser_profiles) AS profile,
       (SELECT count(*)::int FROM browser_profile_versions) AS archive,
       (SELECT count(*)::int FROM browser_engine_profiles) AS engine,
-      (SELECT count(*)::int FROM browser_task_checkpoints) AS task`;
+      (SELECT count(*)::int FROM browser_task_checkpoints) AS task,
+      (SELECT count(*)::int FROM vault_config) AS config,
+      (SELECT count(*)::int FROM browser_profile_events) AS event`;
    for(const k of Object.keys(tally))
     if(tally[k]!==expected[k])throw Error('BRIDGE_SNAPSHOT_COUNT_MISMATCH');
   });
@@ -135,13 +171,20 @@ async function main(){
    const [bindings]=await destination`SELECT count(*)::int AS n
      FROM aib_shadow_engine_bindings WHERE batch_id=${freeze.batch_id}::uuid`;
    if(bindings.n!==tally.engine)throw Error('BRIDGE_BINDING_COUNT_MISMATCH');
+   const [config]=await destination`SELECT count(*)::int AS n
+      FROM aib_shadow_config_values WHERE batch_id=${freeze.batch_id}::uuid`;
+   if(config.n!==tally.config)throw Error('BRIDGE_CONFIG_COUNT_MISMATCH');
+   const [events]=await destination`SELECT count(*)::int AS n
+      FROM aib_shadow_profile_events WHERE batch_id=${freeze.batch_id}::uuid`;
+   if(events.n!==tally.event)throw Error('BRIDGE_EVENT_COUNT_MISMATCH');
   }
   // This completion is NOT the source/destination full manifest acceptance.
   // All Steel binding rows are staged; source config, complete byte-by-byte
   // binding verification and provider replay still require separate acceptance.
   process.stdout.write(JSON.stringify({mode,
     snapshot_completed:true,shadow_only:true,production_cutover:false,
-    rows:shadowSummary(tally),pending_engine_binding_readback_and_config:true})+'\n');
+    rows:{...shadowSummary(tally),config:tally.config,event:tally.event},
+    pending_full_ciphertext_manifest_readback:true})+'\n');
  }finally{
   await source.end({timeout:3});
   if(destination)await destination.end({timeout:3});
