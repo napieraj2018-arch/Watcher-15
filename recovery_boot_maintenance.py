@@ -18,6 +18,8 @@ from provider_recovery_gate import RecoveryRateLimited
 RETRY_SECONDS = 900
 MAX_EXPONENTIAL_BACKOFF = 21600  # 6 hours absent a longer explicit Retry-After  # 15 minutes, rather than a rapid crash/restart loop.
 REASON = "AI_BROWSER_RECOVERY_PROVIDER_RATE_LIMITED"
+REASON_UNAVAILABLE = "AI_BROWSER_RECOVERY_PROVIDER_UNAVAILABLE"
+ALLOWED_REASONS = frozenset({REASON, REASON_UNAVAILABLE})
 
 
 def verify_provider_idle(steel_api_key: str, *, client: httpx.Client | None = None) -> bool:
@@ -78,22 +80,28 @@ class _MaintenanceHandler(BaseHTTPRequestHandler):
 
     def _serve(self) -> None:
         route = self.path.split("?", 1)[0]  # route is never logged or echoed.
+        reason = getattr(self.server, "recovery_reason", REASON)
+        if reason not in ALLOWED_REASONS:
+            reason = REASON
         if self.command in {"GET", "HEAD"} and route in {"/health", "/"}:
             # A healthy TCP listener is not evidence of an available browser.
             if route == "/health":
                 body = json.dumps({"status": "degraded", "browser_available": False,
-                                   "recovery_confirmed": False, "error": REASON,
+                                   "recovery_confirmed": False, "error": reason,
                                    "retry_after_seconds": max(
                                        RETRY_SECONDS, int(getattr(
                                            self.server, "next_retry_seconds", RETRY_SECONDS)))}).encode()
                 return self._response(200, body, "application/json; charset=utf-8")
+            message = ("Magazyn sesji jest obecnie niedostępny. "
+                       if reason == REASON_UNAVAILABLE else
+                       "Magazyn sesji ogranicza liczbę żądań. ")
             body = ("<!doctype html><meta charset='utf-8'><title>AI Browser — tryb ochronny</title>"
                     "<h1>AI Browser — tryb ochronny</h1>"
-                    "<p>Magazyn sesji ogranicza liczbę żądań. "
+                    "<p>" + message +
                     "Przeglądarka pozostaje zablokowana do bezpiecznej weryfikacji. "
                     "Nie wpisuj ponownie haseł.</p>").encode("utf-8")
             return self._response(200, body, "text/html; charset=utf-8")
-        body = json.dumps({"error": REASON, "retryable": True,
+        body = json.dumps({"error": reason, "retryable": True,
                            "browser_available": False, "recovery_confirmed": False}).encode()
         return self._response(503, body, "application/json; charset=utf-8")
 
@@ -110,6 +118,7 @@ def wait_until_recovered(
     *, host: str = "0.0.0.0", port: int = 10000,
     retry_seconds: float = RETRY_SECONDS,
     initial_retry_seconds: float | None = None,
+    reason: str = REASON,
     sleeper: Callable[[float], None] = time.sleep,
     server_factory: Callable = _Server,
 ) -> None:
@@ -118,7 +127,8 @@ def wait_until_recovered(
     The real app only starts after BOTH fresh vault recovery and independent
     empty Steel provider inventory. Unknown results never become approval.
     """
-    if (not 1 <= port <= 65535 or not isinstance(retry_seconds, (int, float))
+    if (reason not in ALLOWED_REASONS or
+            not 1 <= port <= 65535 or not isinstance(retry_seconds, (int, float))
             or not 1 <= retry_seconds <= 604800
             or (initial_retry_seconds is not None and
                 (not isinstance(initial_retry_seconds, (int, float))
@@ -126,9 +136,10 @@ def wait_until_recovered(
         raise RuntimeError("RECOVERY_MAINTENANCE_CONFIG_INVALID")
     delay = max(retry_seconds, initial_retry_seconds or retry_seconds)
     httpd = server_factory((host, port), _MaintenanceHandler)
+    httpd.recovery_reason = reason
     thread = threading.Thread(target=httpd.serve_forever, name="aib-maintenance", daemon=True)
     thread.start()
-    print("AI_BROWSER_MAINTENANCE_ENTER " + REASON, flush=True)
+    print("AI_BROWSER_MAINTENANCE_ENTER " + reason, flush=True)
     try:
         while True:
             # Expose only the bounded wait; never a provider token or response.
