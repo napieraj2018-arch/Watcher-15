@@ -1,0 +1,33 @@
+name: Neon Free shadow vault — staging contract CI
+on:
+  pull_request:
+    branches: [ai-browser-cloud]
+    paths:
+      - 'migration/neon/**'
+      - '.github/workflows/neon-staging-vault-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  readonly-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22','24']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax and strictly fail-closed staging checks
+        run: |
+          node --check migration/neon/staging/index.mjs
+          node --check migration/neon/api/index.mjs
+          node --check migration/neon/api/core.mjs
+          node --check migration/neon/api/store.mjs
+          node --check migration/neon/diagnostics/dbcheck.mjs
+          node --test migration/neon/*.test.mjs
