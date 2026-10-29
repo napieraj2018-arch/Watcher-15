@@ -141,7 +141,11 @@ class RealFormTests(unittest.IsolatedAsyncioTestCase):
             await r.fulfill(content_type='application/json',body=json.dumps(payload))
         await self.context.route('https://panel.invalid/**',api)
         await self.page.goto('https://panel.invalid/')
-        await self.page.wait_for_function("document.getElementById('profile').value === 'acceptance-form-fixture'",timeout=5000)
+        # Normal admin panel intentionally does not auto-select test profiles.
+        # Wait for the catalogue, then perform the same explicit selection as
+        # its owner; do not weaken failed-frame or one-POST assertions below.
+        await self.page.wait_for_function("Array.from(document.getElementById('profile').options).some(o=>o.value==='acceptance-form-fixture')",timeout=5000)
+        await self.page.locator('#profile').select_option('acceptance-form-fixture')
         await self.page.locator('#openBtn').click()
         await self.page.wait_for_function("document.getElementById('liveStatus').textContent.includes('Błąd')",timeout=5000)
         self.assertTrue(await self.page.locator('#screen').is_hidden())
