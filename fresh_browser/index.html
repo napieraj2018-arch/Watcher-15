@@ -53,7 +53,7 @@ async function refreshProfiles(){
  const profiles=[...data.profiles].sort((a,b)=>Number(a.name.startsWith("acceptance-"))-Number(b.name.startsWith("acceptance-"))||a.name.localeCompare(b.name));
  el("profile").replaceChildren();
  for(const p of profiles)el("profile").add(new Option(p.name+(p.name.startsWith("acceptance-")?" (test)":""),p.name));
- const preferred=profiles.find(p=>p.name===old)||profiles.find(p=>p.name==="google-youtube")||profiles.find(p=>!p.name.startsWith("acceptance-"));
+ const preferred=profiles.find(p=>p.name===old)||profiles.find(p=>p.name==="google-youtube")||profiles.find(p=>!p.name.startsWith("acceptance-"))||(ownerMode?profiles[0]:undefined);
  el("profile").value=preferred?preferred.name:"";
  if(!preferred)el("profile").add(new Option("Wybierz profil", "", true, true));
  updateAuthNotice();
