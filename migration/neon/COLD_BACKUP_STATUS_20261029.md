@@ -28,3 +28,59 @@
 6. Only after these checks may Neon replace Floot for normal work. Prefer a controlled permanent primary migration over ad-hoc switching between two independent writable free-tier databases.
 
 **PRIVATE_BACKUP_VERIFIED=true. OPERATIONAL_RESTORE=false. AUTOMATIC_FAILOVER_READY=false. PRODUCTION_CUTOVER=false.**
+
+
+## Owner takeover staging — 29 Oct 2026, 10:00+ Europe/Warsaw
+
+Verified current state without browser mutation:
+- Source Floot read-only SQL: 68 profiles / 1292 archive rows / 69 Steel
+  bindings / 11 task checkpoints; 0 active leases, 0 unresolved task rows.
+  No source profile updates occurred after the private snapshot from 01:14 UTC.
+- Exact neutral profile R158 was reconciled in the source: **20 rolling**
+  plus **21 protected** archives (20 forensic_r158_* and one
+  pre_verified_recovery_20261023_160). Previous count differences referred
+  to the reason subset, NOT a proven missing 21st protected row. This still
+  does NOT establish historical cookie/localStorage/IndexedDB coherence.
+- Private cold-backup record was inserted into the new immutable metadata-only
+  aib_cold_backup_receipts table (schema 005_cold_backup_receipts.sql).
+  Independent SQL readback shows one receipt, immutable trigger active,
+  imported_to_tables=false, production_cutover=false.
+- Added bridge/restore_parity.mjs, covering every source field across all
+  eight table categories, including original ciphertext, microsecond time,
+  bigint archive/event IDs, configuration, tasks and provider bindings.
+  Synthetic negative cases refuse changed ciphertext, revisions/time changes,
+  unexpected columns and missing or duplicated records.
+- A trusted offline REHEARSAL on the **real private Neon Storage object**
+  verified **7,833 rows** and exact 20/21 R158 classification; a deliberately
+  modified in-memory copy was rejected. Source data, signed storage URLs,
+  owner tokens and individual hashes did NOT appear in reports or GitHub.
+  This is NOT a PostgreSQL import or confirmed site authentication.
+- 006_shadow_config_events.sql is applied in STAGING: private immutable
+  inboxes for **all** 3 config rows and 6,390 historical event rows, with
+  fail-closed guard, source-byte SHA-256 checks, idempotent identical retry
+  and refusal of conflicting changes. Synthetic SQL tests PASS, rolled back.
+  Four import functions and five immutable evidence triggers verified by
+  independent Neon SQL. ALL four import inboxes remain EMPTY.
+- The private bridge/transfer.mjs now prepares ALL eight source categories:
+  profile/archive/engine/task/config/event plus a hard source-empty guard for
+  active leases and account attempt rows (both currently zero).
+  This script has NOT run against live secrets or PostgreSQL import roles.
+  It continues to require a signed saved-close/provider-idle proof and
+  an actual restricted importer role. CI syntax and unit tests PASS for
+  exact head 7019fced84f8131790c47b350a12d97db41f807a:
+  GitHub Actions run 40848055206 (Node22/24).
+
+**SAFETY STATUS**: PRIVATE_BACKUP_VERIFIED=true,
+PRIVATE_OFFLINE_REHEARSAL=true, SHADOW_SQL_SCHEMA_READY=true.
+RESTRICTED_IMPORT_ROLE=false, POSTGRES_DATA_IMPORTED=false,
+LIVE_PROVIDER_INVENTORY_VERIFIED=false, R158_THREE_STORE_PASS=false,
+PRODUCTION_CUTOVER=false, AUTOMATIC_FAILOVER_READY=false.
+
+The previously refused restricted role provisioning remains a real external
+authorization blocker; DO NOT reattempt via a more privileged role/interface.
+At the future approved import: grant minimum EXECUTE privileges only, verify
+the private full-copy digest and all rows inside one trusted process, obtain
+a FRESH signed source freeze and independent Steel saved-close inventory,
+perform a separate neutral three-store saved-close/new-controller test, then
+allow one epoch-fenced writer after an independently accepted rollback plan.
+Never modify real account cookies to make a test appear successful.
