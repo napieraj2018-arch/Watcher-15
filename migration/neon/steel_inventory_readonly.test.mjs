@@ -3,8 +3,9 @@ import {strict as assert} from 'node:assert';
 import {createSteelReadonlyClient} from './bridge/steel_inventory_readonly.mjs';
 
 const TOKEN='NEUTRAL_KEY_FOR_TEST_ONLY_'.repeat(3);
+const PROJECT='verified-steel-project-12345';
 const ID=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
-const sess=(n,status='released')=>({id:ID(n),status});
+const sess=(n,status='released')=>({id:ID(n),status,projectId:PROJECT});
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}});
 const u=url=>new URL(url);
 const bad=(fn,code)=>assert.rejects(fn,e=>e?.message===code);
@@ -18,16 +19,18 @@ function mock({pages=[Array.from({length:40},(_,i)=>sess(i+1)),[]],
   const p=u(url);
   if(p.searchParams.has('status')){
    liveCalls++;
-   return json({sessions:liveCalls===1?live:laterLive});
+   const sessions=liveCalls===1?live:laterLive;
+   return json({sessions,nextCursor:null,totalCount:sessions.length});
   }
   if(status!==200)return json({error:'private-response-MUST-NOT-LOG'},status);
   const next=pages[historyCalls++];
   if(broken)return json({not_sessions:true});
-  if(next===undefined)return json({sessions:[]});
-  return json({sessions:next});
+  if(next===undefined)return json({sessions:[],nextCursor:null});
+  const nextCursor=historyCalls<pages.length&&next.length?next.at(-1).id:null;
+  return json({sessions:next,nextCursor});
  };
  return {calls,create:()=>createSteelReadonlyClient({
-  apiKey:TOKEN,request,now:()=>new Date('2026-10-29T11:39:00.000Z')
+  apiKey:TOKEN,projectId:PROJECT,request,now:()=>new Date('2026-10-29T11:39:00.000Z')
  })};
 }
 test('two live checks bracket all history and return aggregate only',async()=>{
@@ -44,6 +47,10 @@ test('two live checks bracket all history and return aggregate only',async()=>{
  assert.equal(m.calls.length,4);
  assert.ok(m.calls.every(x=>x.opts.method==='GET'));
  assert.ok(m.calls.every(x=>x.opts.headers['steel-api-key']===TOKEN));
+ assert.ok(m.calls.filter(x=>u(x.url).searchParams.has('status'))
+  .every(x=>!u(x.url).searchParams.has('projectId')));
+ assert.ok(m.calls.filter(x=>!u(x.url).searchParams.has('status'))
+  .every(x=>u(x.url).searchParams.get('projectId')===PROJECT));
  const text=JSON.stringify(r);
  assert.doesNotMatch(text,/00000000-|NEUTRAL_KEY|cookie|token/i);
 });
@@ -96,7 +103,7 @@ test('rate limit, authentication denial and unexpected HTTP are fixed-code error
  ]){
   const m=mock();
   const r=async()=>json({secret:'NEVER_ECHO_PASSWORD'},status);
-  await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,request:r}).inspect(),expected);
+  await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,projectId:PROJECT,request:r}).inspect(),expected);
  }
 });
 test('malformed JSON envelope never gives a false idle result',async()=>{
@@ -106,10 +113,10 @@ test('malformed JSON envelope never gives a false idle result',async()=>{
 test('wrong pagination cursor format is rejected',async()=>{
  const m=mock();
  const request=async(url)=>{
-  if(u(url).searchParams.has('status'))return json({sessions:[]});
+  if(u(url).searchParams.has('status'))return json({sessions:[],nextCursor:null,totalCount:0});
   return json({sessions:[sess(1)],nextCursor:'not-a-uuid'});
  };
- await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,request}).inspect(),
+ await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,projectId:PROJECT,request}).inspect(),
   'STEEL_INVENTORY_CURSOR_INVALID');
 });
 test('bad response byte declarations block unbounded reads',async()=>{
@@ -129,4 +136,50 @@ test('failed HTTP transports are redacted and not retried',async()=>{
  await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,request}).inspect(),
   'STEEL_INVENTORY_HTTP_UNCONFIRMED');
  assert.equal(calls,1);
+});
+
+test('project must be explicit, not inferred from organization or UI label',()=>{
+ assert.throws(()=>createSteelReadonlyClient({apiKey:TOKEN,request:async()=>{}}),
+  /STEEL_INVENTORY_PROJECT_UNVERIFIED/);
+ assert.throws(()=>createSteelReadonlyClient({apiKey:TOKEN,projectId:'',request:async()=>{}}),
+  /STEEL_INVENTORY_PROJECT_UNVERIFIED/);
+});
+test('provider returning a different project is rejected before returning idle',async()=>{
+ const m=mock({pages:[[{...sess(1),projectId:'other-project'}]]});
+ await bad(()=>m.create().inspect(),'STEEL_INVENTORY_WRONG_PROJECT');
+});
+test('no nextCursor metadata is uncertain, not a complete history',async()=>{
+ const request=async(url)=>u(url).searchParams.has('status')
+  ?json({sessions:[],nextCursor:null,totalCount:0})
+  :json({sessions:[sess(1)]});
+ await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,projectId:PROJECT,request}).inspect(),
+  'STEEL_INVENTORY_INVALID_RESPONSE');
+});
+test('provider null nextCursor ends history without guessing extra pages',async()=>{
+ const m=mock({pages:[[sess(1),sess(2)]]});
+ const r=await m.create().inspect();
+ assert.equal(r.total,2);
+ assert.equal(r.pages,1);
+ assert.equal(m.calls.length,3);
+});
+test('project history count mismatch is an error, not complete inventory',async()=>{
+ const request=async(url)=>{
+  if(u(url).searchParams.has('status'))return json({sessions:[],nextCursor:null,totalCount:0});
+  return json({sessions:[sess(1)],nextCursor:null,totalCount:2});
+ };
+ await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,projectId:PROJECT,request}).inspect(),
+  'STEEL_INVENTORY_PAGINATION_CONFLICT');
+});
+test('filtered live totalCount nonzero denies even if first page looks empty',async()=>{
+ const request=async()=>json({sessions:[],nextCursor:null,totalCount:1});
+ await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,projectId:PROJECT,request}).inspect(),
+  'STEEL_INVENTORY_LIVE_OR_AMBIGUOUS');
+});
+test('empty project history with a forward cursor is ambiguous',async()=>{
+ const request=async(url)=>{
+  if(u(url).searchParams.has('status'))return json({sessions:[],nextCursor:null,totalCount:0});
+  return json({sessions:[],nextCursor:ID(1)});
+ };
+ await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,projectId:PROJECT,request}).inspect(),
+  'STEEL_INVENTORY_PAGINATION_CONFLICT');
 });
