@@ -219,7 +219,9 @@ class BrowserWorkspace:
                 if not page.url.startswith("https://"):
                     # Visible diagnostic, not a successful empty white frame.
                     # Only the origin is shown; paths/tokens stay private.
-                    await page.goto("about:blank", wait_until="domcontentloaded", timeout=3000)
+                    # A failed main-frame navigation can leave Chromium waiting
+                    # forever for about:blank DOMContentLoaded. Rendering the
+                    # local diagnostic directly is sufficient and bounded.
                     await page.set_content(
                         "<!doctype html><meta charset='utf-8'><title>Nie udało się wczytać strony</title>"
                         "<style>body{font:24px system-ui;background:#152232;color:#eef4fa;"
