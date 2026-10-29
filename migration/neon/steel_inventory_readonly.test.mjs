@@ -121,7 +121,7 @@ test('wrong pagination cursor format is rejected',async()=>{
 });
 test('bad response byte declarations block unbounded reads',async()=>{
  const req=async()=>new Response('x',{status:200,headers:{'content-length':'5000000'}});
- await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,request:req}).inspect(),
+ await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,projectId:PROJECT,request:req}).inspect(),
   'STEEL_INVENTORY_RESPONSE_TOO_LARGE');
 });
 test('no real secret, no network or POST accepted without valid key',()=>{
@@ -133,7 +133,7 @@ test('no real secret, no network or POST accepted without valid key',()=>{
 test('failed HTTP transports are redacted and not retried',async()=>{
  let calls=0;
  const request=async()=>{calls++;throw Error('PROVIDER_SECRET_SHOULD_NOT_LEAK')};
- await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,request}).inspect(),
+ await bad(()=>createSteelReadonlyClient({apiKey:TOKEN,projectId:PROJECT,request}).inspect(),
   'STEEL_INVENTORY_HTTP_UNCONFIRMED');
  assert.equal(calls,1);
 });
