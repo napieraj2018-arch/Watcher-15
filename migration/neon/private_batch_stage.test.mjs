@@ -89,7 +89,7 @@ test('bounded chunks enforce max record count',()=>{
 });
 test('verified real-source-sized ciphertext is accepted in 2MB payload cap',()=>{
  const state='X'.repeat(1342052);
- const parts=[...boundedPrivateBatches([{state},{state:'small'}])];
+ const parts=[...boundedPrivateBatches([{state},{state}])];
  assert.equal(parts.length,2);
  assert.equal(JSON.parse(parts[0].json)[0].state.length,1342052);
 });
