@@ -79,13 +79,14 @@ def safe_url(raw: str) -> str:
 def database():
     if not DB_URL:
         raise RuntimeError("missing database")
-    return psycopg.connect(DB_URL, connect_timeout=10, options="-c statement_timeout=10000")
+    return psycopg.connect(DB_URL, connect_timeout=10)
 
 def db_ping() -> bool:
     try:
         with database() as conn:
             return conn.execute("SELECT 1").fetchone() == (1,)
-    except Exception:
+    except Exception as exc:
+        print("AIB_FRESH_DB_PROBE_FAILED", type(exc).__name__, getattr(exc, "sqlstate", None), flush=True)
         return False
 
 def db_list():
@@ -304,8 +305,10 @@ async def index():
 
 @app.get("/health")
 async def health():
-    if not configured() or not await asyncio.to_thread(db_ping):
-        return JSONResponse({"status": "not_ready", "store": "neon_fresh"}, status_code=503)
+    if not configured():
+        return JSONResponse({"status": "not_ready", "store": "neon_fresh", "reason": "configuration"}, status_code=503)
+    if not await asyncio.to_thread(db_ping):
+        return JSONResponse({"status": "not_ready", "store": "neon_fresh", "reason": "database"}, status_code=503)
     return {"status": "ready", "store": "neon_fresh"}
 
 @app.get("/api/session")
