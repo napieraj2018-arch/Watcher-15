@@ -147,7 +147,10 @@ export function createSteelReadonlyClient({apiKey,projectId,request=fetch,now=()
   return Object.freeze({
    status:'STEEL_READONLY_HISTORY_IDLE',
    observed_at:observed.toISOString(),
-   project_verified_by_id:true,
+   project_filter_applied:true,
+   // User-supplied project ID and even a matching 0-row result do not
+   // independently establish organization identity.
+   project_identity_independently_verified:false,
    total:seen.size,pages,
    released:statuses.released,failed:statuses.failed,
    live_sessions:0,
