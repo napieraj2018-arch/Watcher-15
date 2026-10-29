@@ -9,6 +9,7 @@
  */
 import {createHash,timingSafeEqual} from 'node:crypto';
 import {VaultMutationError} from './write_policy.mjs';
+import {validateRecoveryInspection} from './recovery_protocol.mjs';
 const PROFILE=/^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIGEST=/^[a-f0-9]{64}$/;
@@ -151,10 +152,15 @@ export function createPrimaryApi({read,mutate,admission,tokenSha256}={}){
     const result=await mutate(kind,payload,owner);
     return answer(result);
    }
-   // Provider recovery must be independently implemented and tested before
-   // permitting a production cutover. No fabricated recovery receipt.
-   if(path==='/_api/provider-recovery'||
-      path==='/_api/account-attempt')return answer(STATUS,503);
+   // Recovery INSPECT is read-only and only reflects an imported, externally
+   // attested provider gate; pending attest writes remain deliberately blocked.
+   if(path==='/_api/provider-recovery'&&method==='POST'){
+    const body=await boundedJson(request,4096);
+    if(!body.data)return answer({error:body.error},body.status);
+    if(body.data.action!=='inspect')return answer(STATUS,503);
+    return answer(validateRecoveryInspection(await read('recovery_inspect',{owner})));
+   }
+   if(path==='/_api/account-attempt')return answer(STATUS,503);
    return answer({error:'not_found'},404);
   }catch(e){return errorResult(e)}
  }};
