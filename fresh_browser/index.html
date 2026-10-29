@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Browser — Neon Fresh</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui,-apple-system,sans-serif;background:#101722;color:#edf3fa}
+*{box-sizing:border-box}body{margin:0 auto;max-width:1280px;padding:16px}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid #394657;padding-bottom:14px}
+h1{font-size:1.35rem;margin:0}h2{font-size:1.08rem;margin:14px 0}
+a{color:#b9dcff}p{line-height:1.4}.sub{font-size:.89rem;color:#b0bfcc}
+.panel{background:#1a2534;border:1px solid #36485b;border-radius:12px;padding:14px;margin:16px 0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+input,select,button{font:inherit;padding:11px 12px;border-radius:8px;border:1px solid #536578;background:#111b29;color:#fff;min-width:0}
+input{flex:1;min-width:180px}button{cursor:pointer;background:#245a80;border-color:#417ca5}button.secondary{background:#283746}button:disabled{opacity:.55}
+label{font-size:.9rem}#screen{display:block;width:100%;height:auto;touch-action:manipulation;border-radius:8px;background:#e8e8e8;cursor:crosshair}
+#imageFrame{overflow:hidden;max-width:1280px;margin:10px auto}#message{color:#bce7d7;min-height:1.4em}#error{color:#ffa9a9;min-height:1.4em}
+.hidden{display:none}small{color:#b2bccb}.instructions{color:#b2c3d3}nav{font-size:.9rem}
+@media(max-width:600px){body{padding:10px}.panel{padding:10px}.row>*{flex:1}header{align-items:start}}
+</style></head>
+<body>
+<header><div><h1>AI Browser — Neon Fresh</h1><div class="sub">Nowa przeglądarka · nowa baza Neon · bez Floot · puste profile</div></div>
+<nav><a href="https://ai-browser-cloud.onrender.com" target="_blank" rel="noopener">Stara przeglądarka Floot ↗</a></nav></header>
+<div id="error"></div><div id="message"></div>
+<section id="loginBox" class="panel">
+<h2>Logowanie administratora</h2><p class="instructions">Wpisz klucz <b>AIB_FRESH_ADMIN_TOKEN</b> z ustawień nowej usługi Render. Klucz nie jest zapisywany w telefonie.</p>
+<div class="row"><input id="adminKey" type="password" autocomplete="off" placeholder="Klucz administratora"><button id="loginBtn">Zaloguj</button></div>
+<small>Nowa instancja nie importuje istniejących logowań. Logujesz się do stron od początku.</small>
+</section>
+<main id="appBox" class="hidden">
+<section class="panel">
+<div class="row"><label for="profile">Profil:</label><select id="profile"></select><button id="openBtn">Otwórz</button><button class="secondary" id="refreshProfiles">Odśwież listę</button></div>
+<div class="row"><input id="newProfile" placeholder="np. gmail, wordpress, youtube" maxlength="40"><button id="createBtn">Utwórz nowy profil</button></div>
+<small>Każdy profil ma własne zaszyfrowane cookies, localStorage i obsługiwany przez Playwright stan IndexedDB w osobnej bazie Neon.</small>
+</section>
+<section class="panel">
+<div class="row"><input id="website" type="url" placeholder="https://accounts.google.com/"><button id="goBtn">Przejdź</button></div>
+<div class="row"><button class="secondary" id="screenBtn">Odśwież obraz</button><button class="secondary" id="saveBtn">Zapisz profil</button><button class="secondary" id="closeBtn">Zamknij profil</button></div>
+<p class="sub" id="site">Zacznij od wybrania profilu.</p>
+<div id="imageFrame"><img id="screen" alt="Ekran zdalnej przeglądarki; dotknij, aby kliknąć" width="1280" height="800"></div>
+<small>Dotknięcie obrazu kliknie w przeglądarce. Aby wpisać login lub hasło, kliknij pole na obrazie i użyj poniższego formularza.</small>
+<div class="row"><input id="keyboard" autocomplete="off" placeholder="Tekst do wpisania"><button id="typeBtn">Wpisz</button><button id="maskBtn" class="secondary">Ukryj tekst</button></div>
+<div class="row"><button id="enterBtn">Enter</button><button id="tabBtn" class="secondary">Tab</button><button id="selectBtn" class="secondary">Zaznacz wszystko</button><button id="backBtn" class="secondary">Usuń znak</button></div>
+<div class="row"><button id="scrollUp" class="secondary">↑ Przewiń</button><button id="scrollDown" class="secondary">↓ Przewiń</button><button id="logoutBtn" class="secondary">Wyloguj z panelu</button></div>
+</section>
+</main>
+<script>
+"use strict";
+const el = (id)=>document.getElementById(id);
+let busy = false;
+function notify(message, error=false){el(error?"error":"message").textContent=message;el(error?"message":"error").textContent="";}
+async function api(path,method="GET",body=undefined){
+ const options={method,credentials:"same-origin",cache:"no-store",headers:{"x-aib-request":"same-origin"}};
+ if(body!==undefined){options.headers["content-type"]="application/json";options.body=JSON.stringify(body);}
+ const r=await fetch(path,options);const reply=await r.json().catch(()=>({detail:"Nieprawidłowa odpowiedź serwera"}));
+ if(!r.ok)throw new Error(typeof reply.detail==="string"?reply.detail:"Błąd "+r.status);
+ return reply;
+}
+function selected(){const v=el("profile").value;if(!v)throw new Error("Najpierw utwórz lub wybierz profil.");return v;}
+function setBusy(v){busy=v;document.querySelectorAll("button").forEach(b=>b.disabled=v);}
+async function run(fn){if(busy)return;setBusy(true);try{await fn()}catch(e){notify(e.message||"Nieznany błąd",true)}finally{setBusy(false)}}
+async function refreshProfiles(){
+ const data=await api("/api/profiles");const old=el("profile").value;el("profile").replaceChildren();
+ for(const p of data.profiles){el("profile").add(new Option(p.name,p.name));}
+ if(data.profiles.some(p=>p.name===old))el("profile").value=old;
+}
+async function screenshot(){
+ const name=selected();const response=await fetch("/api/screen?name="+encodeURIComponent(name)+"&v="+Date.now(),{credentials:"same-origin",cache:"no-store"});
+ if(!response.ok){let error=await response.json().catch(()=>({detail:"Brak obrazu"}));throw new Error(error.detail||"Brak obrazu");}
+ const blob=await response.blob(), u=URL.createObjectURL(blob), img=el("screen");
+ const prev=img.dataset.objectUrl;img.src=u;img.dataset.objectUrl=u;if(prev)URL.revokeObjectURL(prev);
+}
+async function command(action,payload={}){
+ const result=await api("/api/action","POST",{name:selected(),action,...payload});
+ el("site").textContent=(result.title||"")+(result.url?" · "+result.url:"");
+ if(!result.closed)await screenshot();
+ else{el("site").textContent="Profil bezpiecznie zamknięty.";el("screen").removeAttribute("src");}
+ notify(result.closed?"Profil zapisany i zamknięty.":"Gotowe; profil zapisano w Neon.");
+}
+function wire(id,fn){el(id).addEventListener("click",()=>run(fn));}
+wire("loginBtn",async()=>{await api("/api/login","POST",{token:el("adminKey").value});el("adminKey").value="";el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");await refreshProfiles();notify("Połączono z nowym panelem Neon.");});
+wire("refreshProfiles",refreshProfiles);
+wire("createBtn",async()=>{
+ const name=el("newProfile").value.trim().toLowerCase();await api("/api/profiles","POST",{name});
+ await refreshProfiles();el("profile").value=name;el("newProfile").value="";
+ await command("open");notify("Nowy profil "+name+" zapisany w Neon.");
+});
+wire("openBtn",()=>command("open"));
+wire("goBtn",()=>{let u=el("website").value.trim();if(!u.startsWith("https://"))u="https://"+u;return command("go",{url:u});});
+wire("screenBtn",screenshot);
+wire("saveBtn",()=>command("save"));
+wire("closeBtn",()=>command("close"));
+wire("typeBtn",async()=>{const text=el("keyboard").value;await command("type",{text});el("keyboard").value="";});
+wire("enterBtn",()=>command("press",{key:"Enter"}));
+wire("tabBtn",()=>command("press",{key:"Tab"}));
+wire("selectBtn",()=>command("press",{key:"ControlOrMeta+A"}));
+wire("backBtn",()=>command("press",{key:"Backspace"}));
+wire("scrollUp",()=>command("scroll",{delta:-600}));
+wire("scrollDown",()=>command("scroll",{delta:600}));
+wire("maskBtn",async()=>{const inp=el("keyboard");inp.type=inp.type==="password"?"text":"password";el("maskBtn").textContent=inp.type==="password"?"Pokaż tekst":"Ukryj tekst";});
+wire("logoutBtn",async()=>{await api("/api/logout","POST",{});window.location.reload();});
+el("screen").addEventListener("click",e=>run(async()=>{
+ const r=e.currentTarget.getBoundingClientRect();await command("click",{x:(e.clientX-r.left)*1280/r.width,y:(e.clientY-r.top)*800/r.height});
+}));
+(async()=>{try{await api("/api/session");el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");await refreshProfiles();notify("Neon: sesja administratora aktywna.");}catch(_){el("loginBox").classList.remove("hidden");}})();
+</script></body></html>
