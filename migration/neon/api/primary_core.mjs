@@ -97,8 +97,15 @@ export function createPrimaryApi({read,mutate,admission,tokenSha256}={}){
      if(name===null||name==='')return answer({profiles:await read('profile_list',{owner})});
      if(!isProfile(name))return answer({error:'invalid_profile'},400);
      const row=await read('profile_get',{owner,name});
-     return row?answer({state:row.encryptedState,updatedAt:row.updatedAt}):
-       answer({error:'not_found'},404);
+     if(!row)return answer({error:'not_found'},404);
+     // The controller must receive a digest of the EXACT ciphertext it read.
+     // Reject a missing/mismatched digest rather than issuing an unsafe CAS base.
+     if(typeof row.encryptedState!=='string'||!DIGEST.test(row.ciphertextSha256)||
+        !timingSafeEqual(createHash('sha256').update(row.encryptedState).digest(),
+         Buffer.from(row.ciphertextSha256,'hex')))
+      return answer({error:'PROFILE_READBACK_UNVERIFIED'},503);
+     return answer({state:row.encryptedState,updatedAt:row.updatedAt,
+      sha256:row.ciphertextSha256});
     }
     if(method==='POST'){
      const body=await boundedJson(request,8200000);
