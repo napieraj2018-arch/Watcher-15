@@ -1,0 +1,38 @@
+name: AI Browser unreachable vault fail-closed recovery
+
+on:
+  pull_request:
+    branches: [ai-browser-cloud]
+    paths:
+      - 'bootstrap.py'
+      - 'recovery_boot_maintenance.py'
+      - 'provider_recovery_gate.py'
+      - 'test_recovery_unreachable_maintenance.py'
+      - 'test_recovery_boot_maintenance.py'
+      - 'test_provider_recovery_gate.py'
+      - '.github/workflows/recovery-unreachable-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  no-unsafe-restart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install isolated controller dependencies
+        run: python -m pip install httpx==0.28.1
+      - name: Verify syntax and fail-closed maintenance without real credentials
+        run: |
+          python -m py_compile bootstrap.py recovery_boot_maintenance.py provider_recovery_gate.py test_recovery_unreachable_maintenance.py
+          python -m unittest test_provider_recovery_gate test_recovery_boot_maintenance test_recovery_unreachable_maintenance -v
