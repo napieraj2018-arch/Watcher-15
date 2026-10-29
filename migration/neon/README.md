@@ -88,3 +88,32 @@ Schema applied: yes. Full private Storage backup copied and verified: yes.
 Encrypted PostgreSQL profiles imported: NO (0). Restricted importer role: NO.
 Auth API production-ready: NO. Database public writer: prohibited by constraint.
 Live Render/Floot production switched: NO. READY=false.
+
+
+## 29 October takeover implementation, still STAGING ONLY
+
+- The owner Neon Storage object is a verified immutable cold source of all
+  **7,833** rows across eight source tables. Its SHA-256 and source row digest
+  are registered in the private immutable aib_cold_backup_receipts table.
+- 005_cold_backup_receipts.sql is the reproducible receipt DDL.
+- 006_shadow_config_events.sql is applied: immutable per-batch private
+  config and event inboxes, preserving the 3 config values and 6,390 event
+  rows that the original draft transfer omitted. SQL synthetic success and
+  mutation-denial test fixtures have been rolled back.
+- bridge/transfer.mjs now validates and can stage all eight sources under a
+  single source snapshot after a real signed provider freeze, and will refuse
+  any non-empty active lease or login-attempt table. This runner was NOT
+  executed with the real source/destination secrets. No Neon database import
+  role currently exists or has been provisioned.
+- bridge/restore_parity.mjs compares original and restored private records
+  at exact byte precision including bigint IDs, timestamps and encrypted
+  payloads, and confirms neutral R158 20 rolling + 21 protected provenance.
+  Real private backup -> isolated in-memory rehearsal PASS. A deliberately
+  changed profile is denied. This is NOT actual PostgreSQL restore or browser
+  authentication verification.
+- The staging guard remains mode=staging_read_only, write_enabled=false,
+  all four import inboxes have zero real rows, and Render still uses Floot.
+  The role-provisioning safety refusal must not be sidestepped. Before any
+  production cutover: legitimately limited import role, full import parity,
+  fresh source/protected-history manifest, full Steel saved-close inventory,
+  neutral three-store/new-controller PASS, single fenced writer and rollback.
