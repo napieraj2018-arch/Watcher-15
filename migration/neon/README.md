@@ -1,4 +1,4 @@
-# AI Browser — Neon Free staging vault (28 October 2026)
+# AI Browser — Neon owner migration staging (29 October 2026)
 
 This is a real, isolated owner Neon staging database and a fail-closed API
 candidate. It is **NOT** a replacement for live Floot, not a profile migration,
@@ -13,8 +13,8 @@ and not proof of authenticated Meta accounts.
   write_enabled=false and CHECK(NOT write_enabled).
 - Existing Floot remains the ONLY production source; Render currently uses
   its existing encrypted state; all 5 Meta profiles remain there.
-- No actual profiles, history, Steel UUID bindings, tokens, master encryption keys, owner claims,
-  authentication data or cookies were transferred by this setup.
+- A private encrypted cold backup is now stored in Neon **Storage**, not in the operational PostgreSQL tables.
+  No plaintext cookies, credentials or encryption keys are stored in the repo, passed through ChatGPT, or exposed by Neon HTTP.
 
 ## Why Neon Functions instead of adding Cloudflare immediately
 Neon Functions runs on the existing Neon Free plan and has an owner-connected
@@ -44,21 +44,34 @@ connected and its limits permit the expected workload.
 8. No real login, MFA, CAPTCHA or identity assertion follows from a
    successful schema or synthetic test.
 
-## Private shadow transfer (unapplied, not executed)
-- The source shape was verified by count-only source metadata on 28 October:
-  66 profile names, 1216 archived revisions, 67 Steel profile bindings, 9
-  checkpoints; no source name fails the Neon name constraint.
+## Private shadow transfer (staging schema applied; restore not activated)
+- New live source readback 29 October: 68 profiles, 1292 archived revisions,
+  69 Steel profile bindings, 11 checkpoints, 0 control leases and 0 interrupted tasks.
+  An immutable private Neon Storage object contains a full snapshot: 7,833 records
+  across all eight source tables. Private readback passed complete SHA-256 and
+  row-manifest checks; the original Floot database was not changed.
 - `bridge/transfer.mjs` now enumerates all four categories under one
   repeatable-read source snapshot, preserving microsecond source timestamps.
-- `003_shadow_ciphertext_inbox.sql` remains **unapplied**. It defines a separate
-  restricted, immutable Steel-binding inbox; no real provider UUIDs are copied
-  through a chat, source repository or CI.
+- `003_shadow_ciphertext_inbox.sql` **was applied** in Neon staging; both immutable
+  import inboxes remain empty and the LIVE-shaped tables remain write-fenced.
+- `005_cold_backup_receipts.sql` defines the immutable metadata-only receipt table,
+  applied 29 October. It records verified backup size, counts and SHA-256 without
+  secrets or profile ciphertext. The exact receipts themselves are kept privately
+  in Neon, not committed as source data.
 - The one-shot runner needs source-only read DB credentials, a restricted Neon
   import role and short-lived owner-signed freeze proof, all provisioned
   directly in a trusted runtime (not sent through ChatGPT).
-- This is only an import candidate. Config, exact private manifest comparison,
-  original R158 three-store reconciliation, neutral readback and rollback
-  are **NOT DONE**. Cutover remains blocked.
+- `bridge/restore_parity.mjs` checks exact copies of encrypted states, timestamps,
+  large history IDs, task revisions, engine bindings, events and configuration.
+  It reconciles neutral R158 as **20 rolling + 21 protected**, the latter being
+  **20 forensic + 1 pre-verified**. Offline private replay of all **7,833** real
+  backup rows PASS; one deliberately corrupted copy was rejected. This is not
+  PostgreSQL import or a live-browser test.
+- Creating a restricted importer role was refused by the tool safety layer.
+  Do not bypass the refusal through the owner role, another endpoint or a
+  credential pasted into chat. Authorization of a genuinely limited import role,
+  a real restricted DB import, fresh source/provider freeze, native three-store
+  readback and rollback are **NOT DONE**. Cutover remains blocked.
 
 ## Free limits
 Neon Free provides up to 100 CU-hours per project/month, 1GB data and
@@ -71,6 +84,7 @@ node --check migration/neon/staging/index.mjs
 node --test migration/neon/*.test.mjs
 
 ## Status
-Schema applied: yes. Source staged: yes. Historical profiles copied: no.
-Auth API implemented: no. Database public writer: prohibited by constraint.
-Production switched: no. READY=false.
+Schema applied: yes. Full private Storage backup copied and verified: yes.
+Encrypted PostgreSQL profiles imported: NO (0). Restricted importer role: NO.
+Auth API production-ready: NO. Database public writer: prohibited by constraint.
+Live Render/Floot production switched: NO. READY=false.
