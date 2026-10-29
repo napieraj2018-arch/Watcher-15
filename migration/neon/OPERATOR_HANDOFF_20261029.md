@@ -295,3 +295,15 @@ new controller test; then review one-writer cutover/rollback.
 This checkpoint documents code and verified evidence; it does not certify
 a new active Neon vault. OPERATIONAL_PROFILES_IN_NEON=0,
 TRUE_DB_IMPORT_EXECUTED=false, PRODUCTION_CUTOVER=false.
+
+
+## 29 Oct 2026 — confirmed Floot hosting takedown and isolated CAS fix
+
+- Linked owner mailbox received Floot's official **Your apps have been taken offline** notice at **11:02:21 UTC**, explicitly identifying a negative hosting balance. This accounts for the subsequently disabled Floot PostgreSQL endpoint; the restored daily build allowance does **not** restore hosting credit. Floot documentation confirms the source database remains retained but unavailable for query/export while the balance is negative. Account purchase, plan upgrade and republish were NOT authorized or performed.
+- Exactly one new count-only Floot read preflight returned `The endpoint has been disabled`. Do not retry/poll the disabled source or manufacture a current source freeze. The protected 01:14 UTC snapshot is retained, not a current live snapshot.
+- An owner-email support request was sent to `hello@floot.com` asking for a one-time, nonmutating, read-only export/access without subscription purchase; it specifically prohibited restoring, resetting or changing source data. **No source access has been restored by this request.**
+- Fresh Neon PostgreSQL inventory: live profiles/archives/engines/tasks **0**; all four shadow inbox counts **0**; protected backup receipt **1**; migration guard `staging_read_only`, `write_enabled=false`; only `neondb_owner` role. No earlier refused importer-role creation was retried and no owner-role import attempted.
+- GitHub draft PR #180 received isolated future-controller CAS changes: authenticated profile GET now returns the exact verified ciphertext `sha256` (otherwise HTTP 503), profile-save success returns the saved digest, and unit test rejects a corrupted readback. Exact HEAD CI (Node 22/24) **40885354631 SUCCESS** at commit `7a222953d6294500d31b85cb4b74a64cc92a45ea`. This API is **unpublished**, not operational.
+- Render live code and env were not changed; current service continues to report `RECOVERY_CONNECTION_UNCONFIRMED` because its Floot-backed source is offline. The Browser MCP `browser_sessions` and `profile_list` both errored internally: no current independent signed Steel freeze, and no basis for deployment/cutover.
+
+**Confirmed: source takedown root cause found, support request sent, future CAS metadata improved and CI passed. NOT confirmed: live database reactivation, current source delta, actual SQL importer, authenticated real account reopen, operational browser use, Neon primary, rollback/cutover.**
