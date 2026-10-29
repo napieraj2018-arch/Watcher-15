@@ -171,6 +171,58 @@ class BrowserWorkspace:
         self.lease = None
         self.history = []
         self.human = False
+        self.active_page = None
+        self.tab_ids = {}
+        self.tab_sequence = 0
+        self.navigation_failures = []
+
+    def register_page(self, page):
+        if page in self.tab_ids:
+            return
+        self.tab_sequence += 1
+        self.tab_ids[page] = "tab-" + str(self.tab_sequence)
+        ident = self.tab_ids[page]
+        def navigated(frame):
+            # Blank popups must not steal the page containing the login form.
+            if frame == page.main_frame and page.url.startswith("https://"):
+                self.active_page = page
+        def failed(request):
+            try:
+                main_document = request.is_navigation_request() and request.frame == page.main_frame
+            except Exception:
+                return
+            if main_document:
+                code = str(request.failure or "")
+                self.navigation_failures.append({
+                    "tab": ident, "origin": safe_display_url(request.url),
+                    "failure": code if re.fullmatch(r"net::ERR_[A-Z0-9_]+", code) else "navigation_failed",
+                    "time": int(time.time())})
+                self.navigation_failures = self.navigation_failures[-10:]
+        def response_received(response):
+            try:
+                request = response.request
+                if response.status >= 400 and request.is_navigation_request() and request.frame == page.main_frame:
+                    self.navigation_failures.append({"tab": ident, "origin": safe_display_url(response.url),
+                                                     "status": response.status, "time": int(time.time())})
+                    self.navigation_failures = self.navigation_failures[-10:]
+            except Exception:
+                return
+        page.on("framenavigated", navigated)
+        page.on("requestfailed", failed)
+        page.on("response", response_received)
+
+    def tab_id(self, page):
+        self.register_page(page)
+        return self.tab_ids[page]
+
+    async def tab_state(self):
+        current = self.page()
+        tabs = []
+        for p in self.context.pages:
+            self.register_page(p)
+            tabs.append({"id": self.tab_ids[p], "url": safe_display_url(p.url),
+                         "title": (await p.title())[:150], "active": p is current})
+        return {"tabs": tabs, "navigation_failures": self.navigation_failures[-5:]}
 
     async def _ensure_engine(self):
         if self.browser is None:
@@ -183,7 +235,10 @@ class BrowserWorkspace:
             return
         await self.assert_lease()
         data = await self.context.storage_state(indexed_db=True)
-        data["aib_tabs"] = [p.url for p in self.context.pages if p.url.startswith("https://")]
+        saved_pages = [p for p in self.context.pages if p.url.startswith("https://")]
+        data["aib_tabs"] = [p.url for p in saved_pages]
+        current = self.page()
+        data["aib_active_tab"] = saved_pages.index(current) if current in saved_pages else 0
         data["aib_history"] = self.history[-200:]
         data["aib_viewport"] = self.page().viewport_size or VIEWPORT
         data["aib_profile"] = self.profile
@@ -205,6 +260,9 @@ class BrowserWorkspace:
                 await asyncio.to_thread(self.lease.close)
                 self.lease = None
             self.human = False
+            self.active_page = None
+            self.tab_ids = {}
+            self.navigation_failures = []
 
     async def assert_lease(self):
         if not self.lease or self.lease.closed:
@@ -250,6 +308,7 @@ class BrowserWorkspace:
         ctx = await self.browser.new_context(
             storage_state={k: state[k] for k in ("cookies", "origins")}, viewport=state.get("aib_viewport", VIEWPORT), accept_downloads=False,
             service_workers="block")
+        ctx.on("page", self.register_page)
         async def guard(route):
             try:
                 url = route.request.url
@@ -275,6 +334,9 @@ class BrowserWorkspace:
         self.context = ctx
         self.profile = name
         self.rev = version
+        active_index = state.get("aib_active_tab", len(ctx.pages)-1)
+        if isinstance(active_index, int) and 0 <= active_index < len(ctx.pages):
+            self.active_page = ctx.pages[active_index]
 
     def page(self):
         if self.context is None:
@@ -282,7 +344,10 @@ class BrowserWorkspace:
         pages = self.context.pages
         if not pages:
             raise HTTPException(409, "Brak karty przeglądarki")
-        return pages[-1]
+        if self.active_page in pages:
+            return self.active_page
+        self.active_page = next((p for p in reversed(pages) if p.url.startswith("https://")), pages[-1])
+        return self.active_page
 
     async def action(self, data: dict, automated=False, owner_context=None):
         name = profile_name(data.get("name", ""))
@@ -297,6 +362,8 @@ class BrowserWorkspace:
             if automated and self.human:
                 raise HTTPException(409, "Właściciel przejął sterowanie; poczekaj na oddanie sterowania.")
             page = self.page()
+            if data.get("page_id") and data["page_id"] != self.tab_id(page):
+                raise HTTPException(409, "Strona zmieniła kartę. Sprawdź aktualny obraz i ponów kliknięcie.")
             try:
                 if op == "handoff":
                     self.human = bool(data.get("human", True))
@@ -304,6 +371,14 @@ class BrowserWorkspace:
                     return {"url": safe_display_url(page.url), "title": await page.title(),
                             "text": (await page.locator("body").inner_text())[:16000],
                             "elements": await page.locator("a,button,input,textarea,select").evaluate_all("els => els.slice(0,150).map((e,i)=>({index:i,tag:e.tagName,type:e.type||'',label:(e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'').slice(0,120)}))")}
+                elif op == "tabs":
+                    return await self.tab_state()
+                elif op == "select_tab":
+                    target = next((p for p in self.context.pages if self.tab_id(p) == data.get("text")), None)
+                    if target is None:
+                        raise HTTPException(404, "Ta karta została zamknięta.")
+                    self.active_page = target
+                    page = target
                 elif op == "upload":
                     index = int(data.get("index", -1))
                     if not 0 <= index < 150:
@@ -339,7 +414,8 @@ class BrowserWorkspace:
                 elif op == "reload":
                     await page.reload(wait_until="domcontentloaded", timeout=20000)
                 elif op == "new_tab":
-                    await self.context.new_page()
+                    page = await self.context.new_page()
+                    self.active_page = page
                 elif op == "open":
                     pass
                 elif op == "go":
@@ -384,16 +460,27 @@ class BrowserWorkspace:
             except Exception:
                 raise HTTPException(502, "Operacja przeglądarki nie powiodła się; dane źródłowe pozostają zachowane.") from None
 
-    async def screenshot(self, name: str, owner_context=None):
+    async def screenshot(self, name: str, owner_context=None, with_metadata=False):
         async with self.lock:
             if owner_context is not None and self.context is not owner_context:
                 raise HTTPException(409, "Sesja tego linku została zamknięta.")
             if self.context is None or self.profile != profile_name(name):
                 raise HTTPException(409, "Otwórz wybrany profil przed pobraniem obrazu.")
             try:
-                return await self.page().screenshot(type="png", animations="disabled", timeout=20000)
+                page = self.page()
+                png = await page.screenshot(type="png", animations="disabled", timeout=12000)
+                if with_metadata:
+                    return png, {"X-AIB-Page": self.tab_id(page), "X-AIB-Origin": safe_display_url(page.url),
+                                 "X-AIB-Tabs": str(len(self.context.pages))}
+                return png
             except Exception:
                 raise HTTPException(502, "Nie można wykonać zrzutu ekranu.") from None
+
+    async def tabs(self, name: str, owner_context=None):
+        async with self.lock:
+            if self.context is None or self.profile != profile_name(name) or (owner_context is not None and self.context is not owner_context):
+                raise HTTPException(409, "Sesja tego profilu nie jest otwarta.")
+            return await self.tab_state()
 
     async def shutdown(self):
         async with self.lock:
@@ -531,7 +618,7 @@ async def owner_action(request: Request):
     payload = await request.json()
     if not isinstance(payload, dict) or payload.get("name") != grant["name"]:
         raise HTTPException(403, "Ten link pozwala sterować wyłącznie wskazanym profilem.")
-    if payload.get("action") not in {"open", "go", "handoff", "back", "reload", "save", "close", "type", "press", "scroll", "viewport", "click"}:
+    if payload.get("action") not in {"open", "go", "handoff", "back", "reload", "save", "close", "type", "press", "scroll", "viewport", "click", "select_tab"}:
         raise HTTPException(403, "Polecenie niedostępne w tym panelu.")
     return await workspace.action(payload, owner_context=grant["context"])
 
@@ -540,8 +627,15 @@ async def owner_screen(request: Request, name: str):
     grant = require_owner(request)
     if name != grant["name"]:
         raise HTTPException(403, "Ten link nie udostępnia innego profilu.")
-    png = await workspace.screenshot(name, owner_context=grant["context"])
-    return Response(png, media_type="image/png")
+    png, metadata = await workspace.screenshot(name, owner_context=grant["context"], with_metadata=True)
+    return Response(png, media_type="image/png", headers=metadata)
+
+@app.get("/owner/api/tabs")
+async def owner_tabs(request: Request, name: str):
+    grant = require_owner(request)
+    if name != grant["name"]:
+        raise HTTPException(403, "Ten link nie udostępnia innego profilu.")
+    return await workspace.tabs(name, owner_context=grant["context"])
 
 @app.post("/owner/api/logout")
 async def owner_logout(request: Request, response: Response):
@@ -607,8 +701,13 @@ async def action(request: Request):
 @app.get("/api/screen")
 async def screen(request: Request, name: str):
     require(request)
-    png = await workspace.screenshot(name)
-    return Response(png, media_type="image/png")
+    png, metadata = await workspace.screenshot(name, with_metadata=True)
+    return Response(png, media_type="image/png", headers=metadata)
+
+@app.get("/api/tabs")
+async def tabs(request: Request, name: str):
+    require(request)
+    return await workspace.tabs(name)
 
 FIXTURE = """<!doctype html><title>AI Browser acceptance</title><form><input id='field' placeholder='Neutral test'><button type='button' onclick="document.querySelector('output').textContent=document.querySelector('input').value">Check</button></form><output></output>"""
 
@@ -626,6 +725,20 @@ async def acceptance(args):
         page = await workspace.context.new_page()
         await workspace.context.route("https://aib-acceptance.invalid/**", lambda r: r.fulfill(status=200, content_type="text/html", body=FIXTURE))
         await page.goto("https://aib-acceptance.invalid/")
+        if phase == "tabs":
+            workspace.active_page = page
+            popup = await workspace.context.new_page()
+            blank_keeps_form = workspace.page() is page
+            await popup.goto("https://aib-acceptance.invalid/popup")
+            real_popup_selected = workspace.page() is popup
+            # The workspace lock is held here: capture directly, without a nested lock.
+            png = await workspace.page().screenshot(type="png", timeout=12000)
+            checks = {"blank_popup_keeps_form": blank_keeps_form,
+                      "navigated_popup_selected": real_popup_selected,
+                      "live_frame_available": len(png) > 100,
+                      "tab_listing": len((await workspace.tab_state())["tabs"]) >= 2}
+            await workspace._close_current()
+            return {"phase": "tabs", "checks": checks, "all_passed": all(checks.values()), "saved_closed": True}
         if phase == "seed":
             await page.locator("#field").fill("neutral-form-ok")
             await page.locator("button").click()
