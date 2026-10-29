@@ -25,6 +25,10 @@
 </section></main><script>
 "use strict";
 const el = (id)=>document.getElementById(id);
+const ownerMode = window.location.pathname === "/owner/";
+// Remove the one-use fragment before any request; it never reaches HTTP logs.
+const ownerToken = ownerMode ? window.location.hash.slice(1) : "";
+if(ownerMode)history.replaceState(null,"",window.location.pathname);
 let busy = false;
 function notify(message, error=false){el(error?"error":"message").textContent=message;el(error?"message":"error").textContent="";}
 async function api(path,method="GET",body=undefined){
@@ -102,5 +106,19 @@ wire("logoutBtn",async()=>{await api("./api/logout","POST",{});window.location.r
 el("screen").addEventListener("click",e=>run(async()=>{
  const r=e.currentTarget.getBoundingClientRect();await command("click",{x:(e.clientX-r.left)*e.currentTarget.naturalWidth/r.width,y:(e.clientY-r.top)*e.currentTarget.naturalHeight/r.height});
 }));
-(async()=>{try{await api("./api/session");el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");await refreshProfiles();notify("Połączono. Wybierz profil i otwórz stronę.");}catch(_){el("loginBox").classList.remove("hidden");}})();
+(async()=>{
+ if(ownerMode){
+  el("loginBox").classList.add("hidden");
+  el("createBtn").closest("details").classList.add("hidden");
+  el("profile").closest("section").classList.add("hidden");
+  el("appBox").style.gridTemplateColumns="minmax(0,1fr)";
+ }
+ try{
+  if(ownerToken)await api("./api/pair","POST",{token:ownerToken});
+  await api("./api/session");el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");
+  await refreshProfiles();
+  if(ownerMode){await command("open");notify("Otwarty profil: "+selected()+". Kliknij „Przejmij sterowanie”, aby się zalogować.");}
+  else notify("Połączono. Wybierz profil i otwórz stronę.");
+ }catch(e){if(ownerMode)notify(e.message,true);else el("loginBox").classList.remove("hidden");}
+})();
 </script></body></html>

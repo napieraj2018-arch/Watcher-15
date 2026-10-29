@@ -149,13 +149,16 @@ def require(request: Request):
     if not logged_in(request):
         raise HTTPException(401, "Najpierw zaloguj się do nowej przeglądarki Neon.")
 
-def require_mutation(request: Request):
-    require(request)
+def require_panel_origin(request: Request):
     origin = request.headers.get("origin")
     if origin and origin != str(request.base_url).rstrip("/"):
         raise HTTPException(403, "Niezgodne źródło żądania")
     if request.headers.get("x-aib-request") != "same-origin":
         raise HTTPException(403, "Brak potwierdzenia żądania z panelu.")
+
+def require_mutation(request: Request):
+    require(request)
+    require_panel_origin(request)
 
 class BrowserWorkspace:
     def __init__(self):
@@ -281,10 +284,12 @@ class BrowserWorkspace:
             raise HTTPException(409, "Brak karty przeglądarki")
         return pages[-1]
 
-    async def action(self, data: dict, automated=False):
+    async def action(self, data: dict, automated=False, owner_context=None):
         name = profile_name(data.get("name", ""))
         op = data.get("action")
         async with self.lock:
+            if owner_context is not None and (self.context is not owner_context or self.profile != name):
+                raise HTTPException(409, "Sesja tego linku została zamknięta. Poproś o nowy link.")
             if automated and (self.human or (self.context is not None and self.profile != name)):
                 raise HTTPException(409, "Profil jest zajęty lub steruje nim właściciel.")
             await self.open(name)
@@ -379,8 +384,10 @@ class BrowserWorkspace:
             except Exception:
                 raise HTTPException(502, "Operacja przeglądarki nie powiodła się; dane źródłowe pozostają zachowane.") from None
 
-    async def screenshot(self, name: str):
+    async def screenshot(self, name: str, owner_context=None):
         async with self.lock:
+            if owner_context is not None and self.context is not owner_context:
+                raise HTTPException(409, "Sesja tego linku została zamknięta.")
             if self.context is None or self.profile != profile_name(name):
                 raise HTTPException(409, "Otwórz wybrany profil przed pobraniem obrazu.")
             try:
@@ -403,6 +410,42 @@ def safe_display_url(raw: str) -> str:
     return "Nowa karta"
 
 workspace = BrowserWorkspace()
+
+# Independent, short-lived capabilities. Never expose the administrator/MCP key.
+OWNER_COOKIE = "aib_owner_session"
+OWNER_GRANTS = {}
+
+def owner_digest(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+def prune_owner_grants():
+    for key, grant in list(OWNER_GRANTS.items()):
+        if grant["expires"] <= time.time() or grant["context"] is not workspace.context:
+            del OWNER_GRANTS[key]
+
+async def issue_owner_access(name):
+    name = profile_name(name)
+    async with workspace.lock:
+        if workspace.context is None or workspace.profile != name or workspace.human:
+            raise HTTPException(409, "Najpierw otwórz ten profil; nie przerywaj sterowania właściciela.")
+        prune_owner_grants()
+        if len(OWNER_GRANTS) >= 16:
+            raise HTTPException(429, "Zbyt wiele aktywnych linków. Użyj poprzedniego lub poczekaj.")
+        token = secrets.token_urlsafe(32)
+        OWNER_GRANTS[owner_digest(token)] = {
+            "name": name, "context": workspace.context,
+            "expires": time.time() + 600, "kind": "link"}
+        return token
+
+def require_owner(request):
+    prune_owner_grants()
+    token = request.cookies.get(OWNER_COOKIE, "")
+    grant = OWNER_GRANTS.get(owner_digest(token))
+    if not grant or grant["kind"] != "session":
+        raise HTTPException(401, "Dostęp wygasł. Poproś ChatGPT o nowy link do profilu.")
+    if grant["name"] != workspace.profile or workspace.context is None:
+        raise HTTPException(409, "Sesja tego linku została zamknięta.")
+    return grant
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -446,6 +489,67 @@ async def health():
     if not await asyncio.to_thread(db_ping):
         return JSONResponse({"status": "not_ready", "store": "neon_fresh", "reason": "database"}, status_code=503)
     return {"status": "ready", "store": "neon_fresh"}
+
+@app.get("/owner/", response_class=HTMLResponse)
+async def owner_index():
+    return FileResponse(ROOT / "index.html", media_type="text/html")
+
+@app.post("/owner/api/pair")
+async def owner_pair(request: Request, response: Response):
+    require_panel_origin(request)
+    data = await request.json()
+    token = data.get("token", "") if isinstance(data, dict) else ""
+    if not isinstance(token, str) or len(token) > 100:
+        raise HTTPException(401, "Nieprawidłowy link dostępu")
+    async with workspace.lock:
+        prune_owner_grants()
+        key = owner_digest(token)
+        grant = OWNER_GRANTS.get(key)
+        if not grant or grant["kind"] != "link":
+            raise HTTPException(401, "Link wygasł lub został już użyty. Poproś o nowy link.")
+        del OWNER_GRANTS[key]
+        session = secrets.token_urlsafe(32)
+        OWNER_GRANTS[owner_digest(session)] = {**grant, "expires": time.time() + 3600, "kind": "session"}
+    response.set_cookie(OWNER_COOKIE, session, max_age=3600,
+                        httponly=True, secure=True, samesite="strict", path="/owner")
+    return {"ok": True, "owner": True, "profile": grant["name"]}
+
+@app.get("/owner/api/session")
+async def owner_session(request: Request):
+    grant = require_owner(request)
+    return {"ok": True, "owner": True, "profile": grant["name"]}
+
+@app.get("/owner/api/profiles")
+async def owner_profiles(request: Request):
+    grant = require_owner(request)
+    return {"profiles": [{"name": grant["name"]}]}
+
+@app.post("/owner/api/action")
+async def owner_action(request: Request):
+    require_panel_origin(request)
+    grant = require_owner(request)
+    payload = await request.json()
+    if not isinstance(payload, dict) or payload.get("name") != grant["name"]:
+        raise HTTPException(403, "Ten link pozwala sterować wyłącznie wskazanym profilem.")
+    if payload.get("action") not in {"open", "go", "handoff", "back", "reload", "save", "close", "type", "press", "scroll", "viewport", "click"}:
+        raise HTTPException(403, "Polecenie niedostępne w tym panelu.")
+    return await workspace.action(payload, owner_context=grant["context"])
+
+@app.get("/owner/api/screen")
+async def owner_screen(request: Request, name: str):
+    grant = require_owner(request)
+    if name != grant["name"]:
+        raise HTTPException(403, "Ten link nie udostępnia innego profilu.")
+    png = await workspace.screenshot(name, owner_context=grant["context"])
+    return Response(png, media_type="image/png")
+
+@app.post("/owner/api/logout")
+async def owner_logout(request: Request, response: Response):
+    require_panel_origin(request)
+    require_owner(request)
+    OWNER_GRANTS.pop(owner_digest(request.cookies.get(OWNER_COOKIE, "")), None)
+    response.delete_cookie(OWNER_COOKIE, path="/owner")
+    return {"ok": True}
 
 @app.get("/api/session")
 async def check(request: Request):
@@ -605,6 +709,11 @@ async def mcp(request: Request):
                 value = {"profiles": await asyncio.to_thread(db_list)}
             elif action == "create_profile":
                 value = {"created": await asyncio.to_thread(db_create, profile_name(args.get("name", "")))}
+            elif action == "owner_access":
+                token = await issue_owner_access(args.get("name", ""))
+                value = {"url": str(request.base_url).rstrip("/") + "/owner/#" + token,
+                         "profile": args.get("name"), "expires_in": 600,
+                         "instructions": "Open this one-use link yourself, then choose Przejmij sterowanie. Never enter credentials in ChatGPT."}
             elif action == "checkpoint":
                 task_id = profile_name(args.get("task_id", ""))
                 value = await asyncio.to_thread(db_checkpoint,task_id,args.get("checkpoint"),args.get("revision"))
@@ -637,3 +746,4 @@ if __name__ == "__main__":
         raise AssertionError("not HTTPS")
     assert safe_url("https://accounts.google.com/") == "https://accounts.google.com/"
     print("SELFTEST PASS: isolated encryption, profile name and URL gate")
+
