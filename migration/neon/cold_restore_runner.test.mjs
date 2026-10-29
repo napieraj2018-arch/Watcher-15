@@ -25,6 +25,6 @@ test('runner never logs private data or auto-promotes the writer',()=>{
  const s=readFileSync(file,'utf8');
  assert.doesNotMatch(s,/console\.log\s*\(|throw\s+rawError|print\s*\(\s*bytes\s*\)/);
  assert.ok(s.includes('RESTORE_NOT_COMPLETED_SAFE_STOP'));
- assert.ok(s.includes('production_cutover'));
+ assert.doesNotMatch(s,/production_cutover\s*[:=]\s*true|write_enabled\s*[:=]\s*true/);
  assert.ok(s.includes('AIB_COLD_RESTORE_MODE'));
 });
