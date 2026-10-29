@@ -4,6 +4,8 @@ import json
 import os
 import re
 import socket
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -86,22 +88,36 @@ class RealFormTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.methods.count('POST'),1)
         self.assertTrue(result['ok']);self.assertEqual(result['navigation'],'ready')
     async def test_redirect_login_sets_cookies_before_state_is_reused(self):
-        async def route(r):
-            if r.request.method=='POST':
-                await r.fulfill(status=303,headers={'Location':'https://fixture.invalid/done','Set-Cookie':'synthetic_session=ok; Secure; SameSite=Lax; Path=/'})
-            elif r.request.url.endswith('/done'):
-                await r.fulfill(content_type='text/html',body='<title>Fixture account</title><h1>Signed in fixture</h1>')
-            else:
-                await r.fulfill(content_type='text/html',body="<form method='post' action='/submit'><button>Submit</button></form>")
-        await self.context.route('https://fixture.invalid/**',route)
-        await self.page.goto('https://fixture.invalid/form');await self.page.locator('button').click()
-        await self.page.wait_for_url('https://fixture.invalid/done')
-        self.assertEqual(await self.page.locator('h1').inner_text(),'Signed in fixture')
-        state=await self.context.storage_state(indexed_db=True)
-        self.assertTrue(any(c['name']=='synthetic_session' and c['value']=='ok' for c in state['cookies']))
-        second=await self.browser.new_context(storage_state=state)
-        try:self.assertTrue(any(c['name']=='synthetic_session' and c['value']=='ok' for c in await second.cookies()))
-        finally:await second.close()
+        # Route interception is not a redirect server: redirects after a mocked
+        # 303 can leave the mocked .invalid origin. Use an isolated real HTTP
+        # server on loopback; production network policy still rejects loopback.
+        class Fixture(BaseHTTPRequestHandler):
+            def log_message(self,*args): pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get('Content-Length','0')))
+                self.send_response(303)
+                self.send_header('Location','/done')
+                self.send_header('Set-Cookie','synthetic_session=ok; SameSite=Lax; Path=/')
+                self.end_headers()
+            def do_GET(self):
+                body=(b'<title>Fixture account</title><h1>Signed in fixture</h1>' if self.path=='/done'
+                      else b"<form method='post' action='/submit'><button>Submit</button></form>")
+                self.send_response(200);self.send_header('Content-Type','text/html')
+                self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+        srv=ThreadingHTTPServer(('127.0.0.1',0),Fixture)
+        thread=Thread(target=srv.serve_forever,daemon=True);thread.start()
+        origin=f'http://127.0.0.1:{srv.server_port}'
+        try:
+            await self.page.goto(origin+'/form');await self.page.locator('button').click()
+            await self.page.wait_for_url(origin+'/done',wait_until='domcontentloaded',timeout=10000)
+            self.assertEqual(await self.page.locator('h1').inner_text(),'Signed in fixture')
+            state=await self.context.storage_state(indexed_db=True)
+            self.assertTrue(any(c['name']=='synthetic_session' and c['value']=='ok' for c in state['cookies']))
+            second=await self.browser.new_context(storage_state=state)
+            try:self.assertTrue(any(c['name']=='synthetic_session' and c['value']=='ok' for c in await second.cookies()))
+            finally:await second.close()
+        finally:
+            await asyncio.to_thread(srv.shutdown);srv.server_close();thread.join(timeout=2)
     async def test_diagnostics_human_mode_read_only_and_no_form_values(self):
         await self.context.route('https://fixture.invalid/**',lambda r:r.fulfill(content_type='text/html',body="<form action='/login?secret=PRIVATE_QUERY' method='post'><input name='password' value='PRIVATE_INPUT'></form>"))
         await self.page.goto('https://fixture.invalid/form');self.w.human=True
@@ -125,8 +141,9 @@ class RealFormTests(unittest.IsolatedAsyncioTestCase):
             await r.fulfill(content_type='application/json',body=json.dumps(payload))
         await self.context.route('https://panel.invalid/**',api)
         await self.page.goto('https://panel.invalid/')
+        await self.page.wait_for_function("document.getElementById('profile').value === 'acceptance-form-fixture'",timeout=5000)
         await self.page.locator('#openBtn').click()
-        await self.page.wait_for_function("document.getElementById('liveStatus').textContent.includes('Błąd')")
+        await self.page.wait_for_function("document.getElementById('liveStatus').textContent.includes('Błąd')",timeout=5000)
         self.assertTrue(await self.page.locator('#screen').is_hidden())
         self.assertTrue(await self.page.locator('#emptyScreen').is_visible())
         self.assertTrue(await self.page.locator('#typeBtn').is_disabled())
