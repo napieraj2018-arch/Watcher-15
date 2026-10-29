@@ -33,3 +33,15 @@ class Security(unittest.TestCase):
   with TestClient(server.app) as c:
    self.assertIn("img-src 'self' data: blob:",c.get('/').headers['content-security-policy'])
 if __name__=='__main__':unittest.main()
+
+class Ownership(unittest.IsolatedAsyncioTestCase):
+ async def test_agent_cannot_close_human_profile(self):
+  w=server.BrowserWorkspace();w.context=object();w.profile='human';w.human=True
+  with self.assertRaises(server.HTTPException) as e:
+   await w.action({'name':'different','action':'open'},automated=True)
+  self.assertEqual(e.exception.status_code,409)
+  self.assertEqual(w.profile,'human')
+ async def test_screen_does_not_start_or_switch_profile(self):
+  w=server.BrowserWorkspace()
+  with self.assertRaises(server.HTTPException):await w.screenshot('fixture')
+  self.assertIsNone(w.context)

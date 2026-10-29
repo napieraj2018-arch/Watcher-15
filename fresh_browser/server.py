@@ -284,6 +284,8 @@ class BrowserWorkspace:
         name = profile_name(data.get("name", ""))
         op = data.get("action")
         async with self.lock:
+            if automated and (self.human or (self.context is not None and self.profile != name)):
+                raise HTTPException(409, "Profil jest zajęty lub steruje nim właściciel.")
             await self.open(name)
             await self.assert_lease()
             if automated and self.human:
@@ -374,7 +376,8 @@ class BrowserWorkspace:
 
     async def screenshot(self, name: str):
         async with self.lock:
-            await self.open(profile_name(name))
+            if self.context is None or self.profile != profile_name(name):
+                raise HTTPException(409, "Otwórz wybrany profil przed pobraniem obrazu.")
             try:
                 return await self.page().screenshot(type="png", animations="disabled", timeout=20000)
             except Exception:
@@ -578,7 +581,14 @@ async def mcp(request: Request):
         result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
     elif method == "tools/call":
         try:
-            if msg.get("params", {}).get("name") != "fresh_browser":
+            tool_name = msg.get("params", {}).get("name")
+            if tool_name == "profile_list":
+                value = await asyncio.to_thread(db_list)
+                return {"jsonrpc":"2.0","id":ident,"result":{"content":[{"type":"text","text":json.dumps(value)}]}}
+            if tool_name == "browser_sessions":
+                value = [{"profile":workspace.profile,"human":workspace.human}] if workspace.context else []
+                return {"jsonrpc":"2.0","id":ident,"result":{"content":[{"type":"text","text":json.dumps(value)}]}}
+            if tool_name != "fresh_browser":
                 raise HTTPException(400, "Unknown tool")
             args = msg["params"].get("arguments", {})
             action = args.get("action")
