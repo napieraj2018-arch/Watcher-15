@@ -33,7 +33,7 @@ label{font-size:.9rem}#screen{display:block;width:100%;height:auto;touch-action:
 </section>
 <section class="panel">
 <div class="row"><input id="website" type="url" placeholder="https://accounts.google.com/"><button id="goBtn">Przejdź</button></div>
-<div class="row"><button class="secondary" id="humanBtn">Przejmij sterowanie</button><button class="secondary" id="agentBtn">Oddaj sterowanie ChatGPT</button><button class="secondary" id="prevBtn">Wstecz</button><button class="secondary" id="reloadBtn">Odśwież stronę</button><button class="secondary" id="screenBtn">Odśwież obraz</button><button class="secondary" id="saveBtn">Zapisz profil</button><button class="secondary" id="closeBtn">Zamknij profil</button></div>
+<div class="row"><button class="secondary" id="phoneBtn">Widok telefonu</button><button class="secondary" id="desktopBtn">Widok komputera</button><button class="secondary" id="humanBtn">Przejmij sterowanie</button><button class="secondary" id="agentBtn">Oddaj sterowanie ChatGPT</button><button class="secondary" id="prevBtn">Wstecz</button><button class="secondary" id="reloadBtn">Odśwież stronę</button><button class="secondary" id="screenBtn">Odśwież obraz</button><button class="secondary" id="saveBtn">Zapisz profil</button><button class="secondary" id="closeBtn">Zamknij profil</button></div>
 <p class="sub" id="site">Zacznij od wybrania profilu.</p>
 <div id="imageFrame"><img id="screen" alt="Ekran zdalnej przeglądarki; dotknij, aby kliknąć" width="1280" height="800"></div>
 <small>Dotknięcie obrazu kliknie w przeglądarce. Aby wpisać login lub hasło, kliknij pole na obrazie i użyj poniższego formularza.</small>
@@ -86,6 +86,8 @@ wire("createBtn",async()=>{
 wire("openBtn",()=>command("open"));
 wire("goBtn",()=>{let u=el("website").value.trim();if(!u.startsWith("https://"))u="https://"+u;return command("go",{url:u});});
 wire("screenBtn",screenshot);
+wire("phoneBtn",()=>command("viewport",{text:"mobile"}));
+wire("desktopBtn",()=>command("viewport",{text:"desktop"}));
 wire("humanBtn",()=>command("handoff",{human:true}));
 wire("agentBtn",()=>command("handoff",{human:false}));
 wire("prevBtn",()=>command("back"));
@@ -102,7 +104,7 @@ wire("scrollDown",()=>command("scroll",{delta:600}));
 wire("maskBtn",async()=>{const inp=el("keyboard");inp.type=inp.type==="password"?"text":"password";el("maskBtn").textContent=inp.type==="password"?"Pokaż tekst":"Ukryj tekst";});
 wire("logoutBtn",async()=>{await api("./api/logout","POST",{});window.location.reload();});
 el("screen").addEventListener("click",e=>run(async()=>{
- const r=e.currentTarget.getBoundingClientRect();await command("click",{x:(e.clientX-r.left)*1280/r.width,y:(e.clientY-r.top)*800/r.height});
+ const r=e.currentTarget.getBoundingClientRect();await command("click",{x:(e.clientX-r.left)*e.currentTarget.naturalWidth/r.width,y:(e.clientY-r.top)*e.currentTarget.naturalHeight/r.height});
 }));
 (async()=>{try{await api("./api/session");el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");await refreshProfiles();notify("Neon: sesja administratora aktywna.");}catch(_){el("loginBox").classList.remove("hidden");}})();
 </script></body></html>

@@ -182,6 +182,7 @@ class BrowserWorkspace:
         data = await self.context.storage_state(indexed_db=True)
         data["aib_tabs"] = [p.url for p in self.context.pages if p.url.startswith("https://")]
         data["aib_history"] = self.history[-200:]
+        data["aib_viewport"] = self.page().viewport_size or VIEWPORT
         data["aib_profile"] = self.profile
         blob = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
         encrypted = seal(blob)
@@ -244,7 +245,7 @@ class BrowserWorkspace:
             self.lease = None
             raise HTTPException(409, "Niezgodność profilu; dane zachowano.")
         ctx = await self.browser.new_context(
-            storage_state={k: state[k] for k in ("cookies", "origins")}, viewport=VIEWPORT, accept_downloads=False,
+            storage_state={k: state[k] for k in ("cookies", "origins")}, viewport=state.get("aib_viewport", VIEWPORT), accept_downloads=False,
             service_workers="block")
         async def guard(route):
             try:
@@ -323,6 +324,9 @@ class BrowserWorkspace:
                     if not 0 <= index < 150:
                         raise HTTPException(400, "Nieprawidłowy element")
                     await page.locator("a,button,input,textarea,select").nth(index).click(timeout=10000)
+                elif op == "viewport":
+                    size = {"width":390,"height":844} if data.get("text") == "mobile" else VIEWPORT
+                    await page.set_viewport_size(size)
                 elif op == "back":
                     await page.go_back(wait_until="domcontentloaded", timeout=20000)
                 elif op == "forward":
@@ -337,7 +341,8 @@ class BrowserWorkspace:
                     await page.goto(safe_url(data.get("url", "")), wait_until="domcontentloaded", timeout=25000)
                 elif op == "click":
                     x, y = float(data.get("x", -1)), float(data.get("y", -1))
-                    if not (0 <= x < VIEWPORT["width"] and 0 <= y < VIEWPORT["height"]):
+                    viewport = page.viewport_size or VIEWPORT
+                    if not (0 <= x < viewport["width"] and 0 <= y < viewport["height"]):
                         raise HTTPException(400, "Kliknięcie poza ekranem")
                     await page.mouse.click(x, y)
                 elif op == "type":
