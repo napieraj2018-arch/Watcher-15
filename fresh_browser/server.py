@@ -511,7 +511,7 @@ async def acceptance(args):
         if phase == "seed" and not await asyncio.to_thread(db_create, name):
             raise HTTPException(409, "Synthetic profile already exists")
         await workspace.open(name)
-        page = workspace.page()
+        page = await workspace.context.new_page()
         await workspace.context.route("https://aib-acceptance.invalid/**", lambda r: r.fulfill(status=200, content_type="text/html", body=FIXTURE))
         await page.goto("https://aib-acceptance.invalid/")
         if phase == "seed":
@@ -601,8 +601,9 @@ async def mcp(request: Request):
             result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}]}
         except HTTPException as exc:
             result = {"isError": True, "content": [{"type": "text", "text": str(exc.detail)}]}
-        except Exception:
-            result = {"isError": True, "content": [{"type": "text", "text": "Operation failed; verify before retry"}]}
+        except Exception as exc:
+            print("AIB_FRESH_TOOL_ERROR", type(exc).__name__, flush=True)
+            result = {"isError": True, "content": [{"type": "text", "text": "Operation failed (" + type(exc).__name__ + "); verify before retry"}]}
     else:
         return {"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "Method not found"}}
     return {"jsonrpc": "2.0", "id": ident, "result": result}
