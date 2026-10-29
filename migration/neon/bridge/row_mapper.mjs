@@ -79,3 +79,33 @@ export function shadowSummary(counts){
  }
  return out;
 }
+
+
+/** Private vault configuration: preserve EXACT value bytes, never print them. */
+export function normalizeConfigRow(row){
+ if(!row||typeof row!=='object'||Array.isArray(row)||
+   typeof row.config_key!=='string'||row.config_key.length<1||row.config_key.length>150||
+   typeof row.config_value!=='string'||
+   Buffer.byteLength(row.config_value,'utf8')<1||
+   Buffer.byteLength(row.config_value,'utf8')>1048576)
+  throw Error('SHADOW_CONFIG_INVALID');
+ return {sourceKey:row.config_key,configValue:row.config_value,
+  sourceSha256:createHash('sha256').update(row.config_value,'utf8').digest('hex')};
+}
+
+/** Private event journal: hash the same byte framing as 006_shadow_config_events.sql. */
+export function normalizeEventRow(row){
+ if(!row||typeof row!=='object'||Array.isArray(row)||
+   typeof row.id!=='string'||!/^[1-9][0-9]{0,18}$/.test(row.id)||
+   typeof row.profile_name!=='string'||row.profile_name.length<1||
+   row.profile_name.length>150||row.profile_name.includes('\x1f')||
+   typeof row.event_type!=='string'||row.event_type.length<1||
+   row.event_type.length>150||row.event_type.includes('\x1f'))
+  throw Error('SHADOW_EVENT_INVALID');
+ const created=stamp(row.created_at);
+ if(created.includes('\x1f'))throw Error('SHADOW_EVENT_INVALID');
+ const framed=[row.id,row.profile_name,row.event_type,created].join('\x1f');
+ return {sourceId:row.id,profileName:row.profile_name,eventType:row.event_type,
+  sourceCreatedAt:created,sourceSha256:createHash('sha256')
+    .update(framed,'utf8').digest('hex')};
+}
