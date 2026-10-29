@@ -26,6 +26,8 @@ function fixture({allowed=true,throwWrite=false}={}){
   if(operation==='task_get')return payload.id===ID?
    {taskId:ID,revision:1,encryptedState:'TEST_TASK_CIPHERTEXT_V1',resumable:true,queued:false}:null;
   if(operation==='status')return {epoch:42,write_enabled:true};
+  if(operation==='recovery_inspect')return {ok:true,pending:false,
+   configured:true,verified:true,gate_id:'00000000-0000-4000-8000-000000000012'};
   throw Error('READ_PRIVATE_SECRET_MUST_NOT_LEAK');
  };
  const mutate=async (operation,payload,owner)=>{
@@ -186,4 +188,23 @@ test('invalid JSON content-type rejected before writer is reached',async()=>{
   body:'{action:list}' }));
  assert.equal(r.status,415);
  assert.equal(calls.filter(c=>c.kind==='mutation').length,0);
+});
+
+test('provider recovery inspect is owner only and read-only',async()=>{
+ const {api,calls}=fixture();
+ const r=await api.fetch(req('/_api/provider-recovery','POST',{action:'inspect'}));
+ assert.equal(r.status,200);
+ const j=await r.json();
+ assert.equal(j.ok,true);
+ assert.equal(j.pending,false);
+ assert.equal(j.verified,true);
+ assert.equal(calls.filter(x=>x.operation==='recovery_inspect').length,1);
+ assert.equal(calls.filter(x=>x.kind==='mutation').length,0);
+});
+test('provider recovery attest requires independently verified implementation',async()=>{
+ const {api,calls}=fixture();
+ const r=await api.fetch(req('/_api/provider-recovery','POST',
+  {action:'attest',gate_id:'00000000-0000-4000-8000-000000000012',proof:{saved:true}}));
+ assert.equal(r.status,503);
+ assert.equal(calls.filter(x=>x.kind==='mutation').length,0);
 });
