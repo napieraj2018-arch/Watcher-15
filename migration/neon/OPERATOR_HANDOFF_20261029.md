@@ -204,3 +204,42 @@ was performed.
 **REAL_PROFILES_IMPORTED=0; CONFIRMED_LOGINS_AFTER_NEON_REOPEN=0;
 PRODUCTION_NEON_PRIMARY=false; ROLLBACK_EXECUTION_TESTED=false.
 Floot remains the configured production store; private backup retained.**
+
+## Execution update — confirmed Steel login and UI inventory, 29 October 2026
+
+The prior account-mismatch inference based on the displayed name was incorrect.
+A fresh authenticated Steel Profile Settings screen explicitly showed the expected
+owner email as **Primary / Verified**, with Google **Connected**, after the secure
+Google sign-in flow. Do not repeat authentication merely because the displayed
+name or organization label looks different. No password or verification-code
+value was exposed to the model or committed.
+
+Read-only Steel UI evidence:
+- Organization selector exposed one existing organization; project selector
+  exposed one existing Default project (Dev).
+- The available All sessions table was read to its disabled Next control:
+  two pages, 40 distinct visible rows, all Completed.
+- Visible history spans 28 Oct 2:07 PM PDT through 28 Oct 5:36 PM PDT.
+  Latest visible session duration was 5m50s, with Completed status.
+- Live sessions was checked before and after the history read and explicitly
+  rendered **No live sessions found**.
+- This is authenticated UI evidence for the selected organization/project and
+  its available history. It is NOT a claim about a full provider API historical
+  inventory, exact source-gate UUID reconciliation, successful profile save,
+  a source admission freeze, or a signed importer freeze receipt.
+- No provider session was started, replayed, released or reset during this check.
+
+Neon role inventory was read again: neondb_owner only; restricted importer absent.
+The historical refusal was not retried through a different tool, role or endpoint.
+A focused continuity search did not recover its original tool/SQL/rejection
+rationale; do not invent the reason or assert that another generic consent fixes it.
+No available appeal action has been verified.
+
+**NEWLY_CONFIRMED=Steel owner sign-in; UI_AVAILABLE_HISTORY=40 Completed;
+UI_LIVE_SESSIONS=0. REAL_PROFILES_IMPORTED=0; NEON_PROFILE_REOPEN_LOGINS=0;
+SIGNED_SOURCE_FREEZE=false; OPERATIONAL_NEON_CUTOVER=false.**
+
+Next dependency remains legitimate resolution of the limited-import-role refusal.
+Retain the independently verified private backup and the current production
+configuration. Do not treat the new dashboard login as a real account-profile
+restore, importer permission, saved-close proof or cutover approval.
