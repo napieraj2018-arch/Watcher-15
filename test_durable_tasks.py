@@ -1,6 +1,9 @@
 import asyncio, copy, hashlib, json, os, types, unittest
+import httpx
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from unittest.mock import patch
-from durable_tasks import Vault,TaskService,TaskError,canonical
+from durable_tasks import Vault,TaskService,TaskError,canonical,vault_retry_after_seconds
 
 class MemoryVault(Vault):
  def __init__(self):
@@ -28,7 +31,7 @@ class Tests(unittest.IsolatedAsyncioTestCase):
  async def asyncSetUp(self):
   self.v=MemoryVault();self.clicks=0;self.guard=types.SimpleNamespace(safe_sessions=lambda:[],leases={},capacity=5,by_profile={})
   async def start(**kw):return {'session_id':'new-local-capability'}
-  async def stop(**kw):return {'stopped':True,'full_profile_saved':True}
+  async def stop(**kw):return {'stopped':True,'full_profile_saved':True,'profile_saved':True}
   async def click(**kw):self.clicks+=1;return {'clicked':True}
   async def snap(**kw):return {'text':'Licznik: '+str(self.clicks)}
   self.reg={k:types.SimpleNamespace(fn=v) for k,v in {'browser_start':start,'browser_stop':stop,'browser_click':click,'browser_snapshot':snap}.items()}
@@ -114,6 +117,94 @@ class Tests(unittest.IsolatedAsyncioTestCase):
   r=await s2.run('resume',task_id=self.tid);self.assertEqual(r['operations']['op-one']['status'],'started')
  async def test_no_public_claim_in_list(self):
   self.assertNotIn(self.claim,canonical(await self.s.run('list')))
+ async def test_verified_opt_in_handoff_after_explicit_stop(self):
+  await self.call('checkpoint',data_json='{"handoff_after_saved_close":true}')
+  await self.call('start')
+  result=await self.call('stop')
+  self.assertEqual(result['session_state'],'saved_closed')
+  self.assertTrue(result['claim_released'])
+  self.assertEqual(self.v.rows[self.tid]['claim'],'')
+  s2=TaskService(self.v,self.reg,self.guard)
+  reopened=await s2.run('resume',task_id=self.tid)
+  self.assertNotEqual(reopened['task_claim'],self.claim)
+  self.assertTrue(reopened['handoff_after_saved_close'])
+  self.assertEqual(reopened['session_state'],'saved_closed')
+  with self.assertRaises(TaskError):
+   await self.s.run('checkpoint',task_id=self.tid,task_claim=self.claim,
+                    data_json='{"status":"stale"}')
+ async def test_default_keeps_existing_explicit_release_protocol(self):
+  await self.call('start')
+  result=await self.call('stop')
+  self.assertFalse(result['handoff_requested'])
+  self.assertFalse(result['claim_released'])
+  self.assertNotEqual(self.v.rows[self.tid]['claim'],'')
+  await self.call('release')
+  reopened=await TaskService(self.v,self.reg,self.guard).run('resume',task_id=self.tid)
+  self.assertEqual(reopened['session_state'],'saved_closed')
+ async def test_handoff_requires_strict_boolean_and_verified_profile_saved(self):
+  with self.assertRaisesRegex(TaskError,'TASK_HANDOFF_FLAG_INVALID'):
+   await self.call('checkpoint',data_json='{"handoff_after_saved_close":"true"}')
+  await self.call('checkpoint',data_json='{"handoff_after_saved_close":true}')
+  await self.call('start')
+  async def partial(**kw):
+   return {'stopped':True,'full_profile_saved':True,'profile_saved':False}
+  self.reg['browser_stop'].fn=partial
+  with self.assertRaisesRegex(TaskError,'TASK_FULL_SAVE_UNCONFIRMED'):
+   await self.call('stop')
+  self.assertFalse(self.v.rows[self.tid]['resumable'])
+  self.assertNotEqual(self.v.rows[self.tid]['claim'],'')
+ async def test_handoff_release_failure_does_not_undo_confirmed_saved_close(self):
+  await self.call('checkpoint',data_json='{"handoff_after_saved_close":true}')
+  await self.call('start')
+  original=self.v.request
+  async def deny_release(**kwargs):
+   if kwargs['action']=='release': raise TaskError('TASK_VAULT_RATE_LIMITED')
+   return await original(**kwargs)
+  with patch.object(self.v,'request',side_effect=deny_release):
+   result=await self.call('stop')
+  self.assertTrue(result['handoff_requested'])
+  self.assertFalse(result['claim_released'])
+  self.assertEqual(result['session_state'],'saved_closed')
+  self.assertEqual(self.v.rows[self.tid]['resumable'],True)
+  self.assertNotEqual(self.v.rows[self.tid]['claim'],'')
+class Vault429Tests(unittest.IsolatedAsyncioTestCase):
+ def test_retry_after_is_bounded_and_never_uses_invalid_dates(self):
+  self.assertEqual(vault_retry_after_seconds(None),900)
+  self.assertEqual(vault_retry_after_seconds('-2'),900)
+  self.assertEqual(vault_retry_after_seconds('1200'),1200)
+  self.assertEqual(vault_retry_after_seconds('99999999'),86400)
+  clock=datetime(2026,10,29,tzinfo=timezone.utc)
+  self.assertEqual(vault_retry_after_seconds(format_datetime(clock+timedelta(minutes=20)),now=clock),1200)
+  self.assertEqual(vault_retry_after_seconds('not a date'),900)
+ async def test_429_opens_shared_circuit_and_refuses_parallel_retries(self):
+  calls=[]
+  def handler(req):
+   calls.append(req)
+   if len(calls)==1:
+    return httpx.Response(429,headers={'Retry-After':'1200'},json={'error':'private-do-not-log'})
+   return httpx.Response(200,json={'ok':True})
+  transport=httpx.MockTransport(handler)
+  original_client=httpx.AsyncClient
+  def mock_client(*args,**kwargs):
+   return original_client(*args,transport=transport,**kwargs)
+  with patch.dict(os.environ,{'AI_BROWSER_MASTER_KEY':'synthetic-only-master',
+          'AI_BROWSER_MCP_TOKEN':'synthetic-only-owner',
+          'AI_BROWSER_PROFILE_STORE_TOKEN':'synthetic-only-store',
+          'AI_BROWSER_PROFILE_STORE_URL':'https://ai-browser-vault.floot.app/_api/profile-vault'}):
+   vault=Vault()
+  with patch('durable_tasks.httpx.AsyncClient',side_effect=mock_client):
+   results=await asyncio.gather(vault.request(action='list'),vault.request(action='list'),
+                                return_exceptions=True)
+   self.assertEqual(len(calls),1)
+   self.assertTrue(all(isinstance(v,TaskError) and 'TASK_VAULT_RATE_LIMITED' in str(v) for v in results))
+   with self.assertRaisesRegex(TaskError,'TASK_VAULT_RATE_LIMITED'):
+    await vault.request(action='list')
+   self.assertEqual(len(calls),1)
+   vault._rate_limit_until=0
+   self.assertEqual((await vault.request(action='list'))['ok'],True)
+   self.assertEqual(len(calls),2)
+
+
 class InstalledContract(unittest.IsolatedAsyncioTestCase):
  async def installed(self):
   import sys
@@ -222,6 +313,37 @@ class InstalledContract(unittest.IsolatedAsyncioTestCase):
   await asyncio.gather(*service.finalizers)
   self.assertEqual((await service.run('get',task_id=r['task_id']))['session_state'],'saved_closed')
   await service.run('release',**args)
+ async def test_watchdog_saved_close_auto_releases_opted_in_task(self):
+  import sys
+  from pathlib import Path
+  sys.path.insert(0,str(Path(__file__).parent/'session_ownership'/'tests'))
+  from test_owner_parallel_mcp import MultiManager
+  from test_sdk_contract import fake_mcp
+  from multi_capability_guard import MultiCapabilityGuard
+  import durable_tasks
+  class ReceiptManager(MultiManager):
+   async def stop(self,sid):return {**await super().stop(sid),'stopped':True}
+  manager=ReceiptManager();mcp=fake_mcp(manager)
+  guard=MultiCapabilityGuard(mcp,manager,capacity=5,watchdog_enabled=False);guard.install()
+  vault=MemoryVault();ns={'mcp':mcp,'_AIB_OWNER_PARALLEL_GUARD':guard}
+  with patch.object(durable_tasks,'Vault',return_value=vault):durable_tasks.install(ns)
+  service=ns['_AIB_DURABLE_TASKS']
+  created=await service.run('create',profile='Acceptance-Handoff',title='Watchdog handoff',
+                            data_json='{"handoff_after_saved_close":true}')
+  args={'task_id':created['task_id'],'task_claim':created['task_claim']}
+  started=await service.run('start',**args)
+  lease=guard.authorize(started['browser']['session_id'])
+  token=guard.actor_session.set(lease.internal_session_id)
+  async with service.lock(created['task_id']):
+   await asyncio.wait_for(manager.stop(lease.internal_session_id),1)
+   guard._complete(lease)
+  guard.actor_session.reset(token)
+  await asyncio.gather(*service.finalizers)
+  self.assertEqual((await service.run('get',task_id=created['task_id']))['session_state'],'saved_closed')
+  self.assertEqual(vault.rows[created['task_id']]['claim'],'')
+  resumed=await TaskService(vault,service.registry,guard).run('resume',task_id=created['task_id'])
+  self.assertNotEqual(resumed['task_claim'],created['task_claim'])
+  self.assertTrue(resumed['handoff_after_saved_close'])
  async def test_restart_gate_blocks_legacy_start_when_task_uncertain(self):
   import sys
   from pathlib import Path
