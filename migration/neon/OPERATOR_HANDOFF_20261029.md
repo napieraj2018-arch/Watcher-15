@@ -1,0 +1,30 @@
+# AI Browser — Neon owner migration takeover (29.10.2026)
+
+## Verified live position
+- Existing application only: GitHub `napieraj2018-arch/Watcher-15`, production branch `ai-browser-cloud`, PR #180 `migration/neon-free-staging-20261028` **DRAFT**.
+- Current Render production service remains on Floot-backed code. Never assume GitHub draft or staged Neon Function is production.
+- Original Floot owner DB: 68 profiles, 1292 profile versions, 69 Steel engine bindings, 11 task checkpoints, 3 config rows, 6390 events. No active DB leases and no changed profiles since the private 01:14 UTC snapshot at last verification.
+- The full 7833-record consistent encrypted snapshot exists in **PRIVATE** Neon Storage and has passed byte-integrity, aggregate and R158 20-rolling/21-protected proof in trusted runtime. This is a backup, not operational access.
+- Neon STAGING PostgreSQL: all four import inboxes EMPTY; immutable cold receipt = 1; `vault_migration_guard.mode=staging_read_only`, `write_enabled=false`. Current role inventory contains `neondb_owner` only. The restricted import role is not created.
+- Neon private runtime assets: bucket `aib-runtime-recovery`, core-v041 (48104 bytes, pinned SHA256), repair-v042 (12150 bytes, pinned SHA256); independent download/readback SHA256 PASS and anonymous GET 403. These contain encrypted **application code**, not account profiles.
+- Neon Function `aibbootassets` deployed on existing project and tested: `GET /health` 200, without configured owner digest `GET /v1/core` and `GET /v1/repair` 503; other methods/paths rejected. No production customer access and no plaintext is served.
+- Source code for `bridge/cold_restore_plan.mjs`, `private_stage_writer.mjs`, `cold_restore_run.mjs`, `assets/core.mjs` and tests is on the same PR180 branch. Synthetic positive/negative checks and exact-head CI pass. **No real PostgreSQL import was executed.**
+
+## Non-negotiable blocking gates
+1. **Restricted import role:** An earlier role-creation write was refused by tool safety. Do NOT call the same SQL through a different API/interface or substitute the privileged `neondb_owner` role. The owner/provider must resolve legitimate least-privilege provisioning before execution. Do not paste any password/Neon DATABASE_URL into chats, files or GitHub.
+2. **Fresh provider/saved-close freeze:** A stale `browser_sessions=[]` is not sufficient. Obtain authenticated complete paginated Steel session inventory, exact unknown/quarantined session reconciliation, source vault/backup readback and no active/new admissions. Fresh HMAC-signed receipt valid at most 900s is required for the importer.
+3. **Actual import and readback:** Execute the reviewed CLI in a trusted, isolated private environment with a restricted role and a short-lived private Neon Storage GET URL. Import each complete category into immutable shadow inboxes; compare all bytes, versions, IDs and timestamps against source. The CLI never activates the primary Neon writer.
+4. **Current source delta:** The cold snapshot is from 01:14 UTC. At cutover the source must be frozen, its CURRENT full state compared with the snapshot, and any approved delta included; never claim source freeze from earlier metadata.
+5. **Neon API parity:** Existing production core still expects Floot JSON and unguarded POST saves; new Neon writer requires CAS expected profile SHA. Implement and test authenticated protocol-compatible controller client, task claims, provider recovery, archive/replay and asset bootstrap before changing Render `AI_BROWSER_PROFILE_STORE_URL`. No silent fallback to Floot on failure.
+6. **Neutral native state and real accounts:** Original R158 cookie/localStorage/IndexedDB coherent saved-close/new-controller test must PASS without reseeding a failed marker. After that independently verify real account identities and only required owner MFA.
+7. **Single active writer:** Preserve old writer until source freeze. Deploy only a verified commit with source and Neon cutover fences, new monotonic epoch and rollback, after independent Steel check. Never run two unconstrained writable vaults. Keep old copies unchanged.
+
+## Next legitimate operator action
+Request *properly authorized, provider-supported* creation of a restricted importer role in Neon. Privileges must be limited to SELECT of the immutable backup receipt + STAGING guards, SELECT/INSERT on the four STAGING inboxes, and EXECUTE of four guarded append functions, with **no INSERT/UPDATE/DELETE on live-shaped profile/task/engine/config tables and no permission to alter `vault_migration_guard`**. Test the privileges using read-only `has_table_privilege` / `has_function_privilege` before importing.
+
+The user already approved migration of their own accounts, but approval is not permission to bypass a blocked privileged tool operation. No further changes to real profiles, passwords, session cookies or production environment before the above gates.
+
+## Recovery and rollback
+Backup source and encrypted application boot assets are privately retained in Neon; original Floot data remains unchanged. Stop on uncertainty; do not retry writes with different IDs, skip identity rechecks or reset/clear provider quarantine to make a test pass. The current staging is intentionally not production-ready.
+
+**Status: PRIVATE_BACKUP_VERIFIED, ASSETS_MIRRORED, OFFLINE_RESTORE_TESTS_PASS, STAGING_API_DENY_TESTS_PASS; POSTGRES_IMPORTED=false, ACCOUNTS_RESTORED=false, PRODUCTION_SWITCHED=false.**
