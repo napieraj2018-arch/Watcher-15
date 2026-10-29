@@ -243,3 +243,55 @@ Next dependency remains legitimate resolution of the limited-import-role refusal
 Retain the independently verified private backup and the current production
 configuration. Do not treat the new dashboard login as a real account-profile
 restore, importer permission, saved-close proof or cutover approval.
+
+
+## 29 Oct read-only Steel API follow-up after Work verified owner login
+
+Continuation after the separate Work cloud-browser activity. The authenticated
+Steel dashboard had verified the expected Google owner sign-in and showed
+40 Completed history rows with **no live sessions in UI**. This is useful
+progress but not the independently paginated provider API inventory or a
+signed saved-close/source-freeze receipt.
+
+New safely testable functionality in PR #180:
+- migration/neon/bridge/steel_inventory_readonly.mjs:
+  - Only GET /v1/sessions through an explicitly configured owner STEEL_API_KEY;
+    bounded 2 MB response, max 100 pages x100 rows, strict UUID uniqueness;
+  - live-session status checked BEFORE and AFTER reading ALL pages;
+  - any active/unknown status, 429, auth failure, malformed or ambiguous
+    pagination stops without altering any session, profile or cookie;
+  - output only aggregate released/failed counts and flags:
+    saved_close_verified=false, source_frozen=false,
+    provider_import_freeze_signed=false, production_cutover_allowed=false.
+  - It never manufactures the importer source-freeze receipt.
+- migration/neon/bridge/steel_inventory_cli.mjs can run INSIDE A PRIVATE
+  TRUSTED OWNER ENVIRONMENT where STEEL_API_KEY is already securely
+  present: node migration/neon/bridge/steel_inventory_cli.mjs
+  Do not paste keys or output session IDs into ChatGPT/GitHub.
+  Do not run against a guessed Steel account or project.
+- Unit checks: rejects live/racy/duplicate/bad-status/cyclic pagination,
+  explicit 429 and auth errors; no session POST/release/start. Exact-head
+  CI **40868591358 SUCCESS** (Node22/24).
+
+The CLI has NOT been run against Steel's real provider API in this chat,
+because no trusted API key transport or available authenticated API action
+was verified. Work's UI 40 Completed is NOT a replacement for this check.
+browser_sessions and profile_list still error while Floot vault is 429.
+
+Current Neon SQL observation at 2026-10-29 11:39 UTC:
+0 operational profile/archive/task rows, 0 all staging inbox rows,
+one protected backup receipt, staging_read_only, write_enabled=false;
+role inventory: neondb_owner only. Render remains on the Floot-backed
+live commit f759faa.... Full verified cold backup still privately retained.
+
+**Next critical step:** legitimately authorize a restricted Neon import role
+without evading the earlier tool safety refusal. Then obtain independent
+Steel full exact-session checks, source admission freeze and signed receipt.
+Only after these gates may the reviewed private importer write the original
+68 profiles/1292 archives + bindings/tasks/config/events to shadow staging.
+After exact readback, run original neutral R158 three-store saved-close and
+new controller test; then review one-writer cutover/rollback.
+
+This checkpoint documents code and verified evidence; it does not certify
+a new active Neon vault. OPERATIONAL_PROFILES_IN_NEON=0,
+TRUE_DB_IMPORT_EXECUTED=false, PRODUCTION_CUTOVER=false.
