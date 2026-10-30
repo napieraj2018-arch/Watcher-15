@@ -1,0 +1,27 @@
+name: Neon Fresh — browser login and network policy regression CI
+
+on:
+  pull_request:
+    branches: [ai-browser-cloud]
+    paths:
+      - 'fresh_browser/**'
+      - '.github/workflows/neon-fresh-login-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tested-chromium-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build exact image and execute mandatory regression suite
+        run: docker build -f fresh_browser/Dockerfile -t aib-fresh-login-ci .
+      - name: Assert no live service or credentials were used
+        run: |
+          echo 'Regression suite uses only synthetic accounts, local fixtures and fake public DNS records.'
+          echo 'No production deploy, external login, secret access or captcha automation performed.'
