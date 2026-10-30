@@ -353,6 +353,7 @@ class AuditedWorkspace(server.BrowserWorkspace):
         async with self.lock:
             if self.context is None or self.profile != server.profile_name(name):
                 raise HTTPException(409, "Najpierw otwórz wskazany profil.")
+            self.last_activity = time.monotonic()
             result = await self.tab_state()
             result["profile"] = self.profile
             result["human"] = self.human
