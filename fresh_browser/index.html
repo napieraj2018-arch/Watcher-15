@@ -28,7 +28,7 @@ const el = (id)=>document.getElementById(id);
 const ownerMode = window.location.pathname === "/owner/";
 const ownerToken = ownerMode ? window.location.hash.slice(1) : "";
 if(ownerMode)history.replaceState(null,"",window.location.pathname);
-let busy=false, screenActive=false, frameInFlight=null, liveTimer=null, frameGeneration=0, lastTabSignature="", navigationState="empty";
+let busy=false, screenActive=false, frameInFlight=null, liveTimer=null, frameGeneration=0, lastTabSignature="", navigationState="empty", frameEtag="", liveDelay=2000;
 const formButtons=["typeBtn","enterBtn","tabBtn","selectBtn","backBtn"];
 const navigationError="Strona przerwała wczytywanie. Wynik formularza nie jest potwierdzony. Nie wpisuj ponownie hasła. Oddaj sterowanie ChatGPT, aby odczytać przyczynę; formularz nie będzie automatycznie ponowiony.";
 function notify(message,error=false){el(error?"error":"message").textContent=message;el(error?"message":"error").textContent="";}
@@ -50,7 +50,7 @@ function selected(){const v=el("profile").value;if(!v)throw new Error("Najpierw 
 function setBusy(v){busy=v;document.querySelectorAll("button,select").forEach(b=>b.disabled=v);applyFormControls();}
 async function run(fn){if(busy)return;setBusy(true);try{if(frameInFlight)await frameInFlight.catch(()=>{});await fn()}catch(e){notify(e.message||"Nieznany błąd",true)}finally{setBusy(false)}}
 function clearScreen(message="Ekran strony pojawi się po otwarciu profilu."){
- screenActive=false;navigationState="empty";frameGeneration++;lastTabSignature="";el("liveStatus").textContent="";el("tabRow").classList.add("hidden");
+ screenActive=false;navigationState="empty";frameGeneration++;lastTabSignature="";frameEtag="";liveDelay=2000;el("liveStatus").textContent="";el("tabRow").classList.add("hidden");
  const img=el("screen"),prev=img.dataset.objectUrl;
  img.removeAttribute("src");img.classList.add("hidden");
  if(prev)URL.revokeObjectURL(prev);delete img.dataset.objectUrl;
@@ -74,12 +74,22 @@ async function refreshTabs(signature){
 }
 async function captureFrame(){
  const generation=frameGeneration,name=selected();
- const response=await fetchBounded("./api/screen?name="+encodeURIComponent(name)+"&v="+Date.now(),{credentials:"same-origin",cache:"no-store"},15000);
+ const options={credentials:"same-origin",cache:"no-store"};
+ // The server returns 304 without re-sending a full screen if pixels and
+ // tab/navigation metadata have not changed. Never share an ETag across profiles.
+ if(frameEtag&&el("screen").dataset.objectUrl)options.headers={"If-None-Match":frameEtag};
+ const response=await fetchBounded("./api/screen?name="+encodeURIComponent(name)+"&v="+Date.now(),options,15000);
+ if(response.status===304){
+  if(generation!==frameGeneration)return "stale";
+  if(navigationState==="ready")el("liveStatus").textContent="Podgląd aktualny · "+new Date().toLocaleTimeString("pl-PL");
+  return "unchanged";
+ }
  if(!response.ok){const error=await response.json().catch(()=>({detail:"Brak obrazu"}));if([401,409].includes(response.status))screenActive=false;throw new Error(error.detail||"Brak obrazu");}
  if(generation!==frameGeneration)return;
  const blob=await response.blob(),u=URL.createObjectURL(blob),img=el("screen");
  if(generation!==frameGeneration){URL.revokeObjectURL(u);return;}
  const prev=img.dataset.objectUrl;img.src=u;img.dataset.objectUrl=u;if(prev)URL.revokeObjectURL(prev);
+ frameEtag=response.headers.get("ETag")||"";
  img.dataset.pageId=response.headers.get("X-AIB-Page")||"";
  const origin=response.headers.get("X-AIB-Origin");if(origin)el("site").textContent=origin;
  const state=response.headers.get("X-AIB-Navigation");navigationState=["ready","failed","empty"].includes(state)?state:"empty";
@@ -91,12 +101,29 @@ async function captureFrame(){
  applyFormControls();
  const signature=(response.headers.get("X-AIB-Tabs")||"")+":"+img.dataset.pageId+":"+navigationState;
  if(signature!==lastTabSignature)await refreshTabs(signature);
+ return "changed";
 }
 async function screenshot(){if(frameInFlight)return frameInFlight;const pending=captureFrame();frameInFlight=pending;try{return await pending;}finally{frameInFlight=null;}}
 function startLive(){
  if(liveTimer!==null)return;
- const tick=async()=>{if(screenActive&&!busy&&!document.hidden){try{await screenshot()}catch(e){el("liveStatus").textContent="Podgląd nieaktualny — "+e.message;}}liveTimer=setTimeout(tick,2000);};
- liveTimer=setTimeout(tick,2000);
+ const tick=async()=>{
+  if(screenActive&&!busy&&!document.hidden){
+   try{
+    const change=await screenshot();
+    liveDelay=change==="unchanged"?Math.min(10000,liveDelay+2000):2000;
+   }catch(e){
+    el("liveStatus").textContent="Podgląd nieaktualny — "+e.message;
+    liveDelay=5000;
+   }
+  }
+  liveTimer=setTimeout(tick,liveDelay);
+ };
+ liveTimer=setTimeout(tick,liveDelay);
+}
+function resumeFastRefresh(){
+ liveDelay=2000;
+ if(liveTimer!==null){clearTimeout(liveTimer);liveTimer=null;}
+ startLive();
 }
 async function command(action,payload={}){
  if(["click","type","press"].includes(action)&&navigationState!=="ready")throw new Error("Brak gotowej strony. Nie wysłano tekstu ani formularza.");
@@ -105,7 +132,7 @@ async function command(action,payload={}){
  const result=await api("./api/action","POST",{name:selected(),action,page_id,...payload});
  el("site").textContent=(result.title||"")+(result.url?" · "+result.url:"");
  if(!result.closed){
-  screenActive=true;startLive();
+  screenActive=true;resumeFastRefresh();
   try{await screenshot()}catch(e){notify("Odpowiedź polecenia odebrana, ale podgląd niepotwierdzony: "+e.message,true);return result;}
  }else{el("site").textContent="Profil bezpiecznie zamknięty.";clearScreen("Profil zapisany i zamknięty. Kliknij „Otwórz profil”, aby wrócić.");}
  if(result.ok===false||result.navigation==="failed"||navigationState==="failed"){notify(navigationError,true);return result;}
