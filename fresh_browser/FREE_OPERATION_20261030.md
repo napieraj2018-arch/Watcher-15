@@ -10,6 +10,9 @@ Budget: no purchases, no paid upgrades, no payment method changes.
 4. The panel sends If-None-Match only for its currently displayed image. Selecting a different profile clears the ETag. On an unchanged view, refresh intervals increase gradually from 2 to 10 seconds; user actions reset the interval to 2 seconds.
 5. After non-idempotent document navigations (e.g. login POST), tab persistence uses the previous committed GET address or a safe public origin, never the POST form target. No automatic form replay.
 6. Production Docker build runs test_free_efficiency in addition to existing Chromium/security/form regressions.
+7. When no API action, screenshot, tab listing or diagnostics request arrives, the active browser profile is encrypted-and-saved then closed after 30 minutes (agent mode) or 60 minutes (manual owner mode). This releases its DB advisory lock and allows Neon's standard idle scale-to-zero. These intervals do not interrupt an action holding the workspace lock. The next agent request may reopen a saved profile; owner handoff links bound to the closed context need a fresh grant.
+8. Neon Free's endpoint setting `suspend_timeout_seconds: 0` uses Neon's default inactivity setting; it is not a request for always-on compute.
+
 
 ## Safety
 - No modification to the Floot installation, 68 legacy profiles, the 7833-record migration archive or PR #180.
