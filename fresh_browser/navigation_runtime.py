@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import re
 import socket
 import time
 from collections import OrderedDict
