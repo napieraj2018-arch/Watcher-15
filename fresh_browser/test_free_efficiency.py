@@ -15,6 +15,8 @@ from starlette.requests import Request
 class FakePage:
     def __init__(self):
         self.url = "https://fixture.invalid/form"
+        self.main_frame = object()
+        self.on = lambda *args: None
         self.viewport_size = {"width": 390, "height": 844}
         self.screenshot = AsyncMock(return_value=b"synthetic-image")
 
@@ -167,6 +169,11 @@ class RealPanel304(unittest.IsolatedAsyncioTestCase):
             await page.wait_for_function(
                 "Boolean(document.getElementById('screen').dataset.objectUrl)",
                 timeout=5000)
+            # The image is exposed before the tab-list refresh and command
+            # finally block finish. Wait for the real request boundary, not
+            # just the visible <img>, to exercise an independent HTTP 304.
+            await page.wait_for_function(
+                "!busy && frameInFlight === null", timeout=5000)
             await page.evaluate("screenshot()")
             self.assertIn('"stable-fixture-v1"', frame_headers)
             self.assertTrue(await page.locator("#screen").is_visible())
