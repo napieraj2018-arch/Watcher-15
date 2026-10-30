@@ -222,15 +222,36 @@ class BrowserWorkspace:
                     # A failed main-frame navigation can leave Chromium waiting
                     # forever for about:blank DOMContentLoaded. Rendering the
                     # local diagnostic directly is sufficient and bounded.
-                    await page.set_content(
+                    diagnostic = (
                         "<!doctype html><meta charset='utf-8'><title>Nie udało się wczytać strony</title>"
                         "<style>body{font:24px system-ui;background:#152232;color:#eef4fa;"
                         "padding:44px;line-height:1.5}h1{font-size:30px}</style>"
                         "<h1>Strona nie została wczytana</h1><p>" + escape(safe_display_url(target)) +
                         "</p><p>Zapisany profil i adres są zachowane.</p>"
                         "<p>Użyj przycisku <b>Odśwież stronę</b> w panelu. "
-                        "Nie wpisuj ponownie hasła na pustym ekranie.</p>",
-                        wait_until="domcontentloaded", timeout=5000)
+                        "Nie wpisuj ponownie hasła na pustym ekranie.</p>")
+                    # Chromium can finish a failed main-frame navigation just
+                    # AFTER goto raises. During that brief interval the old
+                    # JS execution context disappears, racing set_content.
+                    # Retry only this local diagnostic rendering: never replay
+                    # the failed URL, POST body, credentials or browser action.
+                    for diagnostic_attempt in range(3):
+                        try:
+                            await page.set_content(
+                                diagnostic, wait_until="domcontentloaded",
+                                timeout=3500)
+                            break
+                        except Exception as exc:
+                            racing = any(message in str(exc) for message in (
+                                "Execution context was destroyed",
+                                "Cannot find context",
+                                "Navigation interrupted"))
+                            if not racing or diagnostic_attempt == 2:
+                                # X-AIB-Navigation=failed makes the mobile
+                                # panel show its own error even if Chromium
+                                # never accepted the inline document.
+                                break
+                            await asyncio.sleep(.15 * (diagnostic_attempt + 1))
                 return False
             else:
                 if response is not None and response.status >= 400:
