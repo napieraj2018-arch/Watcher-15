@@ -271,6 +271,36 @@ class AuditedWorkspace(server.BrowserWorkspace):
         page.on("requestfailed", failed)
         page.on("requestfailed", subresource_failure)
 
+
+    async def navigate(self, page, raw, *, restoring=False):
+        if not restoring:
+            return await super().navigate(page, raw, restoring=False)
+        # Persisted tab URLs may be provider-generated OAuth/checkpoint links
+        # longer than the manual address bar's 1500-character limit. A browser
+        # restart must not crash the entire vault or replay auth callbacks.
+        try:
+            target = server.safe_url(raw)
+        except HTTPException:
+            origin = origin_only(raw)
+            if origin == "unavailable":
+                self.failed_pages.add(page)
+                return False
+            target = origin + "/"
+        else:
+            parsed = urlsplit(target)
+            # Never auto-GET an old one-use query/fragment on restart. Keep
+            # non-sensitive navigation paths (e.g. /wp-admin/edit.php), but
+            # return to the provider homepage for login/callback/checkpoint
+            # paths. All cookie/localStorage/IndexedDB state remains intact.
+            if parsed.query or parsed.fragment:
+                path = (parsed.path or "/")
+                unsafe_flow = any(word in path.lower() for word in (
+                    "oauth", "callback", "checkpoint", "signin", "login",
+                    "recover", "challenge", "verify", "confirm"))
+                target = (origin_only(target) + "/" if unsafe_flow else
+                          parsed.scheme + "://" + parsed.netloc + path)
+        return await super().navigate(page, target, restoring=True)
+
     async def open(self, name):
         await super().open(name)
         if self.context is not self.guarded_context:
