@@ -156,6 +156,52 @@ class RestoreSafetyTests(unittest.IsolatedAsyncioTestCase):
                 "https://www.facebook.com/" + ("x" * 2000), restoring=False)
         self.assertEqual(p.calls, [])
 
+class DiagnosticRaceTests(unittest.IsolatedAsyncioTestCase):
+    class FailedPage:
+        def __init__(self, permanent=False):
+            self.url = "about:blank"
+            self.main_frame = object()
+            self.calls = []
+            self.render_calls = 0
+            self.html = ""
+            self.permanent = permanent
+
+        def on(self, *_args):
+            return None
+
+        async def goto(self, url, **_kwargs):
+            self.calls.append(url)
+            raise RuntimeError("net::ERR_FAILED")
+
+        async def set_content(self, html, **_kwargs):
+            self.render_calls += 1
+            if self.permanent or self.render_calls == 1:
+                raise RuntimeError("Execution context was destroyed")
+            self.html = html
+
+        async def wait_for_timeout(self, *_args):
+            return None
+
+    async def test_transient_context_destruction_retries_diagnostic_not_form(self):
+        w = server.BrowserWorkspace()
+        p = self.FailedPage()
+        self.assertFalse(await w.navigate(p,
+            "https://fixture.invalid/callback?code=PRIVATE", restoring=False))
+        self.assertEqual(p.calls, ["https://fixture.invalid/callback?code=PRIVATE"])
+        self.assertEqual(p.render_calls, 2)
+        self.assertIn("Strona nie została wczytana", p.html)
+        self.assertEqual(w.navigation_state(p), "failed")
+
+    async def test_persistent_context_destruction_stops_without_replay(self):
+        w = server.BrowserWorkspace()
+        p = self.FailedPage(permanent=True)
+        self.assertFalse(await w.navigate(p,
+            "https://fixture.invalid/post-result", restoring=False))
+        self.assertEqual(p.calls, ["https://fixture.invalid/post-result"])
+        self.assertEqual(p.render_calls, 3)
+        self.assertEqual(w.navigation_state(p), "failed")
+
+
 class BrowserDiagnosticRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_challenge_iframe_and_resource_failures_omit_query_and_body(self):
         browser = AuditedWorkspace()
