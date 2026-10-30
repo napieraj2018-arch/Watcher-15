@@ -71,6 +71,33 @@ class PublicNetworkPolicy:
         self.clock = clock
         self.cache = OrderedDict()
         self.slots = asyncio.Semaphore(8)
+        # Production pages routinely request dozens of assets from a single
+        # host at once. Coalesce identical lookups without relaxing the
+        # public-IP requirement; main-frame navigations still revalidate.
+        self.inflight = {}
+
+    async def _resolve(self, host):
+        async with self.slots:
+            return await asyncio.to_thread(
+                self.resolver, host, 443, type=socket.SOCK_STREAM)
+
+    async def _shared_resolve(self, host):
+        task = self.inflight.get(host)
+        if task is None:
+            if len(self.inflight) >= 128:
+                raise ValueError("dns_timeout")
+            async def lookup():
+                try:
+                    return await self._resolve(host)
+                finally:
+                    if self.inflight.get(host) is asyncio.current_task():
+                        self.inflight.pop(host, None)
+            task = asyncio.create_task(lookup())
+            # Consume a late exception when all waiters have timed out.
+            task.add_done_callback(
+                lambda done: None if done.cancelled() else done.exception())
+            self.inflight[host] = task
+        return await asyncio.shield(task)
 
     async def addresses(self, host, navigation):
         hit = self.cache.get(host)
@@ -78,9 +105,10 @@ class PublicNetworkPolicy:
             return
         try:
             async with asyncio.timeout(8):
-                async with self.slots:
-                    rows = await asyncio.to_thread(
-                        self.resolver, host, 443, type=socket.SOCK_STREAM)
+                # A main navigation must be fresh; subresources may share the
+                # same simultaneous DNS lookup, never an unvalidated answer.
+                rows = (await self._resolve(host) if navigation
+                        else await self._shared_resolve(host))
         except TimeoutError:
             raise ValueError("dns_timeout") from None
         except (OSError, UnicodeError):
@@ -125,6 +153,7 @@ class AuditedWorkspace(server.BrowserWorkspace):
         self.document_methods = {}
         self.document_status = {}
         self.policy_failures = []
+        self.resource_failures = []
         self.guarded_context = None
         self.network_policy = PublicNetworkPolicy(self.record_policy_failure)
 
@@ -200,10 +229,46 @@ class AuditedWorkspace(server.BrowserWorkspace):
                 if response.status >= 400:
                     self.failed_pages.add(page)
 
+        # The old diagnostics watched main-frame documents only. A login can
+        # display a healthy facebook.com frame while the cross-origin
+        # reCAPTCHA script or iframe silently fails. Record only the origin,
+        # resource type, an HTTP status or a bounded network failure code.
+        # Never retain URLs, form data, cookies, tokens, or console messages.
+        def subresource_failure(req):
+            if self.main_document(page, req):
+                return
+            failure = str(req.failure or "unknown")
+            failure = (failure if re.fullmatch(r"net::ERR_[A-Z0-9_]+", failure)
+                       else "request_failed")
+            kind = req.resource_type if req.resource_type in {
+                "script", "stylesheet", "xhr", "fetch", "document",
+                "image", "font", "websocket", "other"
+            } else "other"
+            self.resource_failures.append({
+                "origin": origin_only(req.url), "kind": kind,
+                "failure": failure, "time": int(time.time())})
+            self.resource_failures = self.resource_failures[-40:]
+
+        def subresource_status(response):
+            if self.main_document(page, response.request) or response.status < 400:
+                return
+            kind = response.request.resource_type
+            self.resource_failures.append({
+                "origin": origin_only(response.url),
+                "kind": kind if kind in {
+                    "script", "stylesheet", "xhr", "fetch", "document",
+                    "image", "font", "websocket", "other"
+                } else "other",
+                "http_status": int(response.status),
+                "time": int(time.time())})
+            self.resource_failures = self.resource_failures[-40:]
+
         page.on("response", response_received)
+        page.on("response", subresource_status)
         page.on("request", requested)
         page.on("framenavigated", committed)
         page.on("requestfailed", failed)
+        page.on("requestfailed", subresource_failure)
 
     async def open(self, name):
         await super().open(name)
@@ -220,12 +285,20 @@ class AuditedWorkspace(server.BrowserWorkspace):
         self.document_methods.clear()
         self.document_status.clear()
         self.policy_failures.clear()
+        self.resource_failures.clear()
         self.guarded_context = None
         self.network_policy = PublicNetworkPolicy(self.record_policy_failure)
 
     async def tab_state(self):
         result = await super().tab_state()
         result["policy_failures"] = list(self.policy_failures[-10:])
+        result["resource_failures"] = list(self.resource_failures[-20:])
+        # Cross-origin frame locations are deliberately reduced to public
+        # origins; the real captcha challenge state is owner-only.
+        result["frames"] = [
+            {"origin": origin_only(frame.url), "main": frame == self.page().main_frame}
+            for frame in self.page().frames[:25]
+        ]
         return result
 
     async def diagnostics(self, name):
