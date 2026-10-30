@@ -97,6 +97,65 @@ class FakePage:
             handler(value)
 
 
+
+class RestoreSafetyTests(unittest.IsolatedAsyncioTestCase):
+    class Page:
+        def __init__(self):
+            self.url = "about:blank"
+            self.calls = []
+        def on(self, *_args):
+            return None
+        async def goto(self, url, **kwargs):
+            self.calls.append(url)
+            self.url = url
+            return SimpleNamespace(status=200)
+        async def wait_for_timeout(self, *_args):
+            return None
+
+    async def test_long_saved_facebook_checkpoint_is_restored_to_homepage(self):
+        w = AuditedWorkspace()
+        p = self.Page()
+        uri = "https://www.facebook.com/checkpoint/?state=" + "SYNTHETIC_PRIVATE_CODE" * 140
+        with self.assertRaises(server.HTTPException):
+            server.safe_url(uri)
+        self.assertTrue(await w.navigate(p, uri, restoring=True))
+        self.assertEqual(p.calls, ["https://www.facebook.com/"])
+        self.assertNotIn("SYNTHETIC_PRIVATE_CODE", repr(p.calls))
+        self.assertEqual(w.navigation_state(p), "ready")
+
+    async def test_short_callback_query_never_replayed(self):
+        w = AuditedWorkspace()
+        p = self.Page()
+        self.assertTrue(await w.navigate(p,
+            "https://www.facebook.com/checkpoint/?code=ONCE&state=PRIVATE",
+            restoring=True))
+        self.assertEqual(p.calls, ["https://www.facebook.com/"])
+
+    async def test_regular_wordpress_page_keeps_path_without_query(self):
+        w = AuditedWorkspace()
+        p = self.Page()
+        self.assertTrue(await w.navigate(p,
+            "https://weterynarz.radom.pl/wp-admin/edit.php?post_type=page",
+            restoring=True))
+        self.assertEqual(p.calls,
+            ["https://weterynarz.radom.pl/wp-admin/edit.php"])
+
+    async def test_invalid_saved_private_address_never_navigated(self):
+        w = AuditedWorkspace()
+        p = self.Page()
+        self.assertFalse(await w.navigate(p,
+            "https://127.0.0.1/checkpoint/?state=PRIVATE", restoring=True))
+        self.assertEqual(p.calls, [])
+        self.assertEqual(w.navigation_state(p), "failed")
+
+    async def test_explicit_address_bar_keeps_existing_url_limit(self):
+        w = AuditedWorkspace()
+        p = self.Page()
+        with self.assertRaises(server.HTTPException):
+            await w.navigate(p,
+                "https://www.facebook.com/" + ("x" * 2000), restoring=False)
+        self.assertEqual(p.calls, [])
+
 class BrowserDiagnosticRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_challenge_iframe_and_resource_failures_omit_query_and_body(self):
         browser = AuditedWorkspace()
