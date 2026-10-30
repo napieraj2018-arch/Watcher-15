@@ -158,6 +158,23 @@ class AuditedWorkspace(server.BrowserWorkspace):
         self.guarded_context = None
         self.network_policy = PublicNetworkPolicy(self.record_policy_failure)
 
+    def saved_url(self, page):
+        # A non-idempotent document navigation (e.g. POST sign-in) must
+        # never become a persisted tab restoration URL. Preserve the previous
+        # successfully visited GET page, or a safe public origin instead.
+        method = self.document_methods.get(page)
+        if method not in (None, "GET", "HEAD"):
+            fallback = self.last_safe_urls.get(page)
+            if fallback and fallback.startswith("https://"):
+                return fallback
+            origin = origin_only(page.url)
+            return origin + "/" if origin != "unavailable" else ""
+        if page in self.failed_pages and not page.url.startswith("https://"):
+            fallback = self.last_safe_urls.get(page)
+            if fallback and fallback.startswith("https://"):
+                return fallback
+        return super().saved_url(page)
+
     @staticmethod
     def main_document(page, req):
         try:
