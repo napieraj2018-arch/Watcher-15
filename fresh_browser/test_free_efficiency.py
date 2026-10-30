@@ -81,6 +81,30 @@ class EfficientWrites(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(w.page().screenshot.await_args.kwargs["quality"], 80)
         self.assertEqual(metadata["X-AIB-Navigation"], "ready")
 
+    async def test_idle_agent_and_human_contexts_hibernate_at_safe_limits(self):
+        w = self.workspace()
+        w.last_activity = 100.0
+        w._close_current = AsyncMock()
+        w.human = False
+        self.assertFalse(await w.hibernate_if_idle(now=100 + server.AGENT_IDLE_SECONDS - 1))
+        w._close_current.assert_not_awaited()
+        self.assertTrue(await w.hibernate_if_idle(now=100 + server.AGENT_IDLE_SECONDS))
+        w._close_current.assert_awaited_once()
+        w._close_current.reset_mock()
+        w.human = True
+        self.assertFalse(await w.hibernate_if_idle(now=100 + server.HUMAN_IDLE_SECONDS - 1))
+        self.assertTrue(await w.hibernate_if_idle(now=100 + server.HUMAN_IDLE_SECONDS))
+        w._close_current.assert_awaited_once()
+
+    async def test_hibernation_never_discards_state_after_save_error(self):
+        w = self.workspace()
+        w.last_activity = 0.0
+        w._close_current = AsyncMock(side_effect=server.HTTPException(409, "CAS failed"))
+        with self.assertRaises(server.HTTPException):
+            await w.hibernate_if_idle(now=server.AGENT_IDLE_SECONDS + 1)
+        self.assertIsNotNone(w.context)
+        self.assertEqual(w.rev, 1)
+
 
 class Mobile304(unittest.TestCase):
     def request(self, if_none_match=None):
