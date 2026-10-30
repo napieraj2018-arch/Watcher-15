@@ -180,6 +180,7 @@ class BrowserWorkspace:
         self.pending_urls = {}
         self.failed_pages = set()
         self.restore_origins = []
+        self.saved_digest = None  # Hash of the last successfully persisted plain state.
 
     def saved_url(self, page):
         return page.url if page.url.startswith("https://") else self.pending_urls.get(page, "")
@@ -341,11 +342,18 @@ class BrowserWorkspace:
         data["aib_viewport"] = self.page().viewport_size or VIEWPORT
         data["aib_profile"] = self.profile
         blob = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
+        digest = hashlib.sha256(blob).digest()
+        # A periodic safety check must not create another encrypted full copy
+        # if Chromium, the selected tab and the saved history are unchanged.
+        # assert_lease() already ran, even if there is nothing to persist.
+        if digest == self.saved_digest:
+            return
         encrypted = seal(blob)
         nxt = await asyncio.to_thread(db_save, self.profile, encrypted, self.rev)
         if nxt is None:
             raise HTTPException(409, "Profil został zmieniony w innym procesie; zapis zatrzymano.")
         self.rev = nxt
+        self.saved_digest = digest
 
     async def _close_current(self):
         if self.context is not None:
@@ -354,6 +362,7 @@ class BrowserWorkspace:
             self.context = None
             self.profile = None
             self.rev = None
+            self.saved_digest = None
             if self.lease:
                 await asyncio.to_thread(self.lease.close)
                 self.lease = None
@@ -433,6 +442,11 @@ class BrowserWorkspace:
         self.context = ctx
         self.profile = name
         self.rev = version
+        # Baseline is established only AFTER encrypted state has been read
+        # and the browser context has been successfully reconstructed.
+        self.saved_digest = hashlib.sha256(
+            json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode()
+        ).digest()
         active_index = state.get("aib_active_tab", len(ctx.pages)-1)
         if isinstance(active_index, int) and 0 <= active_index < len(ctx.pages):
             self.active_page = ctx.pages[active_index]
@@ -573,12 +587,18 @@ class BrowserWorkspace:
                 raise HTTPException(409, "Otwórz wybrany profil przed pobraniem obrazu.")
             try:
                 page = self.page()
-                png = await page.screenshot(type="png", animations="disabled", timeout=12000)
+                # The mobile panel receives a compact JPEG; the MCP screenshot
+                # tool retains lossless PNG for reliable reading/inspection.
+                kind = "jpeg" if with_metadata else "png"
+                opts = {"type": kind, "animations": "disabled", "timeout": 12000}
                 if with_metadata:
-                    return png, {"X-AIB-Page": self.tab_id(page), "X-AIB-Origin": safe_display_url(self.saved_url(page)),
-                                 "X-AIB-Navigation": self.navigation_state(page),
-                                 "X-AIB-Tabs": str(len(self.context.pages))}
-                return png
+                    opts["quality"] = 80
+                frame = await page.screenshot(**opts)
+                if with_metadata:
+                    return frame, {"X-AIB-Page": self.tab_id(page), "X-AIB-Origin": safe_display_url(self.saved_url(page)),
+                                   "X-AIB-Navigation": self.navigation_state(page),
+                                   "X-AIB-Tabs": str(len(self.context.pages))}
+                return frame
             except Exception:
                 raise HTTPException(502, "Nie można wykonać zrzutu ekranu.") from None
 
@@ -728,13 +748,25 @@ async def owner_action(request: Request):
         raise HTTPException(403, "Polecenie niedostępne w tym panelu.")
     return await workspace.action(payload, owner_context=grant["context"])
 
+def conditional_mobile_frame(request: Request, frame: bytes, metadata: dict):
+    # Strong entity tag binds pixels to the selected tab and navigation state.
+    # It contains no secret data. Authentication is checked by each endpoint.
+    tag = '"' + hashlib.sha256(
+        frame + json.dumps(metadata, sort_keys=True).encode()
+    ).hexdigest() + '"'
+    headers = {**metadata, "ETag": tag}
+    if request.headers.get("if-none-match") == tag:
+        return Response(status_code=304, headers=headers)
+    return Response(frame, media_type="image/jpeg", headers=headers)
+
+
 @app.get("/owner/api/screen")
 async def owner_screen(request: Request, name: str):
     grant = require_owner(request)
     if name != grant["name"]:
         raise HTTPException(403, "Ten link nie udostępnia innego profilu.")
-    png, metadata = await workspace.screenshot(name, owner_context=grant["context"], with_metadata=True)
-    return Response(png, media_type="image/png", headers=metadata)
+    frame, metadata = await workspace.screenshot(name, owner_context=grant["context"], with_metadata=True)
+    return conditional_mobile_frame(request, frame, metadata)
 
 @app.get("/owner/api/tabs")
 async def owner_tabs(request: Request, name: str):
@@ -807,8 +839,8 @@ async def action(request: Request):
 @app.get("/api/screen")
 async def screen(request: Request, name: str):
     require(request)
-    png, metadata = await workspace.screenshot(name, with_metadata=True)
-    return Response(png, media_type="image/png", headers=metadata)
+    frame, metadata = await workspace.screenshot(name, with_metadata=True)
+    return conditional_mobile_frame(request, frame, metadata)
 
 @app.get("/api/tabs")
 async def tabs(request: Request, name: str):
