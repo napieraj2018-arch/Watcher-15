@@ -33,6 +33,10 @@ DATA_KEY = os.environ.get("AIB_FRESH_DATA_KEY", "")
 COOKIE = "aib_fresh_session"
 VIEWPORT = {"width": 1280, "height": 800}
 MAX_STATE = 12_000_000
+# A held PostgreSQL advisory-lock session consumes Free compute while active.
+# Hibernate unused browser contexts so Neon can subsequently scale to zero.
+AGENT_IDLE_SECONDS = 30 * 60
+HUMAN_IDLE_SECONDS = 60 * 60
 
 def configured() -> bool:
     try:
@@ -181,6 +185,7 @@ class BrowserWorkspace:
         self.failed_pages = set()
         self.restore_origins = []
         self.saved_digest = None  # Hash of the last successfully persisted plain state.
+        self.last_activity = time.monotonic()
 
     def saved_url(self, page):
         return page.url if page.url.startswith("https://") else self.pending_urls.get(page, "")
@@ -355,6 +360,22 @@ class BrowserWorkspace:
         self.rev = nxt
         self.saved_digest = digest
 
+    async def hibernate_if_idle(self, now=None):
+        """Called only under workspace.lock; never interrupt an in-flight action.
+
+        Closing persists the encrypted state with CAS before releasing the
+        advisory lock. If persistence fails, the context remains available
+        for manual recovery and the existing fail-closed behavior applies.
+        """
+        if self.context is None:
+            return False
+        elapsed = (time.monotonic() if now is None else now) - self.last_activity
+        limit = HUMAN_IDLE_SECONDS if self.human else AGENT_IDLE_SECONDS
+        if elapsed < limit:
+            return False
+        await self._close_current()
+        return True
+
     async def _close_current(self):
         if self.context is not None:
             await self._save()
@@ -447,6 +468,7 @@ class BrowserWorkspace:
         self.saved_digest = hashlib.sha256(
             json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode()
         ).digest()
+        self.last_activity = time.monotonic()
         active_index = state.get("aib_active_tab", len(ctx.pages)-1)
         if isinstance(active_index, int) and 0 <= active_index < len(ctx.pages):
             self.active_page = ctx.pages[active_index]
@@ -474,6 +496,7 @@ class BrowserWorkspace:
             await self.assert_lease()
             if automated and self.human:
                 raise HTTPException(409, "Właściciel przejął sterowanie; poczekaj na oddanie sterowania.")
+            self.last_activity = time.monotonic()
             page = self.page()
             if data.get("page_id") and data["page_id"] != self.tab_id(page):
                 raise HTTPException(409, "Strona zmieniła kartę. Sprawdź aktualny obraz i ponów kliknięcie.")
@@ -585,6 +608,7 @@ class BrowserWorkspace:
                 raise HTTPException(409, "Sesja tego linku została zamknięta.")
             if self.context is None or self.profile != profile_name(name):
                 raise HTTPException(409, "Otwórz wybrany profil przed pobraniem obrazu.")
+            self.last_activity = time.monotonic()
             try:
                 page = self.page()
                 # The mobile panel receives a compact JPEG; the MCP screenshot
@@ -606,6 +630,7 @@ class BrowserWorkspace:
         async with self.lock:
             if self.context is None or self.profile != profile_name(name) or (owner_context is not None and self.context is not owner_context):
                 raise HTTPException(409, "Sesja tego profilu nie jest otwarta.")
+            self.last_activity = time.monotonic()
             return await self.tab_state()
 
     async def shutdown(self):
@@ -668,7 +693,10 @@ async def lifespan(_app: FastAPI):
             async with workspace.lock:
                 if workspace.context:
                     try:
-                        await workspace._save()
+                        if await workspace.hibernate_if_idle():
+                            print("AIB_FRESH_IDLE_HIBERNATED", flush=True)
+                        else:
+                            await workspace._save()
                     except Exception:
                         workspace.human = True
     saver = asyncio.create_task(autosave())
