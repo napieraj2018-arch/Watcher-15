@@ -136,6 +136,22 @@ class ESAVSOfflineSafety(unittest.TestCase):
         self.assertNotIn("bob@",str(result))
         r.close.assert_called_once()
 
+
+    def test_live_browser_pdf_reader_rejects_outside_links(self):
+        state={"cookies":[]}
+        base="https://e-campus.esavs.eu/mod/resource/view.php?id=10"
+        invalid=[
+            ("https://example.com/pluginfile.php/file.pdf",base),
+            ("https://e-campus.esavs.eu/login/index.php",base),
+            ("https://e-campus.esavs.eu/pluginfile.php/a.pdf","https://e-campus.esavs.eu/my/"),
+            ("file:///etc/passwd",base),
+        ]
+        for link,referrer in invalid:
+            with self.subTest(link=link):
+                with self.assertRaises(HTTPException):
+                    offline.read_verified_course_pdf(
+                        link,referrer,state,"Mozilla/5.0",0,b"0"*32)
+
     def test_disallows_wrong_profile_without_decrypting(self):
         with self.assertRaises(HTTPException):
             offline.run("esavs_offline_index",{"name":"perlego-slatter"},lambda p:None,lambda x:x,b"a"*32)
