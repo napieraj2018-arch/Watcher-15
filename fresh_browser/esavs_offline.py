@@ -134,6 +134,33 @@ def _course_resource_links(html: str, course_base: str) -> list[dict]:
     return result[:100]
 
 
+def _probe(client) -> dict:
+    """Diagnostic metadata only. Never return document text, URLs or cookies."""
+    response, url = _request(client, BASE + "/my/")
+    try:
+        doc = BeautifulSoup(response.text, "html.parser")
+        anchors = [a for a in doc.find_all("a", href=True)
+                   if "/course/view.php" in a.get("href", "")]
+        text = _normal(doc.get_text(" ", strip=True))
+        exact = [a for a in anchors
+                 if _normal(a.get_text(" ", strip=True)).startswith(COURSE)]
+        contains = [a for a in anchors
+                    if COURSE in _normal(a.get_text(" ", strip=True))]
+        title = _normal(doc.title.get_text(" ", strip=True))[:120] if doc.title else ""
+        return {
+            "page_path": urlsplit(url).path,
+            "page_title": title,
+            "course_text_present": COURSE in text,
+            "course_link_count": len(anchors),
+            "exact_course_link_count": len(exact),
+            "contains_course_link_count": len(contains),
+            "login_form_present": bool(doc.select('form[action*="login"]')),
+            "html_size": len(response.content),
+        }
+    finally:
+        response.close()
+
+
 def _index(client) -> list[dict]:
     dashboard, dash_url = _request(client, BASE + "/my/")
     try:
@@ -275,6 +302,8 @@ def run(action: str, args: dict, load_state, unseal, key: bytes) -> dict:
     state = _state(load_state, unseal)
     _cleanup_cache()
     with _client(state) as client:
+        if action == "esavs_offline_probe":
+            return _probe(client)
         links = _index(client)
         if action == "esavs_offline_index":
             return {"course":COURSE, "materials":[x["title"] for x in links]}
