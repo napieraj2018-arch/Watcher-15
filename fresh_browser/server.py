@@ -155,7 +155,9 @@ async def _esavs_read_saved_profile(args: dict) -> dict:
     title = args.get("text", "")
     start = args.get("delta", 0)
     if (name != ESAVS_READER_PROFILE or not isinstance(title, str)
-            or not 4 <= len(title) <= 190 or not isinstance(start, int)
+            or not 4 <= len(title) <= 190
+            or any(c in title for c in ("/", "\\", "<", ">", "\\n", "\\r"))
+            or ".." in title or not isinstance(start, int)
             or start < 0 or start > 600):
         raise HTTPException(403, "Niedozwolony profil lub pozycja materiału.")
     row = await asyncio.to_thread(db_load, name)
