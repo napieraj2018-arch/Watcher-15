@@ -88,6 +88,39 @@ class ESAVSOfflineSafety(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 offline._extract_pdf(path, -1)
 
+
+    def test_fallback_to_exact_saved_course_with_full_title_verification(self):
+        course_url = "https://e-campus.esavs.eu/course/view.php?id=4321"
+        dashboard = "<html><body>dashboard without cards</body></html>"
+        course = ('<html><head><title>'+offline.COURSE+'</title></head><body>'
+                  '<h3 class="sectionname">Course Notes</h3>'
+                  '<section><a href="/mod/resource/view.php?id=123">'
+                  '<span class="instancename">Matas, Eyelid surgeries 2026</span>'
+                  '</a></section></body></html>')
+        class Fake:
+            def __init__(self, text): self.text=text
+            def close(self): pass
+        def fake_request(_client, url):
+            if url.endswith("/my/"):return Fake(dashboard),url
+            if url == course_url:return Fake(course),url
+            raise AssertionError("Unexpected URL "+url)
+        state = {"aib_tabs":[course_url],"aib_history":[]}
+        with patch.object(offline,"_request",side_effect=fake_request):
+            res=offline._index(None,state)
+        self.assertEqual(res[0]["title"],"Matas, Eyelid surgeries 2026")
+        self.assertEqual(len(res),1)
+
+    def test_saved_foreign_course_does_not_bypass_exact_title_check(self):
+        course_url = "https://e-campus.esavs.eu/course/view.php?id=4321"
+        class Fake:
+            def __init__(self,text):self.text=text
+            def close(self):pass
+        def fake_request(_client,url):
+            return (Fake("<html>Dashboard</html>"),url) if url.endswith("/my/") else (Fake("<html><h3>Course Notes</h3><h1>Different course</h1></html>"),url)
+        with patch.object(offline,"_request",side_effect=fake_request):
+            with self.assertRaises(HTTPException):
+                offline._index(None,{"aib_tabs":[course_url]})
+
     def test_disallows_wrong_profile_without_decrypting(self):
         with self.assertRaises(HTTPException):
             offline.run("esavs_offline_index",{"name":"perlego-slatter"},lambda p:None,lambda x:x,b"a"*32)
