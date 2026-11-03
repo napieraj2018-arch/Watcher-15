@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI Browser 2.0</title>
+<style>
+:root{color-scheme:dark;font:16px/1.45 system-ui,-apple-system,sans-serif;background:#101722;color:#edf3fa}
+*{box-sizing:border-box}body{margin:0 auto;max-width:1100px;padding:16px 16px max(24px,env(safe-area-inset-bottom))}header{padding:4px 0 14px}h1{font-size:1.35rem;margin:0}h2{font-size:1rem;margin:0 0 12px}.sub,small{color:#afbfcd;font-size:.86rem}p{margin:8px 0}.panel{background:#1a2534;border:1px solid #36485b;border-radius:14px;padding:14px;margin:12px 0}.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin:10px 0}.buttons{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}.control{grid-template-columns:repeat(2,minmax(0,1fr))}.stack{display:grid;gap:8px;margin:10px 0}input,select,button{font:inherit;min-width:0;max-width:100%;border-radius:10px;border:1px solid #536578;padding:12px;background:#111b29;color:#fff}input,select{width:100%;min-height:48px}button{cursor:pointer;background:#245a80;border-color:#417ca5;min-height:48px;line-height:1.3;white-space:normal;overflow-wrap:break-word}button.secondary{background:#283746}button:disabled,select:disabled{opacity:.55;cursor:wait}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #78c3ff;outline-offset:2px}.control button{font-size:.94rem}.buttons button{font-size:.88rem}label{display:block;font-size:.9rem;margin:4px 0 6px}details{border-top:1px solid #36485b;margin-top:14px;padding-top:12px}summary{cursor:pointer;min-height:36px;color:#cbdbe8}#screen{display:block;width:100%;height:auto;border-radius:10px;touch-action:manipulation;background:#101722}#imageFrame{margin:12px auto;max-width:100%;overflow:hidden}#emptyScreen{border:1px dashed #536578;border-radius:10px;padding:24px 16px;text-align:center;color:#afbfcd}#site{overflow-wrap:anywhere}#message:not(:empty),#error:not(:empty){padding:10px 12px;border-radius:10px;margin:8px 0;font-size:.9rem}#message{color:#bce7d7;background:#18392e}#error{color:#ffc2c2;background:#45252b}.hidden{display:none!important}.help{margin:8px 0 12px;font-size:.85rem;color:#afbfcd}#profile{font-size:1rem}.notice{border:1px solid #b58a44;background:#3b3020;color:#ffe2ac;border-radius:10px;padding:12px;margin:12px 0;font-size:.9rem}.notice p{margin:6px 0}.keyboardActions{grid-template-columns:repeat(2,minmax(0,1fr))}a{color:#b9dcff}
+@media(min-width:700px){.workspace{display:grid;grid-template-columns:270px minmax(0,1fr);gap:16px;align-items:start}.workspace>.panel{margin-top:0}.control{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:420px){body{padding:12px 10px max(24px,env(safe-area-inset-bottom))}.panel{padding:12px}.row{gap:8px}.row>button{padding:10px 12px}.buttons{gap:8px}.control button{font-size:.88rem}.buttons button{padding:10px 6px}.keyboardActions{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style></head><body>
+<header><h1>AI Browser 2.0</h1><div class="sub">Twoja przeglądarka i zapisane profile</div></header>
+<div id="error" role="alert"></div><div id="message" role="status" aria-live="polite"></div>
+<section id="loginBox" class="panel"><h2>Dostęp do przeglądarki</h2><p class="help">Wejście dla właściciela otwieraj z jednorazowego linku otrzymanego w ChatGPT. Poniższy formularz jest przeznaczony wyłącznie dla administratora serwera.</p><div class="stack"><label for="adminKey">Klucz administratora</label><input id="adminKey" type="password" autocomplete="off"><button id="loginBtn">Zaloguj</button></div></section>
+<main id="appBox" class="hidden workspace">
+<section class="panel"><h2>Wybierz profil</h2><label for="profile">Zapisany profil</label><select id="profile"></select><div class="stack"><button id="openBtn">Otwórz profil</button><button id="refreshProfiles" class="secondary">Odśwież listę</button></div><p class="help">Każdy profil przechowuje dane oddzielnie. Zapisany profil nie potwierdza zalogowania do witryny.</p><details><summary>Nowy profil</summary><label for="newProfile">Nazwa profilu</label><div class="stack"><input id="newProfile" placeholder="np. gmail lub wordpress" maxlength="40" autocapitalize="none" spellcheck="false"><button id="createBtn">Utwórz profil</button></div></details></section>
+<section class="panel"><div id="googleNotice" class="notice hidden" role="note"><strong>Logowanie Google zostało odrzucone</strong><p>Google odrzucił logowanie w profilu google-youtube. Nie ponawiaj tej samej próby. Otwarcie panelu w Safari nie zmienia zdalnej przeglądarki.</p><p>Do obsługiwanych zadań Google i YouTube użyj oficjalnego połączenia w ChatGPT. Dostęp API jest oddzielny od logowania w tej przeglądarce.</p><a href="https://support.google.com/accounts/answer/7675428" target="_blank" rel="noopener noreferrer">Wyjaśnienie Google ↗</a></div><label for="website">Adres strony</label><div class="row"><input id="website" type="url" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://www.facebook.com/"><button id="goBtn">Przejdź</button></div>
+<div class="buttons control"><button id="humanBtn">Przejmij sterowanie</button><button id="agentBtn" class="secondary">Oddaj ChatGPT</button></div>
+<div class="buttons"><button id="prevBtn" class="secondary">Wstecz</button><button id="reloadBtn" class="secondary">Odśwież stronę</button><button id="saveBtn" class="secondary">Zapisz profil</button></div>
+<p id="site" class="sub">Wybierz profil i kliknij „Otwórz profil”.</p><div id="tabRow" class="hidden"><label for="tabSelect">Otwarta karta</label><select id="tabSelect"></select></div><p id="liveStatus" class="sub" aria-live="polite"></p><div id="imageFrame"><div id="emptyScreen">Ekran strony pojawi się po otwarciu profilu.</div><img id="screen" class="hidden" alt="Ekran zdalnej przeglądarki. Dotknij wybranego pola, aby kliknąć."></div>
+<p class="help">Aby wpisać tekst, dotknij pola na ekranie strony i użyj klawiatury poniżej.</p>
+<label for="keyboard">Tekst do wpisania w zaznaczonym polu</label><input id="keyboard" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Login, hasło lub inny tekst">
+<div class="buttons control"><button id="typeBtn">Wpisz tekst</button><button id="maskBtn" class="secondary">Pokaż tekst</button></div>
+<div class="buttons keyboardActions"><button id="enterBtn">Enter</button><button id="tabBtn" class="secondary">Tab</button><button id="selectBtn">Zaznacz wszystko</button><button id="backBtn" class="secondary">Usuń znak</button></div>
+<div class="buttons control"><button id="scrollUp" class="secondary">↑ Przewiń</button><button id="scrollDown" class="secondary">↓ Przewiń</button></div>
+<details><summary>Więcej opcji</summary><div class="buttons control"><button id="phoneBtn" class="secondary">Widok telefonu</button><button id="desktopBtn" class="secondary">Widok komputera</button><button id="screenBtn" class="secondary">Odśwież obraz</button><button id="closeBtn" class="secondary">Zapisz i zamknij</button></div><button id="logoutBtn" class="secondary">Wyloguj z panelu</button></details>
+</section></main><script>
+"use strict";
+const el = (id)=>document.getElementById(id);
+const ownerMode = window.location.pathname === "/owner/";
+const ownerToken = ownerMode ? window.location.hash.slice(1) : "";
+if(ownerMode)history.replaceState(null,"",window.location.pathname);
+let busy=false, screenActive=false, frameInFlight=null, liveTimer=null, frameGeneration=0, lastTabSignature="", navigationState="empty", frameEtag="", liveDelay=2000;
+const formButtons=["typeBtn","enterBtn","tabBtn","selectBtn","backBtn"];
+const navigationError="Strona przerwała wczytywanie. Wynik formularza nie jest potwierdzony. Nie wpisuj ponownie hasła. Oddaj sterowanie ChatGPT, aby odczytać przyczynę; formularz nie będzie automatycznie ponowiony.";
+function notify(message,error=false){el(error?"error":"message").textContent=message;el(error?"message":"error").textContent="";}
+function applyFormControls(){for(const id of formButtons)el(id).disabled=busy||navigationState!=="ready";}
+async function fetchBounded(path,options={},timeout=35000){
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
+ try{return await fetch(path,{...options,signal:controller.signal});}
+ catch(e){if(e.name==="AbortError")throw new Error("Serwer nie odpowiedział na czas. Nie ponawiaj logowania; odśwież podgląd.");throw e;}
+ finally{clearTimeout(timer);}
+}
+async function api(path,method="GET",body=undefined){
+ const options={method,credentials:"same-origin",cache:"no-store",headers:{"x-aib-request":"same-origin"}};
+ if(body!==undefined){options.headers["content-type"]="application/json";options.body=JSON.stringify(body);}
+ const r=await fetchBounded(path,options),reply=await r.json().catch(()=>({detail:"Nieprawidłowa odpowiedź serwera"}));
+ if(!r.ok)throw new Error(typeof reply.detail==="string"?reply.detail:"Błąd "+r.status);
+ return reply;
+}
+function selected(){const v=el("profile").value;if(!v)throw new Error("Najpierw utwórz lub wybierz profil.");return v;}
+function setBusy(v){busy=v;document.querySelectorAll("button,select").forEach(b=>b.disabled=v);applyFormControls();}
+async function run(fn){if(busy)return;setBusy(true);try{if(frameInFlight)await frameInFlight.catch(()=>{});await fn()}catch(e){notify(e.message||"Nieznany błąd",true)}finally{setBusy(false)}}
+function clearScreen(message="Ekran strony pojawi się po otwarciu profilu."){
+ screenActive=false;navigationState="empty";frameGeneration++;lastTabSignature="";frameEtag="";liveDelay=2000;el("liveStatus").textContent="";el("tabRow").classList.add("hidden");
+ const img=el("screen"),prev=img.dataset.objectUrl;
+ img.removeAttribute("src");img.classList.add("hidden");
+ if(prev)URL.revokeObjectURL(prev);delete img.dataset.objectUrl;
+ el("emptyScreen").textContent=message;el("emptyScreen").classList.remove("hidden");applyFormControls();
+}
+function updateAuthNotice(){el("googleNotice").classList.toggle("hidden",el("profile").value!=="google-youtube");}
+async function refreshProfiles(){
+ const data=await api("./api/profiles"),old=el("profile").value;
+ const profiles=[...data.profiles].sort((a,b)=>Number(a.name.startsWith("acceptance-"))-Number(b.name.startsWith("acceptance-"))||a.name.localeCompare(b.name));
+ el("profile").replaceChildren();
+ for(const p of profiles)el("profile").add(new Option(p.name+(p.name.startsWith("acceptance-")?" (test)":""),p.name));
+ const preferred=profiles.find(p=>p.name===old)||profiles.find(p=>p.name==="google-youtube")||profiles.find(p=>!p.name.startsWith("acceptance-"))||(ownerMode?profiles[0]:undefined);
+ el("profile").value=preferred?preferred.name:"";
+ if(!preferred)el("profile").add(new Option("Wybierz profil","",true,true));updateAuthNotice();
+}
+async function refreshTabs(signature){
+ const data=await api("./api/tabs?name="+encodeURIComponent(selected()));
+ el("tabSelect").replaceChildren();
+ for(const t of data.tabs){el("tabSelect").add(new Option(t.title||t.url,t.id));if(t.active)el("tabSelect").value=t.id;}
+ el("tabRow").classList.toggle("hidden",data.tabs.length<2);lastTabSignature=signature;
+}
+async function captureFrame(){
+ const generation=frameGeneration,name=selected();
+ const options={credentials:"same-origin",cache:"no-store"};
+ // The server returns 304 without re-sending a full screen if pixels and
+ // tab/navigation metadata have not changed. Never share an ETag across profiles.
+ if(frameEtag&&el("screen").dataset.objectUrl)options.headers={"If-None-Match":frameEtag};
+ const response=await fetchBounded("./api/screen?name="+encodeURIComponent(name)+"&v="+Date.now(),options,15000);
+ if(response.status===304){
+  if(generation!==frameGeneration)return "stale";
+  if(navigationState==="ready")el("liveStatus").textContent="Podgląd aktualny · "+new Date().toLocaleTimeString("pl-PL");
+  return "unchanged";
+ }
+ if(!response.ok){const error=await response.json().catch(()=>({detail:"Brak obrazu"}));if([401,409].includes(response.status))screenActive=false;throw new Error(error.detail||"Brak obrazu");}
+ if(generation!==frameGeneration)return;
+ const blob=await response.blob(),u=URL.createObjectURL(blob),img=el("screen");
+ if(generation!==frameGeneration){URL.revokeObjectURL(u);return;}
+ const prev=img.dataset.objectUrl;img.src=u;img.dataset.objectUrl=u;if(prev)URL.revokeObjectURL(prev);
+ frameEtag=response.headers.get("ETag")||"";
+ img.dataset.pageId=response.headers.get("X-AIB-Page")||"";
+ const origin=response.headers.get("X-AIB-Origin");if(origin)el("site").textContent=origin;
+ const state=response.headers.get("X-AIB-Navigation");navigationState=["ready","failed","empty"].includes(state)?state:"empty";
+ const failed=navigationState==="failed",empty=navigationState==="empty";
+ img.classList.toggle("hidden",failed||empty);el("emptyScreen").classList.toggle("hidden",!failed&&!empty);
+ if(failed){el("emptyScreen").textContent=navigationError;el("liveStatus").textContent="Błąd wczytywania strony — nie potwierdzono logowania";notify(navigationError,true);}
+ else if(empty){el("emptyScreen").textContent="Pusta karta. Wpisz adres strony u góry.";el("liveStatus").textContent="Pusta karta — brak załadowanej witryny";}
+ else{el("liveStatus").textContent="Podgląd na żywo · "+new Date().toLocaleTimeString("pl-PL");if(el("error").textContent===navigationError)el("error").textContent="";}
+ applyFormControls();
+ const signature=(response.headers.get("X-AIB-Tabs")||"")+":"+img.dataset.pageId+":"+navigationState;
+ if(signature!==lastTabSignature)await refreshTabs(signature);
+ return "changed";
+}
+async function screenshot(){if(frameInFlight)return frameInFlight;const pending=captureFrame();frameInFlight=pending;try{return await pending;}finally{frameInFlight=null;}}
+function startLive(){
+ if(liveTimer!==null)return;
+ const tick=async()=>{
+  if(screenActive&&!busy&&!document.hidden){
+   try{
+    const change=await screenshot();
+    liveDelay=change==="unchanged"?Math.min(10000,liveDelay+2000):2000;
+   }catch(e){
+    el("liveStatus").textContent="Podgląd nieaktualny — "+e.message;
+    liveDelay=5000;
+   }
+  }
+  liveTimer=setTimeout(tick,liveDelay);
+ };
+ liveTimer=setTimeout(tick,liveDelay);
+}
+function resumeFastRefresh(){
+ liveDelay=2000;
+ if(liveTimer!==null){clearTimeout(liveTimer);liveTimer=null;}
+ startLive();
+}
+async function command(action,payload={}){
+ if(["click","type","press"].includes(action)&&navigationState!=="ready")throw new Error("Brak gotowej strony. Nie wysłano tekstu ani formularza.");
+ frameGeneration++;
+ const page_id=["click","type","press","scroll"].includes(action)?el("screen").dataset.pageId:undefined;
+ const result=await api("./api/action","POST",{name:selected(),action,page_id,...payload});
+ el("site").textContent=(result.title||"")+(result.url?" · "+result.url:"");
+ if(!result.closed){
+  screenActive=true;resumeFastRefresh();
+  try{await screenshot()}catch(e){notify("Odpowiedź polecenia odebrana, ale podgląd niepotwierdzony: "+e.message,true);return result;}
+ }else{el("site").textContent="Profil bezpiecznie zamknięty.";clearScreen("Profil zapisany i zamknięty. Kliknij „Otwórz profil”, aby wrócić.");}
+ if(result.ok===false||result.navigation==="failed"||navigationState==="failed"){notify(navigationError,true);return result;}
+ notify(result.human?"Sterowanie ręczne — ChatGPT wstrzymany.":result.closed?"Profil zapisany i zamknięty.":"Polecenie wykonane; zapis profilu nie jest potwierdzeniem logowania.");return result;
+}
+function wire(id,fn){el(id).addEventListener("click",()=>run(fn));}
+wire("loginBtn",async()=>{await api("./api/login","POST",{token:el("adminKey").value});el("adminKey").value="";el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");await refreshProfiles();notify("Połączono. Wybierz profil i otwórz stronę.");});
+wire("refreshProfiles",refreshProfiles);
+wire("createBtn",async()=>{const name=el("newProfile").value.trim().toLowerCase();await api("./api/profiles","POST",{name});await refreshProfiles();el("profile").value=name;el("newProfile").value="";await command("open");});
+wire("openBtn",()=>command("open"));
+el("tabSelect").addEventListener("change",()=>run(()=>command("select_tab",{text:el("tabSelect").value})));
+el("profile").addEventListener("change",()=>{updateAuthNotice();clearScreen();el("site").textContent="Wybrano "+selected()+". Kliknij „Otwórz profil”.";});
+wire("goBtn",()=>{let u=el("website").value.trim();if(!u)throw new Error("Wpisz adres strony.");if(!u.startsWith("https://"))u="https://"+u;return command("go",{url:u});});
+wire("screenBtn",screenshot);wire("phoneBtn",()=>command("viewport",{text:"mobile"}));wire("desktopBtn",()=>command("viewport",{text:"desktop"}));
+wire("humanBtn",()=>command("handoff",{human:true}));wire("agentBtn",()=>command("handoff",{human:false}));wire("prevBtn",()=>command("back"));wire("reloadBtn",()=>command("reload"));wire("saveBtn",()=>command("save"));wire("closeBtn",()=>command("close"));
+wire("typeBtn",async()=>{const text=el("keyboard").value;await command("type",{text});el("keyboard").value="";});
+wire("enterBtn",()=>command("press",{key:"Enter"}));wire("tabBtn",()=>command("press",{key:"Tab"}));wire("selectBtn",()=>command("press",{key:"ControlOrMeta+A"}));wire("backBtn",()=>command("press",{key:"Backspace"}));
+wire("scrollUp",()=>command("scroll",{delta:-600}));wire("scrollDown",()=>command("scroll",{delta:600}));
+wire("maskBtn",async()=>{const inp=el("keyboard");inp.type=inp.type==="password"?"text":"password";el("maskBtn").textContent=inp.type==="password"?"Pokaż tekst":"Ukryj tekst";});
+wire("logoutBtn",async()=>{await api("./api/logout","POST",{});window.location.reload();});
+el("screen").addEventListener("click",e=>{if(navigationState!=="ready")return;const img=e.currentTarget,r=img.getBoundingClientRect();const payload={x:(e.clientX-r.left)*img.naturalWidth/r.width,y:(e.clientY-r.top)*img.naturalHeight/r.height,page_id:img.dataset.pageId};return run(()=>command("click",payload));});
+(async()=>{
+ if(ownerMode){el("loginBox").classList.add("hidden");el("createBtn").closest("details").classList.add("hidden");el("profile").closest("section").classList.add("hidden");el("appBox").style.gridTemplateColumns="minmax(0,1fr)";}
+ try{if(ownerToken)await api("./api/pair","POST",{token:ownerToken});await api("./api/session");el("loginBox").classList.add("hidden");el("appBox").classList.remove("hidden");await refreshProfiles();if(ownerMode){const result=await command("open");if(result.ok&&navigationState==="ready")notify("Otwarty profil: "+selected()+". Kliknij „Przejmij sterowanie”, aby się zalogować.");}else notify("Połączono. Wybierz profil i otwórz stronę.");}catch(e){if(ownerMode)notify(e.message,true);else el("loginBox").classList.remove("hidden");}finally{applyFormControls();}
+})();
+</script></body></html>
