@@ -64,7 +64,7 @@ def _client(state):
         headers={"User-Agent": "Mozilla/5.0 (compatible; private ESAVS course notes reader)"})
     for item in state.get("cookies", []):
         domain = str(item.get("domain", "")).strip().lstrip(".").lower()
-        if domain != HOST:
+        if domain not in (HOST, "esavs.eu"):
             continue
         name, value = item.get("name"), item.get("value")
         if not isinstance(name, str) or not isinstance(value, str) or not name:
@@ -72,7 +72,7 @@ def _client(state):
         path = str(item.get("path") or "/")
         if not path.startswith("/"):
             continue
-        client.cookies.set(name, value, domain=HOST, path=path)
+        client.cookies.set(name, value, domain=domain, path=path)
     return client
 
 
