@@ -141,5 +141,50 @@ class ESAVSMemoryRelease(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(workspace.pdf_cache)
 
 
+class ESAVSSavedCourseReader(unittest.TestCase):
+    def test_moodle_html_link_index_and_nested_markup(self):
+        dashboard = """
+        <a href='/course/view.php?id=997'><span>Ophthalmology I Residential Course, 2 - 11 Nov 2026, Palma</span></a>
+        <a href='/course/view.php?id=666'>Other course</a>
+        """
+        course = server._esavs_course_link(
+            dashboard,"https://e-campus.esavs.eu/my/",
+            server.ESAVS_COURSE,"/course/view.php")
+        self.assertEqual(course,"https://e-campus.esavs.eu/course/view.php?id=997")
+        docs = """
+        <a href='/mod/resource/view.php?id=76'>Gould, Lacrimal system ESAVS 2026</a>
+        <a href='/mod/resource/view.php?id=77'>Matas, Eyelid surgeries 2026</a>
+        <a href='https://attacker.example/mod/resource/view.php?id=77'>Bad</a>
+        """
+        match = server._esavs_course_link(docs,course,"Matas, Eyelid surgeries 2026","/mod/resource/view.php")
+        self.assertEqual(match,"https://e-campus.esavs.eu/mod/resource/view.php?id=77")
+
+    def test_untrusted_and_ambiguous_course_links_fail_closed(self):
+        host = "https://e-campus.esavs.eu/my/"
+        bad = [
+            "<a href='https://attacker.example/course/view.php?id=2'>Course</a>",
+            "<a href='/login/index.php'>Course</a>",
+            "<a href='http://e-campus.esavs.eu/course/view.php?id=2'>Course</a>",
+            "<a href='/course/view.php?id=1'>Course</a><a href='/course/view.php?id=2'>Course</a>",
+        ]
+        for html in bad:
+            with self.subTest(html=html[:40]):
+                with self.assertRaises(HTTPException):
+                    server._esavs_course_link(html,host,"Course","/course/view.php")
+
+    def test_html_size_and_profile_restrictions(self):
+        with self.assertRaises(HTTPException):
+            server._esavs_html_links("x"*3_000_001)
+
+class ESAVSReadOnlyAuthorization(unittest.IsolatedAsyncioTestCase):
+    async def test_non_esavs_profiles_denied_before_database(self):
+        with self.assertRaises(HTTPException):
+            await server._esavs_read_saved_profile(
+                {"name":"perlego-slatter","text":"Gould, Lacrimal system ESAVS 2026","delta":0})
+        with self.assertRaises(HTTPException):
+            await server._esavs_read_saved_profile(
+                {"name":"esavs-ophthalmology-i","text":"../../","delta":0})
+
+
 if __name__ == "__main__":
     unittest.main()
