@@ -61,7 +61,7 @@ def _client(state):
     client = httpx.Client(
         follow_redirects=False,
         timeout=httpx.Timeout(connect=10.0, read=45.0, write=10.0, pool=10.0),
-        headers={"User-Agent": "Mozilla/5.0 (compatible; private ESAVS course notes reader)"})
+        headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-GB,en;q=0.9", "Referer": BASE + "/"})
     for item in state.get("cookies", []):
         domain = str(item.get("domain", "")).strip().lstrip(".").lower()
         if domain not in (HOST, "esavs.eu"):
@@ -134,33 +134,63 @@ def _course_resource_links(html: str, course_base: str) -> list[dict]:
     return result[:100]
 
 
-def _index(client) -> list[dict]:
+def _index(client, state=None) -> list[dict]:
+    # First use the logged-in dashboard. Its visible HTML can differ by
+    # Moodle theme, so do not depend on the course text being the first
+    # string of one particular <a> element.
     dashboard, dash_url = _request(client, BASE + "/my/")
     try:
-        doc = BeautifulSoup(dashboard.text, "html.parser")
+        html = dashboard.text
+        doc = BeautifulSoup(html, "html.parser")
     finally:
         dashboard.close()
-    match = None
+    course_urls = []
     for a in doc.find_all("a", href=True):
-        if (_normal(a.get_text(" ", strip=True)).startswith(COURSE)
-                and "/course/view.php" in a.get("href", "")):
-            match = a
-            break
-    if match is None:
-        raise HTTPException(401, "Kurs Ophthalmology I nie jest dostępny w zapisanej sesji")
-    course_link = _same_origin(dash_url, match.get("href", ""))
-    if urlsplit(course_link).path != "/course/view.php":
-        raise HTTPException(403, "Oczekiwano oficjalnej strony kursu Moodle")
-    page, page_url = _request(client, course_link)
-    try:
-        if "Course Notes" not in page.text:
-            raise HTTPException(422, "Nie można odczytać sekcji Course Notes")
-        links = _course_resource_links(page.text, page_url)
-    finally:
-        page.close()
-    if not links:
-        raise HTTPException(422, "Nie znaleziono linków Course Notes")
-    return links
+        if COURSE.casefold() not in _normal(a.get_text(" ", strip=True)).casefold():
+            continue
+        try:
+            u = _same_origin(dash_url, a.get("href",""))
+        except HTTPException:
+            continue
+        if urlsplit(u).path == "/course/view.php":
+            course_urls.append(u)
+    # Fallback only to the same user's saved course-view URLs; each candidate
+    # must be re-fetched with the saved session and independently verified as
+    # the exact enrolled Ophthalmology I course containing "Course Notes".
+    # No guesswork, untrusted search, or access to any other browser profile.
+    if state:
+        saved = state.get("aib_tabs", [])
+        history = [item.get("url") for item in state.get("aib_history",[])
+                   if isinstance(item,dict)]
+        for u in list(saved)+history:
+            if not isinstance(u,str):
+                continue
+            try:
+                safe = _same_origin(BASE,u)
+            except HTTPException:
+                continue
+            if urlsplit(safe).path == "/course/view.php":
+                course_urls.append(safe)
+    course_urls = list(dict.fromkeys(course_urls))
+    if not course_urls:
+        raise HTTPException(401, "Zapisany profil nie podaje dostępnego odsyłacza do kursu ESAVS.")
+    for course_link in course_urls[:16]:
+        try:
+            page, page_url = _request(client, course_link)
+            try:
+                body = page.text
+                if COURSE.casefold() not in _normal(BeautifulSoup(body, "html.parser").get_text(" ",strip=True)).casefold():
+                    continue
+                if "Course Notes" not in body:
+                    continue
+                links = _course_resource_links(body, page_url)
+            finally:
+                page.close()
+        except HTTPException:
+            continue
+        if links:
+            return links
+    raise HTTPException(401, "Sesja HTTP nie potwierdziła dostępu do kursu; profil bez zmian.")
 
 
 def _pdf_url(client, selected_url: str) -> str:
@@ -275,7 +305,7 @@ def run(action: str, args: dict, load_state, unseal, key: bytes) -> dict:
     state = _state(load_state, unseal)
     _cleanup_cache()
     with _client(state) as client:
-        links = _index(client)
+        links = _index(client, state)
         if action == "esavs_offline_index":
             return {"course":COURSE, "materials":[x["title"] for x in links]}
         title = _normal(args.get("text", ""))
