@@ -7,7 +7,8 @@ import hashlib
 import gc
 import hmac
 import io
-from html import escape
+from html import escape, unescape
+from html.parser import HTMLParser
 import ipaddress
 import json
 import os
@@ -91,6 +92,131 @@ def _pdf_pages_extract(raw: bytes, start_page: int) -> dict:
         raise
     except Exception:
         raise HTTPException(422, "Nie udało się odczytać struktury PDF.") from None
+
+
+# The read-only ESAVS document reader intentionally does NOT depend on the
+# global browser workspace. It reads the saved authenticated ESAVS profile
+# without interacting with other browser profiles (e.g. Perlego).
+ESAVS_COURSE = "Ophthalmology I Residential Course, 2 - 11 Nov 2026, Palma"
+ESAVS_READER_PROFILE = "esavs-ophthalmology-i"
+
+class _ESAVSLinkParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.links = []
+        self.current = None
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            self.current = {"href": dict(attrs).get("href", ""), "text": []}
+    def handle_data(self, data):
+        if self.current is not None:
+            self.current["text"].append(data)
+    def handle_endtag(self, tag):
+        if tag == "a" and self.current is not None:
+            self.links.append((" ".join("".join(self.current["text"]).split()), self.current["href"]))
+            self.current = None
+
+def _esavs_html_links(html_text: str) -> list:
+    if not isinstance(html_text, str) or len(html_text) > 3_000_000:
+        raise HTTPException(413, "Dokument indeksu jest zbyt obszerny.")
+    parser = _ESAVSLinkParser()
+    parser.feed(html_text)
+    return parser.links
+
+def _esavs_scoped_url(page: str, href: str, path_prefix: str) -> str:
+    if not isinstance(href, str) or len(href) > 12000:
+        raise HTTPException(400, "Nieprawidłowy odsyłacz kursu.")
+    candidate = urljoin(page, href)
+    parts = urlsplit(candidate)
+    if (parts.scheme != "https" or parts.hostname != ESAVS_PDF_HOST
+            or parts.port not in (None, 443) or parts.username or parts.password
+            or not parts.path.startswith(path_prefix) or parts.fragment):
+        raise HTTPException(403, "Wyłącznie autoryzowane zasoby kursu ESAVS.")
+    return candidate
+
+def _esavs_course_link(html_text: str, base: str, label: str, path_prefix: str) -> str:
+    query = " ".join(label.split()).casefold()
+    matches = []
+    for name, href in _esavs_html_links(html_text):
+        n = name.casefold()
+        if n == query or (query in n and len(n) - len(query) < 80):
+            try:
+                matches.append(_esavs_scoped_url(base, href, path_prefix))
+            except HTTPException:
+                continue
+    matches = sorted(set(matches))
+    if len(matches) != 1:
+        raise HTTPException(404, "Nie znaleziono jednoznacznego materiału kursu.")
+    return matches[0]
+
+async def _esavs_read_saved_profile(args: dict) -> dict:
+    """Autoryzowany odczyt bez tworzenia sesji Chromium i bez zapisu cookies."""
+    name = profile_name(args.get("name", ""))
+    title = args.get("text", "")
+    start = args.get("delta", 0)
+    if (name != ESAVS_READER_PROFILE or not isinstance(title, str)
+            or not 4 <= len(title) <= 190 or not isinstance(start, int)
+            or start < 0 or start > 600):
+        raise HTTPException(403, "Niedozwolony profil lub pozycja materiału.")
+    row = await asyncio.to_thread(db_load, name)
+    if not row:
+        raise HTTPException(404, "Profil ESAVS nie istnieje.")
+    try:
+        state = json.loads(unseal(row[0]))
+        if state.get("aib_profile", name) != name:
+            raise ValueError("Niezgodny profil")
+        auth_state = {k: state[k] for k in ("cookies", "origins")}
+    except (KeyError, ValueError, TypeError, UnicodeDecodeError):
+        raise HTTPException(409, "Nie można bezpiecznie odczytać zapisanej sesji ESAVS.") from None
+    # Uses Playwright's low-memory HTTP context rather than a second
+    # Chromium process. No other active owner/agent session is touched.
+    async with async_playwright() as pw:
+        api = await pw.request.new_context(storage_state=auth_state, timeout=25000)
+        try:
+            async def get(url: str, *, is_pdf=False):
+                target = _esavs_scoped_url("https://"+ESAVS_PDF_HOST+"/", url, "/") if not is_pdf else _esavs_file_url("https://"+ESAVS_PDF_HOST+"/", url)
+                for _ in range(5):
+                    response = await api.get(target, max_redirects=0)
+                    try:
+                        if response.status in (301,302,303,307,308):
+                            location = response.headers.get("location","")
+                            target = (_esavs_file_url(target, location) if is_pdf
+                                      else _esavs_scoped_url(target, location, "/"))
+                            continue
+                        if response.status != 200:
+                            raise HTTPException(502, "ESAVS odrzuciło odczyt kursu.")
+                        length = int(response.headers.get("content-length","0") or "0")
+                        if length > (MAX_ESAVS_PDF_BYTES if is_pdf else 3_000_000):
+                            raise HTTPException(413, "Materiał przekracza limit odczytu.")
+                        raw = await response.body()
+                        if len(raw) > (MAX_ESAVS_PDF_BYTES if is_pdf else 3_000_000):
+                            raise HTTPException(413, "Materiał przekracza limit odczytu.")
+                        if is_pdf:
+                            if not raw.startswith(b"%PDF"):
+                                raise HTTPException(415, "Zasób nie jest PDF.")
+                            return raw
+                        return raw.decode("utf-8",errors="replace")
+                    finally:
+                        await response.dispose()
+                raise HTTPException(502, "Zbyt wiele przekierowań ESAVS.")
+            home = "https://"+ESAVS_PDF_HOST+"/my/"
+            h = await get(home)
+            course = _esavs_course_link(h,home,ESAVS_COURSE,"/course/view.php")
+            course_html = await get(course)
+            resource = _esavs_course_link(course_html,course,title,"/mod/resource/view.php")
+            page = await get(resource)
+            files = sorted(set(_esavs_file_url(resource, href)
+                               for label,href in _esavs_html_links(page)
+                               if label.casefold().strip().endswith(".pdf")
+                               and "/pluginfile.php/" in href))
+            if len(files) != 1:
+                raise HTTPException(404, "Brak jednoznacznego pliku PDF w zasobie.")
+            raw = await get(files[0],is_pdf=True)
+            digest = hashlib.sha256(raw).hexdigest()
+            output = await asyncio.to_thread(_pdf_pages_extract,raw,start)
+            return {"resource_title":title,"file_sha256":digest,"file_size":len(raw),**output}
+        finally:
+            await api.dispose()
 
 def configured() -> bool:
     try:
@@ -1114,7 +1240,7 @@ async def mcp(request: Request):
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, read_esavs_pdf, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
+        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, read_esavs_pdf, study_esavs_pdf, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
         for name, description in [("profile_list", "List new Neon Fresh profile metadata only. No legacy Floot data."), ("browser_sessions", "List active Neon Fresh sessions only.")]:
             result["tools"].append({"name":name,"description":description,"inputSchema":{"type":"object","properties":{}}})
     elif method == "tools/call":
@@ -1136,6 +1262,8 @@ async def mcp(request: Request):
                 value = {"profiles": await asyncio.to_thread(db_list)}
             elif action == "create_profile":
                 value = {"created": await asyncio.to_thread(db_create, profile_name(args.get("name", "")))}
+            elif action == "study_esavs_pdf":
+                value = await _esavs_read_saved_profile(args)
             elif action == "owner_access":
                 token = await issue_owner_access(args.get("name", ""))
                 value = {"url": str(request.base_url).rstrip("/") + "/owner/#" + token,
