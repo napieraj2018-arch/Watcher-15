@@ -88,6 +88,25 @@ class ESAVSOfflineSafety(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 offline._extract_pdf(path, -1)
 
+
+    def test_probe_reports_only_coarse_metadata_without_urls_or_cookies(self):
+        from unittest.mock import Mock, patch
+        html = """<!doctype html><html><head><title>Dashboard | ESAVS</title></head>
+        <body><a href='/course/view.php?id=12'>Ophthalmology I Residential Course, 2 - 11 Nov 2026, Palma</a>
+        <p>user private email secret@example.net</p></body></html>"""
+        response = Mock()
+        response.text = html
+        response.content = html.encode()
+        response.close = Mock()
+        with patch.object(offline,"_request",return_value=(response,"https://e-campus.esavs.eu/my/")):
+            result = offline._probe(Mock())
+        self.assertEqual(result["course_link_count"], 1)
+        self.assertEqual(result["exact_course_link_count"], 1)
+        self.assertTrue(result["course_text_present"])
+        self.assertNotIn("email",str(result))
+        self.assertNotIn("secret",str(result))
+        response.close.assert_called_once()
+
     def test_disallows_wrong_profile_without_decrypting(self):
         with self.assertRaises(HTTPException):
             offline.run("esavs_offline_index",{"name":"perlego-slatter"},lambda p:None,lambda x:x,b"a"*32)
