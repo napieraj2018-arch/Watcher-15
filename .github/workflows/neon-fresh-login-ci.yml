@@ -2,7 +2,7 @@ name: Neon Fresh — browser login and network policy regression CI
 
 on:
   pull_request:
-    branches: [ai-browser-cloud]
+    branches: [ai-browser-cloud, aib/neon-fresh-20261029]
     paths:
       - 'fresh_browser/**'
       - '.github/workflows/neon-fresh-login-ci.yml'
