@@ -317,6 +317,34 @@ def _extract_pdf(path: Path, offset: int):
             "text_chars":chars, "has_unreadable_pages":any(not p["text"].strip() for p in pages)}
 
 
+def read_verified_course_pdf(link: str, referring_page: str, storage_state: dict,
+                             user_agent: str, offset: int, key: bytes) -> dict:
+    """Stream one PDF already selected in the authenticated ESAVS course UI."""
+    resource=_same_origin(BASE,referring_page)
+    file_url=_same_origin(resource,link)
+    if (urlsplit(resource).path != "/mod/resource/view.php"
+            or "/pluginfile.php/" not in urlsplit(file_url).path
+            or not isinstance(offset,int) or not 0 <= offset <= MAX_PAGES):
+        raise HTTPException(403,"Odczyt tylko z potwierdzonego materiału kursu.")
+    if not isinstance(storage_state,dict) or not isinstance(storage_state.get("cookies"),list):
+        raise HTTPException(409,"Brak autoryzowanych cookies ESAVS.")
+    _cleanup_cache()
+    with _client(storage_state) as client:
+        if isinstance(user_agent,str) and 10<len(user_agent)<350 and user_agent.startswith("Mozilla/"):
+            client.headers["User-Agent"]=user_agent
+        client.headers["Referer"]=resource
+        file_path=_download(client,file_url,key)
+        digest=hashlib.sha256()
+        with file_path.open("rb") as stream:
+            for block in iter(lambda: stream.read(131072),b""):
+                digest.update(block)
+        size=file_path.stat().st_size
+        info=_extract_pdf(file_path,offset)
+        if info["next_start_page"] is None:
+            file_path.unlink(missing_ok=True)
+        return {"file_size":size,"file_sha256":digest.hexdigest(),**info}
+
+
 def run(action: str, args: dict, load_state, unseal, key: bytes) -> dict:
     if args.get("name") != PROFILE:
         raise HTTPException(403, "Odczyt dostępny tylko dla profilu ESAVS")
