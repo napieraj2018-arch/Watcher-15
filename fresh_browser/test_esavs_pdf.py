@@ -62,5 +62,84 @@ class ESAVSPdfAccess(unittest.TestCase):
             server._pdf_pages_extract(b"not a pdf", 0)
 
 
+class ESAVSMemoryRelease(unittest.IsolatedAsyncioTestCase):
+    async def test_api_response_is_disposed_after_success_and_pdf_cache_released(self):
+        from unittest.mock import AsyncMock
+        from types import SimpleNamespace
+        writer = PdfWriter()
+        writer.add_blank_page(width=200, height=300)
+        data = io.BytesIO()
+        writer.write(data)
+        class Response:
+            status = 200
+            headers = {"content-length": str(len(data.getvalue()))}
+            disposed = False
+            async def body(self):
+                return data.getvalue()
+            async def dispose(self):
+                self.disposed = True
+        response = Response()
+        class Request:
+            async def get(self, url, **kwargs):
+                self.url = url
+                return response
+        request = Request()
+        class Field:
+            async def evaluate(self, _js): return "A"
+            async def get_attribute(self, key): return "/pluginfile.php/1/mod_resource/content/0/sample.pdf"
+            async def inner_text(self): return "sample.pdf"
+        class Locator:
+            def nth(self, idx): return Field()
+        page = SimpleNamespace(
+            url="https://e-campus.esavs.eu/mod/resource/view.php?id=1",
+            context=SimpleNamespace(request=request),
+            locator=lambda *_args: Locator())
+        workspace = server.BrowserWorkspace()
+        workspace.profile = "esavs-test"
+        workspace.context = object()
+        workspace.open = AsyncMock()
+        workspace.assert_lease = AsyncMock()
+        workspace.page = lambda: page
+        result = await workspace.action(
+            {"name": "esavs-test", "action": "read_esavs_pdf", "index": 0, "delta": 0},
+            automated=True)
+        self.assertTrue(response.disposed)
+        self.assertIsNone(workspace.pdf_cache)
+        self.assertEqual(result["total_pages"], 1)
+        self.assertEqual(result["resource"], "sample.pdf")
+
+    async def test_api_response_disposed_after_invalid_content(self):
+        from unittest.mock import AsyncMock
+        from types import SimpleNamespace
+        class Response:
+            status = 200
+            headers = {"content-length": "9"}
+            disposed = False
+            async def body(self): return b"<html>bad"
+            async def dispose(self): self.disposed = True
+        response = Response()
+        request = SimpleNamespace(get=AsyncMock(return_value=response))
+        field = SimpleNamespace(
+            evaluate=AsyncMock(return_value="A"),
+            get_attribute=AsyncMock(return_value="/pluginfile.php/1/mod_resource/content/0/sample.pdf"),
+            inner_text=AsyncMock(return_value="sample.pdf"))
+        page = SimpleNamespace(
+            url="https://e-campus.esavs.eu/mod/resource/view.php?id=1",
+            context=SimpleNamespace(request=request),
+            locator=lambda *_args: SimpleNamespace(nth=lambda idx: field))
+        workspace = server.BrowserWorkspace()
+        workspace.profile = "esavs-test"
+        workspace.context = object()
+        workspace.open = AsyncMock()
+        workspace.assert_lease = AsyncMock()
+        workspace.page = lambda: page
+        with self.assertRaises(HTTPException):
+            await workspace.action(
+                {"name": "esavs-test", "action": "read_esavs_pdf", "index": 0, "delta": 0},
+                automated=True)
+        self.assertTrue(response.disposed)
+        self.assertIsNone(workspace.pdf_cache)
+
+
 if __name__ == "__main__":
     unittest.main()
