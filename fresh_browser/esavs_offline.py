@@ -134,6 +134,24 @@ def _course_resource_links(html: str, course_base: str) -> list[dict]:
     return result[:100]
 
 
+def _probe(client) -> dict:
+    """Only aggregate metadata; no account, cookie, personal or course URL data."""
+    resp,url = _request(client, BASE + "/my/")
+    try:
+        soup=BeautifulSoup(resp.text, "html.parser")
+        anchors=[a for a in soup.find_all("a",href=True) if "/course/view.php" in a.get("href","")]
+        expected=[a for a in anchors if COURSE.casefold() in _normal(a.get_text(" ",strip=True)).casefold()]
+        return {"final_path": urlsplit(url).path,
+                "dashboard_title_is_dashboard": "dashboard" in (soup.title.get_text(" ",strip=True).lower() if soup.title else ""),
+                "course_text_present": COURSE.casefold() in _normal(soup.get_text(" ",strip=True)).casefold(),
+                "course_link_count": len(anchors),
+                "course_match_count": len(expected),
+                "login_form_present": bool(soup.select("form[action*='login']")),
+                "html_size": len(resp.content)}
+    finally:
+        resp.close()
+
+
 def _index(client, state=None) -> list[dict]:
     # First use the logged-in dashboard. Its visible HTML can differ by
     # Moodle theme, so do not depend on the course text being the first
@@ -305,6 +323,8 @@ def run(action: str, args: dict, load_state, unseal, key: bytes) -> dict:
     state = _state(load_state, unseal)
     _cleanup_cache()
     with _client(state) as client:
+        if action == "esavs_offline_probe":
+            return _probe(client)
         links = _index(client, state)
         if action == "esavs_offline_index":
             return {"course":COURSE, "materials":[x["title"] for x in links]}
