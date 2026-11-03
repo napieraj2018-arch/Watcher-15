@@ -5,6 +5,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import io
 from html import escape
 import ipaddress
 import json
@@ -16,13 +17,14 @@ import uuid
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import psycopg
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from playwright.async_api import async_playwright
+from pypdf import PdfReader
 
 ROOT = Path(__file__).resolve().parent
 PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
@@ -37,6 +39,57 @@ MAX_STATE = 12_000_000
 # Hibernate unused browser contexts so Neon can subsequently scale to zero.
 AGENT_IDLE_SECONDS = 30 * 60
 HUMAN_IDLE_SECONDS = 60 * 60
+
+
+# PDF access is restricted to files selected by the authenticated owner within
+# the ESAVS course page; this is not an unrestricted fetch/proxy endpoint.
+ESAVS_PDF_HOST = "e-campus.esavs.eu"
+MAX_ESAVS_PDF_BYTES = 28_000_000
+
+def _esavs_file_url(page_url: str, href: str) -> str:
+    if not isinstance(href, str) or len(href) > 12000:
+        raise HTTPException(400, "Nieprawidłowy odsyłacz pliku.")
+    candidate = urljoin(page_url, href)
+    parts = urlsplit(candidate)
+    if (parts.scheme != "https" or parts.hostname != ESAVS_PDF_HOST
+            or parts.port not in (None, 443) or parts.username or parts.password
+            or "/pluginfile.php/" not in parts.path):
+        raise HTTPException(403, "Czytanie ograniczono do plików kursu ESAVS.")
+    return candidate
+
+def _pdf_pages_extract(raw: bytes, start_page: int) -> dict:
+    if not isinstance(start_page, int) or start_page < 0:
+        raise HTTPException(400, "Nieprawidłowa strona PDF.")
+    try:
+        reader = PdfReader(io.BytesIO(raw), strict=False)
+        count = len(reader.pages)
+        if count > 600:
+            raise HTTPException(413, "PDF zbyt obszerny do automatycznego odczytu.")
+        if start_page >= count:
+            raise HTTPException(416, "Koniec pliku PDF.")
+        pages, chars = [], 0
+        end = min(count, start_page + 8)
+        for n in range(start_page, end):
+            try:
+                txt = reader.pages[n].extract_text() or ""
+            except Exception:
+                txt = ""
+            room = max(0, 26000 - chars)
+            if room == 0:
+                break
+            txt = txt[:room]
+            chars += len(txt)
+            pages.append({"page": n + 1, "text": txt})
+            if chars >= 26000:
+                break
+        return {"total_pages": count, "pages": pages,
+                "next_start_page": pages[-1]["page"] if pages and pages[-1]["page"] < count else None,
+                "text_chars": chars,
+                "has_unreadable_pages": any(not p["text"].strip() for p in pages)}
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(422, "Nie udało się odczytać struktury PDF.") from None
 
 def configured() -> bool:
     try:
@@ -185,6 +238,7 @@ class BrowserWorkspace:
         self.failed_pages = set()
         self.restore_origins = []
         self.saved_digest = None  # Hash of the last successfully persisted plain state.
+        self.pdf_cache = None  # One transient ESAVS PDF; never saved in profile/database.
         self.last_activity = time.monotonic()
 
     def saved_url(self, page):
@@ -394,6 +448,7 @@ class BrowserWorkspace:
             self.pending_urls = {}
             self.failed_pages = set()
             self.restore_origins = []
+            self.pdf_cache = None
 
     async def assert_lease(self):
         if not self.lease or self.lease.closed:
@@ -541,6 +596,48 @@ class BrowserWorkspace:
                     if not 0 <= index < 150:
                         raise HTTPException(400, "Nieprawidłowy element")
                     await page.locator("a,button,input,textarea,select").nth(index).click(timeout=10000)
+
+                elif op == "read_esavs_pdf":
+                    # Read-only, same-origin PDF extraction for the chosen
+                    # resource link; no cookies, hrefs or files are returned.
+                    index = int(data.get("index", -1))
+                    offset = int(data.get("delta", 0))
+                    if not 0 <= index < 150:
+                        raise HTTPException(400, "Nieprawidłowy indeks pliku.")
+                    field = page.locator("a,button,input,textarea,select").nth(index)
+                    if await field.evaluate("(el) => el.tagName") != "A":
+                        raise HTTPException(400, "Zaznacz odsyłacz PDF.")
+                    href = await field.get_attribute("href")
+                    dest = _esavs_file_url(page.url, href)
+                    cached = self.pdf_cache
+                    if cached is None or cached[0] != dest:
+                        target = dest
+                        for _attempt in range(4):
+                            res = await page.context.request.get(
+                                target, timeout=25000, max_redirects=0)
+                            if res.status in (301, 302, 303, 307, 308):
+                                location = res.headers.get("location", "")
+                                target = _esavs_file_url(target, location)
+                                continue
+                            if res.status != 200:
+                                raise HTTPException(502, "ESAVS nie udostępniło zawartości PDF.")
+                            content_length = int(res.headers.get("content-length", "0") or "0")
+                            if content_length > MAX_ESAVS_PDF_BYTES:
+                                raise HTTPException(413, "PDF jest za duży na bezpieczny odczyt.")
+                            raw = await res.body()
+                            if len(raw) > MAX_ESAVS_PDF_BYTES:
+                                raise HTTPException(413, "PDF jest za duży na bezpieczny odczyt.")
+                            if not raw.startswith(b"%PDF"):
+                                raise HTTPException(415, "Odsyłacz nie zwrócił pliku PDF.")
+                            cached = (dest, raw, hashlib.sha256(raw).hexdigest())
+                            self.pdf_cache = cached
+                            break
+                        else:
+                            raise HTTPException(502, "Zbyt wiele przekierowań PDF.")
+                    result = await asyncio.to_thread(_pdf_pages_extract, cached[1], offset)
+                    return {"resource": (await field.inner_text())[:160],
+                            "file_sha256": cached[2], "file_size": len(cached[1]),
+                            **result}
                 elif op == "viewport":
                     size = {"width":390,"height":844} if data.get("text") == "mobile" else VIEWPORT
                     await page.set_viewport_size(size)
@@ -997,7 +1094,7 @@ async def mcp(request: Request):
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
+        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, read_esavs_pdf, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
         for name, description in [("profile_list", "List new Neon Fresh profile metadata only. No legacy Floot data."), ("browser_sessions", "List active Neon Fresh sessions only.")]:
             result["tools"].append({"name":name,"description":description,"inputSchema":{"type":"object","properties":{}}})
     elif method == "tools/call":
