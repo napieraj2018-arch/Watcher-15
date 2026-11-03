@@ -730,6 +730,37 @@ class BrowserWorkspace:
                     self.pdf_cache = None
                     gc.collect()
 
+                elif op == "read_esavs_disk":
+                    # The browser has already authenticated and is visibly on
+                    # an ESAVS Ophthalmology I Moodle resource. Only the chosen
+                    # PDF link is passed to a bounded, streamed disk reader.
+                    if self.profile != ESAVS_READER_PROFILE:
+                        raise HTTPException(403,"Tylko profil ESAVS.")
+                    page_path = urlsplit(page.url).path
+                    title = await page.title()
+                    body = (await page.locator("body").inner_text())[-3500:]
+                    if (page_path != "/mod/resource/view.php"
+                            or not title.startswith("OPH126:")
+                            or "Course Notes" not in body
+                            or ESAVS_COURSE not in body):
+                        raise HTTPException(403,"Otwórz zasób Ophthalmology I w ESAVS.")
+                    ix=int(data.get("index",-1))
+                    off=int(data.get("delta",0))
+                    if ix not in range(150):
+                        raise HTTPException(400,"Nieprawidłowy indeks pliku.")
+                    link=page.locator("a,button,input,textarea,select").nth(ix)
+                    if await link.evaluate("(el) => el.tagName") != "A":
+                        raise HTTPException(403,"Wybierz link PDF.")
+                    href=await link.get_attribute("href")
+                    dest=_esavs_file_url(page.url,href)
+                    if not (await link.inner_text()).lower().strip().endswith(".pdf"):
+                        raise HTTPException(403,"Link nie przedstawia PDF.")
+                    storage=await page.context.storage_state()
+                    ua=await page.evaluate("navigator.userAgent")
+                    reply=await asyncio.to_thread(
+                        esavs_offline.read_verified_course_pdf,
+                        dest,page.url,storage,ua,off,data_key())
+                    return {"resource":(await link.inner_text())[:140],**reply}
                 elif op == "read_esavs_pdf":
                     # Read-only, same-origin PDF extraction for the chosen
                     # resource link; no cookies, hrefs or files are returned.
@@ -1243,7 +1274,7 @@ async def mcp(request: Request):
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, read_esavs_pdf, esavs_offline_index, esavs_offline_probe, esavs_offline_read (exact Course Notes title in text), study_esavs_pdf, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
+        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, read_esavs_pdf, read_esavs_disk, esavs_offline_index, esavs_offline_probe, esavs_offline_read (exact Course Notes title in text), study_esavs_pdf, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
         for name, description in [("profile_list", "List new Neon Fresh profile metadata only. No legacy Floot data."), ("browser_sessions", "List active Neon Fresh sessions only.")]:
             result["tools"].append({"name":name,"description":description,"inputSchema":{"type":"object","properties":{}}})
     elif method == "tools/call":
