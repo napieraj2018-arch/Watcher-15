@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import gc
 import hmac
 import io
 from html import escape
@@ -596,6 +597,9 @@ class BrowserWorkspace:
                     if not 0 <= index < 150:
                         raise HTTPException(400, "Nieprawidłowy element")
                     await page.locator("a,button,input,textarea,select").nth(index).click(timeout=10000)
+                    # Drop the previous file before visiting a different course resource.
+                    self.pdf_cache = None
+                    gc.collect()
 
                 elif op == "read_esavs_pdf":
                     # Read-only, same-origin PDF extraction for the chosen
@@ -611,33 +615,49 @@ class BrowserWorkspace:
                     dest = _esavs_file_url(page.url, href)
                     cached = self.pdf_cache
                     if cached is None or cached[0] != dest:
+                        # Chromium/Playwright retains APIResponse bodies in RAM
+                        # until each response is explicitly disposed. This matters
+                        # on Render Free with a ~512MB container memory cap.
+                        self.pdf_cache = None
+                        cached = None
+                        gc.collect()
                         target = dest
                         for _attempt in range(4):
                             res = await page.context.request.get(
                                 target, timeout=25000, max_redirects=0)
-                            if res.status in (301, 302, 303, 307, 308):
-                                location = res.headers.get("location", "")
-                                target = _esavs_file_url(target, location)
-                                continue
-                            if res.status != 200:
-                                raise HTTPException(502, "ESAVS nie udostępniło zawartości PDF.")
-                            content_length = int(res.headers.get("content-length", "0") or "0")
-                            if content_length > MAX_ESAVS_PDF_BYTES:
-                                raise HTTPException(413, "PDF jest za duży na bezpieczny odczyt.")
-                            raw = await res.body()
-                            if len(raw) > MAX_ESAVS_PDF_BYTES:
-                                raise HTTPException(413, "PDF jest za duży na bezpieczny odczyt.")
-                            if not raw.startswith(b"%PDF"):
-                                raise HTTPException(415, "Odsyłacz nie zwrócił pliku PDF.")
-                            cached = (dest, raw, hashlib.sha256(raw).hexdigest())
-                            self.pdf_cache = cached
-                            break
+                            try:
+                                if res.status in (301, 302, 303, 307, 308):
+                                    location = res.headers.get("location", "")
+                                    target = _esavs_file_url(target, location)
+                                    continue
+                                if res.status != 200:
+                                    raise HTTPException(502, "ESAVS nie udostępniło zawartości PDF.")
+                                content_length = int(res.headers.get("content-length", "0") or "0")
+                                if content_length > MAX_ESAVS_PDF_BYTES:
+                                    raise HTTPException(413, "PDF jest za duży na bezpieczny odczyt.")
+                                raw = await res.body()
+                                if len(raw) > MAX_ESAVS_PDF_BYTES:
+                                    raise HTTPException(413, "PDF jest za duży na bezpieczny odczyt.")
+                                if not raw.startswith(b"%PDF"):
+                                    raise HTTPException(415, "Odsyłacz nie zwrócił pliku PDF.")
+                                cached = (dest, raw, hashlib.sha256(raw).hexdigest())
+                                self.pdf_cache = cached
+                                break
+                            finally:
+                                # Do not keep copies of private ESAVS PDF bodies
+                                # in the browser request context after use.
+                                await res.dispose()
                         else:
                             raise HTTPException(502, "Zbyt wiele przekierowań PDF.")
                     result = await asyncio.to_thread(_pdf_pages_extract, cached[1], offset)
-                    return {"resource": (await field.inner_text())[:160],
-                            "file_sha256": cached[2], "file_size": len(cached[1]),
-                            **result}
+                    reply = {"resource": (await field.inner_text())[:160],
+                             "file_sha256": cached[2], "file_size": len(cached[1]),
+                             **result}
+                    if result["next_start_page"] is None:
+                        self.pdf_cache = None
+                        cached = None
+                        gc.collect()
+                    return reply
                 elif op == "viewport":
                     size = {"width":390,"height":844} if data.get("text") == "mobile" else VIEWPORT
                     await page.set_viewport_size(size)
