@@ -118,7 +118,10 @@ def _course_resource_links(html: str, course_base: str) -> list[dict]:
     for section in notes:
         for a in section.find_all("a", href=True):
             href = a.get("href", "")
-            url = _same_origin(course_base, href)
+            try:
+                url = _same_origin(course_base, href)
+            except HTTPException:
+                continue
             if urlsplit(url).path.rstrip("/") != "/mod/resource/view.php":
                 continue
             label = a.find(class_=re.compile("instancename|activityname", re.I))
@@ -139,7 +142,8 @@ def _index(client) -> list[dict]:
         dashboard.close()
     match = None
     for a in doc.find_all("a", href=True):
-        if _normal(a.get_text(" ", strip=True)) == COURSE:
+        if (_normal(a.get_text(" ", strip=True)).startswith(COURSE)
+                and "/course/view.php" in a.get("href", "")):
             match = a
             break
     if match is None:
@@ -169,7 +173,10 @@ def _pdf_url(client, selected_url: str) -> str:
         href = tag.get("href") or tag.get("src") or tag.get("data")
         if not href:
             continue
-        url = _same_origin(resource_url, href)
+        try:
+            url = _same_origin(resource_url, href)
+        except HTTPException:
+            continue
         if "/pluginfile.php/" in urlsplit(url).path:
             return url
     raise HTTPException(422, "Brak bezpośredniego pliku PDF na stronie ESAVS")
@@ -284,8 +291,9 @@ def run(action: str, args: dict, load_state, unseal, key: bytes) -> dict:
             for block in iter(lambda: stream.read(131072), b""):
                 digest.update(block)
         offset = args.get("delta", 0)
+        size = path.stat().st_size
         info = _extract_pdf(path, offset)
         if info["next_start_page"] is None:
             path.unlink(missing_ok=True)
-        return {"resource":title,"file_size":path.stat().st_size if path.exists() else None,
+        return {"resource":title,"file_size":size,
                 "file_sha256":digest.hexdigest(), **info}
