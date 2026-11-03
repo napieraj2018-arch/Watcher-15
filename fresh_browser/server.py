@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from playwright.async_api import async_playwright
 from pypdf import PdfReader
+import esavs_offline
 
 ROOT = Path(__file__).resolve().parent
 PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
@@ -1242,7 +1243,7 @@ async def mcp(request: Request):
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, read_esavs_pdf, study_esavs_pdf, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
+        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, read_esavs_pdf, esavs_offline_index, esavs_offline_read (exact Course Notes title in text), study_esavs_pdf, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
         for name, description in [("profile_list", "List new Neon Fresh profile metadata only. No legacy Floot data."), ("browser_sessions", "List active Neon Fresh sessions only.")]:
             result["tools"].append({"name":name,"description":description,"inputSchema":{"type":"object","properties":{}}})
     elif method == "tools/call":
@@ -1274,6 +1275,10 @@ async def mcp(request: Request):
             elif action == "checkpoint":
                 task_id = profile_name(args.get("task_id", ""))
                 value = await asyncio.to_thread(db_checkpoint,task_id,args.get("checkpoint"),args.get("revision"))
+            elif action in ("esavs_offline_index", "esavs_offline_read"):
+                # Read-only access to encrypted ESAVS profile, without opening
+                # or replacing the owner's current interactive session.
+                value = await asyncio.to_thread(esavs_offline.run, action, args, db_load, unseal, data_key())
             elif action == "screenshot":
                 png = await workspace.screenshot(profile_name(args.get("name", "")))
                 return {"jsonrpc": "2.0", "id": ident, "result": {"content": [{"type": "image", "mimeType": "image/png", "data": base64.b64encode(png).decode()}]}}
