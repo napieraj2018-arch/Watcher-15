@@ -11,7 +11,7 @@ import json
 import re
 import secrets
 import time
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, unquote
 from email.utils import parsedate_to_datetime
 
 from fastapi import HTTPException, Request
@@ -200,6 +200,28 @@ async def wordpress_action(args, automated=False, owner_context=None):
 
 _previous_action = server.workspace.action
 FILES = {}
+
+
+def wordpress_cookie_metadata(state):
+    """Only expiry metadata, never cookie values, hashes, names or tokens."""
+    now = time.time()
+    result=[]
+    for c in state.get("cookies",[]):
+        if str(c.get("domain","")).lstrip(".")!="weterynarz.radom.pl": continue
+        name=c.get("name","")
+        if not name.startswith(("wordpress_logged_in_","wordpress_sec_")): continue
+        fields=unquote(str(c.get("value",""))).split("|")
+        expiry=int(fields[1]) if len(fields)==4 and fields[1].isdigit() else None
+        result.append({"kind":"logged_in" if name.startswith("wordpress_logged_in_") else "secure_admin",
+                       "browser_expires":c.get("expires"), "signed_expires":expiry,
+                       "signed_expired":expiry is not None and expiry<now})
+    return result
+
+
+def wordpress_saved_metadata():
+    with server.database() as conn:
+        rows=conn.execute("SELECT revision,sealed_state FROM fresh_browser.profiles WHERE name=%s UNION ALL SELECT revision,sealed_state FROM (SELECT revision,sealed_state FROM fresh_browser.profile_versions WHERE name=%s ORDER BY revision DESC LIMIT 3) AS versions ORDER BY revision DESC",(WP_PROFILE,WP_PROFILE)).fetchall()
+    return [{"revision":r[0],"wordpress_auth_expiry":wordpress_cookie_metadata(json.loads(server.unseal(bytes(r[1]))))} for r in rows]
 DOWNLOAD_JS = r"""async ({index}) => {
   const link=document.querySelectorAll('a,button,input,textarea,select')[index];
   if(!link||link.tagName!=='A')throw new Error('Select a file link');
@@ -246,6 +268,9 @@ async def download_file(request: Request, ident: str, name: str):
     return Response(item["data"], media_type="application/octet-stream", headers={"Content-Disposition": 'attachment; filename="'+item["filename"]+'"', "Content-Security-Policy":"sandbox; default-src 'none'"})
 
 async def production_action(args, automated=False, owner_context=None):
+    if args.get("action")=="wordpress_session_status":
+        if args.get("name")!=WP_PROFILE: raise HTTPException(403,"Wymagany profil WordPress.")
+        return {"observed_at":int(time.time()),"saved_versions":await asyncio.to_thread(wordpress_saved_metadata)}
     if args.get("action") == "wordpress_rest":
         return await wordpress_action(args, automated, owner_context)
     if args.get("action") in {"close_tab", "file_fields", "download"}:

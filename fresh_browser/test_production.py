@@ -6,6 +6,12 @@ import production_runtime as prod
 from playwright.async_api import async_playwright
 
 class Validation(unittest.TestCase):
+    def test_cookie_diagnostics_expose_only_expiry_metadata(self):
+        c={'cookies':[{'domain':'weterynarz.radom.pl','name':'wordpress_logged_in_fixture','value':'private-user|1|private-token|private-signature','expires':2}]}
+        result=prod.wordpress_cookie_metadata(c)
+        self.assertTrue(result[0]['signed_expired'])
+        self.assertEqual(result[0]['signed_expires'],1)
+        self.assertNotIn('private',json.dumps(result))
     def test_rest_rejects_cross_origin_traversal_credentials_and_unsafe_writes(self):
         for spec in [dict(path='https://evil.invalid/'),dict(path='pages/../users'),dict(path='users/1'),dict(path='pages%2f1'),dict(path='pages?per_page=100'),dict(path='pages',method='DELETE'),dict(path='pages/1',method='POST',body={'content':'x'},operation_id='operation1'),dict(path='pages',method='POST',body={'status':'publish'},operation_id='operation1')]:
             with self.subTest(spec=spec),self.assertRaises(server.HTTPException):prod.validate_spec(json.dumps(spec))
