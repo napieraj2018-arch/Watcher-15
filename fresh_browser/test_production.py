@@ -16,6 +16,35 @@ class Validation(unittest.TestCase):
         self.assertIn('X-WP-Nonce',prod.WP_FETCH)
         self.assertNotIn('document.cookie',prod.WP_FETCH)
 
+
+class LazyTabs(unittest.IsolatedAsyncioTestCase):
+    async def test_only_active_tab_loads_and_inactive_urls_are_preserved(self):
+        w=server.BrowserWorkspace()
+        pages=[]
+        async def new_page():
+            page=object();pages.append(page);return page
+        ctx=type('Context',(),{'new_page':staticmethod(new_page)})()
+        w.navigate=AsyncMock()
+        urls=['https://fixture.invalid/one','https://fixture.invalid/two','https://fixture.invalid/three']
+        await w.restore_tabs(ctx,{'aib_tabs':urls,'aib_active_tab':1})
+        self.assertEqual(len(pages),3)
+        w.navigate.assert_awaited_once_with(pages[1],urls[1],restoring=True)
+        self.assertEqual([w.pending_urls[p] for p in pages],urls)
+        self.assertIs(w.active_page,pages[1])
+    async def test_inactive_same_origin_tab_cannot_resurrect_logged_out_storage(self):
+        from types import SimpleNamespace
+        w=server.BrowserWorkspace()
+        live=type('Page',(),{'url':'https://fixture.invalid/admin','viewport_size':server.VIEWPORT})()
+        lazy=type('Page',(),{'url':'about:blank'})()
+        w.context=SimpleNamespace(pages=[live,lazy],storage_state=AsyncMock(return_value={'cookies':[],'origins':[]}))
+        w.active_page=live;w.profile='fixture';w.rev=1;w.assert_lease=AsyncMock()
+        w.pending_urls[lazy]='https://fixture.invalid/older-tab'
+        w.restore_origins=[{'origin':'https://fixture.invalid','localStorage':[{'name':'old-login','value':'old'}]}]
+        with patch.object(server,'db_save',return_value=2) as saved:
+            await w._save()
+            state=json.loads(server.unseal(saved.call_args.args[1]))
+        self.assertEqual(state['origins'],[])
+
 class WriteSafety(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.db={};self.writes=0

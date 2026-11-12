@@ -522,6 +522,9 @@ class BrowserWorkspace:
         # Successfully visited/logout origins are never resurrected.
         pending_origins = {safe_display_url(self.pending_urls[p]) for p in saved_pages
                            if not p.url.startswith("https://") and p in self.pending_urls}
+        visited_origins = {safe_display_url(p.url) for p in self.context.pages
+                           if p.url.startswith("https://") and p not in self.failed_pages}
+        pending_origins -= visited_origins
         present = {o["origin"] for o in data.get("origins", [])}
         data.setdefault("origins", []).extend(o for o in self.restore_origins
             if o.get("origin") in pending_origins and o.get("origin") not in present)
@@ -640,11 +643,7 @@ class BrowserWorkspace:
         await ctx.route("**/*", guard)
         self.history = state.get("aib_history", [])
         self.restore_origins = state.get("origins", [])
-        for url in state.get("aib_tabs", [])[:10]:
-            page = await ctx.new_page()
-            await self.navigate(page, url, restoring=True)
-        if not ctx.pages:
-            await ctx.new_page()
+        await self.restore_tabs(ctx, state)
         self.context = ctx
         self.profile = name
         self.rev = version
@@ -654,9 +653,23 @@ class BrowserWorkspace:
             json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode()
         ).digest()
         self.last_activity = time.monotonic()
-        active_index = state.get("aib_active_tab", len(ctx.pages)-1)
-        if isinstance(active_index, int) and 0 <= active_index < len(ctx.pages):
-            self.active_page = ctx.pages[active_index]
+
+    async def restore_tabs(self, ctx, state):
+        # Preserve all saved tab addresses, but load only the selected tab.
+        # Loading ten old admin pages serially could exceed the MCP deadline.
+        urls = state.get("aib_tabs", [])[:10]
+        restored = []
+        for url in urls:
+            page = await ctx.new_page()
+            self.pending_urls[page] = url
+            restored.append(page)
+        if not restored:
+            restored.append(await ctx.new_page())
+        index = state.get("aib_active_tab", len(restored)-1)
+        if type(index) is not int or not 0 <= index < len(restored): index = len(restored)-1
+        self.active_page = restored[index]
+        if urls:
+            await self.navigate(self.active_page, urls[index], restoring=True)
 
     def page(self):
         if self.context is None:
@@ -701,6 +714,8 @@ class BrowserWorkspace:
                         raise HTTPException(404, "Ta karta została zamknięta.")
                     self.active_page = target
                     page = target
+                    if target.url == "about:blank" and target in self.pending_urls:
+                        await self.navigate(target, self.pending_urls[target], restoring=True)
                 elif op == "upload":
                     index = int(data.get("index", -1))
                     if not 0 <= index < 150:
@@ -1276,7 +1291,7 @@ async def mcp(request: Request):
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, read_esavs_pdf, read_esavs_disk, esavs_offline_index, esavs_offline_probe, esavs_offline_read (exact Course Notes title in text), study_esavs_pdf, fill, press, scroll, back, forward, reload, new_tab, save, close, screenshot, checkpoint. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
+        result = {"tools": [{"name": "fresh_browser", "description": "Owner browser: list_profiles, create_profile, open, go, snapshot, click_element, read_esavs_pdf, read_esavs_disk, esavs_offline_index, esavs_offline_probe, esavs_offline_read (exact Course Notes title in text), study_esavs_pdf, fill, press, scroll, back, forward, reload, new_tab, select_tab, close_tab, file_fields, upload, download, save, close, screenshot, checkpoint, wordpress_rest. WordPress uses name wordpress-klinika and text JSON: method GET/POST, path pages/posts/media or theme-css/THEME/FILE.css, body, operation_id and expected_sha256 from a prior edit-context GET. Writes save encrypted backups and receipts; never replay an uncertain outcome. Use snapshot before elements. Never supply passwords, MFA or CAPTCHA; owner uses mobile handoff. Checkpoints must exclude credentials and capabilities. Unknown writes must be verified before retry.", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "index": {"type": "integer"}, "text": {"type": "string"}, "key": {"type": "string"}, "delta": {"type": "integer"}, "base64": {"type": "string"}, "filename": {"type": "string"}, "task_id": {"type": "string"}, "checkpoint": {"type": "object"}, "revision": {"type": "integer"}}, "required": ["action"]}}]}
         for name, description in [("profile_list", "List new Neon Fresh profile metadata only. No legacy Floot data."), ("browser_sessions", "List active Neon Fresh sessions only.")]:
             result["tools"].append({"name":name,"description":description,"inputSchema":{"type":"object","properties":{}}})
     elif method == "tools/call":
