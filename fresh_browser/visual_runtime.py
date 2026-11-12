@@ -197,3 +197,6 @@ async def visual_screenshot(name, owner_context=None, with_metadata=False):
 esavs_offline._extract_pdf = extraction_hook
 server.workspace.action = visual_action
 server.workspace.screenshot = visual_screenshot
+
+# Loaded after the visual wrapper so all existing ESAVS actions are preserved.
+import production_runtime

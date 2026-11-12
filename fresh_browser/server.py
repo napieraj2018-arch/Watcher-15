@@ -831,6 +831,8 @@ class BrowserWorkspace:
                     else:
                         await page.reload(wait_until="domcontentloaded", timeout=20000)
                 elif op == "new_tab":
+                    if len(self.context.pages) >= 10:
+                        raise HTTPException(409, "Maksymalnie 10 kart. Zamknij jedną przed otwarciem kolejnej.")
                     page = await self.context.new_page()
                     self.active_page = page
                 elif op == "open":
