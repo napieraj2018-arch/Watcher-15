@@ -37,6 +37,12 @@ MCP_TOKEN = os.environ.get("AIB_FRESH_MCP_TOKEN", "")
 DATA_KEY = os.environ.get("AIB_FRESH_DATA_KEY", "")
 COOKIE = "aib_fresh_session"
 VIEWPORT = {"width": 1280, "height": 800}
+# Shared ordering for snapshot, fill, click and uploads.
+# Modern chat applications commonly use contenteditable instead of textarea.
+INTERACTIVE_SELECTOR = (
+    'a,button,input,textarea,select,'
+    '[contenteditable="true"],[contenteditable=""],[role="textbox"]'
+)
 MAX_STATE = 12_000_000
 # A held PostgreSQL advisory-lock session consumes Free compute while active.
 # Hibernate unused browser contexts so Neon can subsequently scale to zero.
@@ -705,7 +711,7 @@ class BrowserWorkspace:
                     return {"url": safe_display_url(self.saved_url(page)), "title": await page.title(),
                             "navigation": self.navigation_state(page),
                             "text": (await page.locator("body").inner_text())[:16000],
-                            "elements": await page.locator("a,button,input,textarea,select").evaluate_all("els => els.slice(0,150).map((e,i)=>({index:i,tag:e.tagName,type:e.type||'',label:(e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'').slice(0,120)}))")}
+                            "elements": await page.locator(INTERACTIVE_SELECTOR).evaluate_all("els => els.slice(0,150).map((e,i)=>({index:i,tag:e.tagName,type:e.type||e.getAttribute('role')||'',label:(e.matches('[contenteditable],[role=textbox]') ? (e.getAttribute('aria-label')||e.getAttribute('data-placeholder')||'Pole tekstowe') : (e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'')).slice(0,120)}))")}
                 elif op == "tabs":
                     return await self.tab_state()
                 elif op == "select_tab":
@@ -720,7 +726,7 @@ class BrowserWorkspace:
                     index = int(data.get("index", -1))
                     if not 0 <= index < 150:
                         raise HTTPException(400, "Nieprawidłowy element pliku")
-                    field = page.locator("a,button,input,textarea,select").nth(index)
+                    field = page.locator(INTERACTIVE_SELECTOR).nth(index)
                     if await field.get_attribute("type") != "file":
                         raise HTTPException(400, "To nie jest pole pliku")
                     raw = base64.b64decode(data.get("base64", ""), validate=True)
@@ -732,7 +738,7 @@ class BrowserWorkspace:
                     index = int(data.get("index", -1))
                     if not 0 <= index < 150:
                         raise HTTPException(400, "Nieprawidłowy element")
-                    field = page.locator("a,button,input,textarea,select").nth(index)
+                    field = page.locator(INTERACTIVE_SELECTOR).nth(index)
                     if automated and await field.get_attribute("type") == "password":
                         raise HTTPException(403, "Hasła wpisuje właściciel w panelu")
                     await field.fill(str(data.get("text", ""))[:10000])
@@ -740,7 +746,7 @@ class BrowserWorkspace:
                     index = int(data.get("index", -1))
                     if not 0 <= index < 150:
                         raise HTTPException(400, "Nieprawidłowy element")
-                    await page.locator("a,button,input,textarea,select").nth(index).click(timeout=10000)
+                    await page.locator(INTERACTIVE_SELECTOR).nth(index).click(timeout=10000)
                     # Drop the previous file before visiting a different course resource.
                     self.pdf_cache = None
                     gc.collect()
@@ -763,7 +769,7 @@ class BrowserWorkspace:
                     off=int(data.get("delta",0))
                     if ix not in range(150):
                         raise HTTPException(400,"Nieprawidłowy indeks pliku.")
-                    link=page.locator("a,button,input,textarea,select").nth(ix)
+                    link=page.locator(INTERACTIVE_SELECTOR).nth(ix)
                     if await link.evaluate("(el) => el.tagName") != "A":
                         raise HTTPException(403,"Wybierz link PDF.")
                     href=await link.get_attribute("href")
@@ -783,7 +789,7 @@ class BrowserWorkspace:
                     offset = int(data.get("delta", 0))
                     if not 0 <= index < 150:
                         raise HTTPException(400, "Nieprawidłowy indeks pliku.")
-                    field = page.locator("a,button,input,textarea,select").nth(index)
+                    field = page.locator(INTERACTIVE_SELECTOR).nth(index)
                     if await field.evaluate("(el) => el.tagName") != "A":
                         raise HTTPException(400, "Zaznacz odsyłacz PDF.")
                     href = await field.get_attribute("href")
@@ -864,7 +870,7 @@ class BrowserWorkspace:
                     s = data.get("text")
                     if not isinstance(s, str) or len(s) > 1000:
                         raise HTTPException(400, "Za długi tekst")
-                    await page.keyboard.type(s, delay=15)
+                    await page.keyboard.type(s, delay=0)
                 elif op == "press":
                     key = data.get("key")
                     if key not in {"Enter", "Tab", "Escape", "Backspace", "ArrowDown", "ArrowUp",
@@ -887,10 +893,19 @@ class BrowserWorkspace:
                 if op in {"go", "back", "forward"}:
                     self.history.append({"url": page.url, "time": int(time.time())})
                 await self._save()
+                # Report focused field metadata only; never expose its contents.
+                focus = {"editing": False, "password": False}
+                if op == "click":
+                    focus = await page.evaluate("""() => {
+                        const el = document.activeElement;
+                        const field = el?.closest?.('input,textarea,[contenteditable="true"],[contenteditable=""],[role="textbox"]');
+                        const editable = !!field && !field.matches('[disabled],[readonly],[aria-disabled="true"]');
+                        return {editing:editable, password:editable && field.tagName === 'INPUT' && field.type === 'password'};
+                    }""")
                 navigation = self.navigation_state(page)
                 return {"ok": navigation != "failed", "human": self.human,
                         "title": (await page.title())[:200], "navigation": navigation,
-                        "url": safe_display_url(self.saved_url(page))}
+                        "url": safe_display_url(self.saved_url(page)), **focus}
             except HTTPException:
                 raise
             except Exception:

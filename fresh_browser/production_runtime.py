@@ -282,8 +282,8 @@ async def production_action(args, automated=False, owner_context=None):
             page = w.page()
             if args.get("page_id") and args["page_id"] != w.tab_id(page): raise HTTPException(409, "Karta uległa zmianie.")
             if args["action"] == "file_fields":
-                fields = await page.locator("a,button,input,textarea,select").evaluate_all("els=>els.slice(0,150).flatMap((e,index)=>e.type==='file'?[{index,label:e.getAttribute('aria-label')||e.name||'Plik'}]:[])")
-                links = await page.locator("a,button,input,textarea,select").evaluate_all("els=>els.slice(0,150).flatMap((e,index)=>e.tagName==='A'&&(/\\.(pdf|png|jpg|jpeg|webp|zip|txt|csv|xlsx|docx)(?:[?#]|$)/i.test(e.href)||e.download)?[{index,label:(e.innerText||e.download||'Plik').slice(0,100)}]:[])")
+                fields = await page.locator(server.INTERACTIVE_SELECTOR).evaluate_all("els=>els.slice(0,150).flatMap((e,index)=>e.type==='file'?[{index,label:e.getAttribute('aria-label')||e.name||'Plik'}]:[])")
+                links = await page.locator(server.INTERACTIVE_SELECTOR).evaluate_all("els=>els.slice(0,150).flatMap((e,index)=>e.tagName==='A'&&(/\\.(pdf|png|jpg|jpeg|webp|zip|txt|csv|xlsx|docx)(?:[?#]|$)/i.test(e.href)||e.download)?[{index,label:(e.innerText||e.download||'Plik').slice(0,100)}]:[])")
                 return {"fields": fields, "links": links, "page_id": w.tab_id(page)}
             if args["action"] == "download":
                 index=args.get("index",-1)
