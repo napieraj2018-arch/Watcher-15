@@ -78,6 +78,11 @@ class RealFormTests(unittest.IsolatedAsyncioTestCase):
                              "index": editor["index"], "text": "weterynarz Radom"})
         self.assertEqual((await self.page.locator('[role="textbox"]').inner_text()).strip(),
                          "weterynarz Radom")
+        self.w._save.assert_not_awaited()
+        # A deliberate commit-level command still saves the encrypted profile.
+        await self.w.action({"action": "press", "name": "acceptance-form-fixture", "key": "Tab"})
+        self.w._save.assert_awaited_once()
+        self.w._save.reset_mock()
         box = await self.page.locator('[role="textbox"]').bounding_box()
         state = await self.w.action({"action": "click", "name": "acceptance-form-fixture",
                                      "x": box["x"] + 10, "y": box["y"] + 10})
