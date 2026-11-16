@@ -20,3 +20,18 @@ This is a **new** browser worker and data vault, not a migration of the 68 archi
 ## Scope
 
 This is a fresh browser service, not the full feature parity of the pre-existing AI Browser connector (task CAS, audit archive, native Steel recovery). Do not point the existing connector at it until feature parity or an explicit separate MCP connection is verified.
+
+
+## On-demand recovery for Render Free cold starts (observed 2026-11-16)
+
+This is an operational recovery protocol for the *existing* installation, not a new browser or an import:
+
+1. If the ChatGPT Site/MCP connector responds HTTP 429 to a **read**, do **not** ask the owner to re-enter credentials, create another profile, reset Neon or replay a form/write. A 429 from the connector does not prove a failed external account login.
+2. Independently fetch the unauthenticated `https://ai-browser-neon-fresh.onrender.com/health` **once** to wake an idle Render Free instance. During a cold start, the public Render URL may temporarily respond 503. Allow a bounded, read-only readiness check until HTTP 200 and `{"status":"ready","store":"neon_fresh"}`; never automatically replay an uncertain POST, a login callback or a site mutation.
+3. After readiness is confirmed, make one read-only MCP call (prefer `profile_list`), then continue normal work. If it still returns 429 while the origin is ready, investigate the Site/MCP proxy rate limits separately; do not conclude that Render/Neon or saved credentials are broken.
+4. If readiness never succeeds, inspect Render instance events/application logs, the deployed revision and Neon connectivity. Preserve encryption keys and `fresh_browser.profiles`, `profile_versions`, `tasks`.
+5. Avoid periodic artificial keep-alive pings to force an always-on Free service: it drains shared Free instance hours and cannot guarantee availability. Use official app integrations for work that does not need a browser. A non-sleeping, production-grade browser requires always-on compute, not client-side unlimited retries.
+
+**Verified observations on 2026-11-16 (UTC):** Initially the connected `profile_list` and `browser_sessions` reads each failed with 429, while a separate unauthenticated HTTP request to the Render origin returned 503. A public GET to `/health` induced a start of the existing Render process at 22:37:20; a later health fetch returned `ready`. The exact same connected `profile_list` then succeeded (14 profiles). A synthetic saved profile opened, the website rendered, a snapshot returned, and the session closed normally. Neon held 14 profile rows, 1666 version rows, 33 tasks; no encrypted contents or credentials were accessed. This correlation establishes a working recovery sequence, **not** exclusive proof that every past 429 originated from Render's idle spin-down.
+
+Render's documented Free behavior: idle service spins down after 15 minutes; waking up may take around a minute. Paying for always-on compute removes this source of cold starts, but is not proof of eliminating independent MCP proxy throttling. No billing change, hosting migration or credential rotation is authorized by this note.
