@@ -152,6 +152,11 @@ async function command(action,payload={}){
   screenActive=true;resumeFastRefresh();
   try{await screenshot()}catch(e){notify("Odpowiedź polecenia odebrana, ale podgląd niepotwierdzony: "+e.message,true);return result;}
  }else{el("site").textContent="Profil bezpiecznie zamknięty.";clearScreen("Profil zapisany i zamknięty. Kliknij „Otwórz profil”, aby wrócić.");}
+ if(action==="click"&&result.editing){
+   const input=el("keyboard");input.type=result.password?"password":"text";
+   el("maskBtn").textContent=result.password?"Pokaż tekst":"Ukryj tekst";
+   el("typingHelp").textContent=result.password?"Zaznaczono pole hasła — tekst jest ukryty.":"Zaznaczono pole tekstowe — wpisz poniżej i wybierz „Wpisz tekst”.";
+  }
  if(result.ok===false||result.navigation==="failed"||navigationState==="failed"){notify(navigationError,true);return result;}
  notify(result.human?"Sterowanie ręczne — ChatGPT wstrzymany.":result.closed?"Profil zapisany i zamknięty.":"Polecenie wykonane; zapis profilu nie jest potwierdzeniem logowania.");return result;
 }
@@ -168,7 +173,7 @@ el("tabSelect").addEventListener("change",()=>run(()=>command("select_tab",{text
 el("profile").addEventListener("change",()=>{localStorage.setItem("aib-selected-profile",selected());updateAuthNotice();clearScreen();el("site").textContent="Wybrano "+selected()+". Kliknij „Otwórz profil”.";});
 wire("goBtn",()=>{let u=el("website").value.trim();if(!u)throw new Error("Wpisz adres strony.");if(!u.startsWith("https://"))u="https://"+u;return command("go",{url:u});});
 wire("screenBtn",screenshot);wire("phoneBtn",()=>command("viewport",{text:"mobile"}));wire("desktopBtn",()=>command("viewport",{text:"desktop"}));
-wire("humanBtn",()=>command("handoff",{human:true}));wire("agentBtn",()=>command("handoff",{human:false}));wire("prevBtn",()=>command("back"));wire("reloadBtn",()=>command("reload"));wire("saveBtn",()=>command("save"));wire("closeBtn",()=>command("close"));
+wire("humanBtn",async()=>{await command("handoff",{human:true});if(window.matchMedia&&window.matchMedia("(max-width:699px)").matches)await command("viewport",{text:"mobile"});});wire("agentBtn",()=>command("handoff",{human:false}));wire("prevBtn",()=>command("back"));wire("reloadBtn",()=>command("reload"));wire("saveBtn",()=>command("save"));wire("closeBtn",()=>command("close"));
 wire("typeBtn",async()=>{const text=el("keyboard").value;await command("type",{text});el("keyboard").value="";});
 wire("enterBtn",()=>command("press",{key:"Enter"}));wire("tabBtn",()=>command("press",{key:"Tab"}));wire("selectBtn",()=>command("press",{key:"ControlOrMeta+A"}));wire("backBtn",()=>command("press",{key:"Backspace"}));
 wire("scrollUp",()=>command("scroll",{delta:-600}));wire("scrollDown",()=>command("scroll",{delta:600}));
