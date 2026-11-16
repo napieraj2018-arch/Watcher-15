@@ -711,7 +711,7 @@ class BrowserWorkspace:
                     return {"url": safe_display_url(self.saved_url(page)), "title": await page.title(),
                             "navigation": self.navigation_state(page),
                             "text": (await page.locator("body").inner_text())[:16000],
-                            "elements": await page.locator(INTERACTIVE_SELECTOR).evaluate_all("els => els.slice(0,150).map((e,i)=>({index:i,tag:e.tagName,type:e.type||e.getAttribute('role')||'',label:(e.matches('[contenteditable],[role="textbox"]') ? (e.getAttribute('aria-label')||e.getAttribute('data-placeholder')||'Pole tekstowe') : (e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'')).slice(0,120)}))")}
+                            "elements": await page.locator(INTERACTIVE_SELECTOR).evaluate_all("els => els.slice(0,150).map((e,i)=>({index:i,tag:e.tagName,type:e.type||e.getAttribute('role')||'',label:(e.matches('[contenteditable],[role=textbox]') ? (e.getAttribute('aria-label')||e.getAttribute('data-placeholder')||'Pole tekstowe') : (e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'')).slice(0,120)}))")}
                 elif op == "tabs":
                     return await self.tab_state()
                 elif op == "select_tab":
