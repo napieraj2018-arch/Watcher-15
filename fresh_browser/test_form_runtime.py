@@ -64,6 +64,31 @@ class RealFormTests(unittest.IsolatedAsyncioTestCase):
         self.page=await self.context.new_page();self.w.active_page=self.page
     async def asyncTearDown(self):
         await self.context.close();await self.browser.close();await self.pw.stop()
+    async def test_modern_chat_editor_is_visible_and_editable(self):
+        # Offline synthetic Gemini-style textbox, no provider account.
+        await self.page.set_content(
+            '<button>Search</button><div role="textbox" contenteditable="true" '
+            'aria-label="Ask Gemini" data-placeholder="Ask Gemini" '
+            'style="width:350px;height:80px"> </div><input type="password" />'
+        )
+        snap = await self.w.action({"action": "snapshot", "name": "acceptance-form-fixture"})
+        editor = next(e for e in snap["elements"] if e["label"] == "Ask Gemini")
+        self.assertEqual(editor["type"], "textbox")
+        await self.w.action({"action": "fill", "name": "acceptance-form-fixture",
+                             "index": editor["index"], "text": "weterynarz Radom"})
+        self.assertEqual((await self.page.locator('[role="textbox"]').inner_text()).strip(),
+                         "weterynarz Radom")
+        box = await self.page.locator('[role="textbox"]').bounding_box()
+        state = await self.w.action({"action": "click", "name": "acceptance-form-fixture",
+                                     "x": box["x"] + 10, "y": box["y"] + 10})
+        self.assertTrue(state["editing"])
+        self.assertFalse(state["password"])
+        password = await self.page.locator('input[type="password"]').bounding_box()
+        state = await self.w.action({"action": "click", "name": "acceptance-form-fixture",
+                                     "x": password["x"] + 5, "y": password["y"] + 5})
+        self.assertTrue(state["editing"])
+        self.assertTrue(state["password"])
+
     async def broken_form(self):
         self.methods=[]
         async def route(r):
