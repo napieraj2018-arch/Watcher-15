@@ -892,7 +892,13 @@ class BrowserWorkspace:
                 await page.wait_for_timeout(400)
                 if op in {"go", "back", "forward"}:
                     self.history.append({"url": page.url, "time": int(time.time())})
-                await self._save()
+                # Text entry is an uncommitted draft. Full indexedDB export
+                # after every keystroke/fill is costly on modern JS pages
+                # and can exhaust the 512 MB Render Free service. Keep it
+                # for clicks/submit/navigation/save/close, where persistent
+                # credentials may have changed. Explicit save still persists.
+                if op not in {"fill", "type"}:
+                    await self._save()
                 # Report focused field metadata only; never expose its contents.
                 focus = {"editing": False, "password": False}
                 if op == "click":
