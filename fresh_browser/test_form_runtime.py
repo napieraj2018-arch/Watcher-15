@@ -171,13 +171,14 @@ class RealFormTests(unittest.IsolatedAsyncioTestCase):
             await r.fulfill(content_type='application/json',body=json.dumps(payload))
         await self.context.route('https://panel.invalid/**',api)
         await self.page.goto('https://panel.invalid/')
-        # Normal admin panel intentionally does not auto-select test profiles.
-        # Wait for the catalogue, then perform the same explicit selection as
-        # its owner; do not weaken failed-frame or one-POST assertions below.
+        # Select the synthetic profile explicitly. The redesign changes visible
+        # copy, not failed-frame handling or the one-command safety contract.
         await self.page.wait_for_function("Array.from(document.getElementById('profile').options).some(o=>o.value==='acceptance-form-fixture')",timeout=5000)
         await self.page.locator('#profile').select_option('acceptance-form-fixture')
         await self.page.locator('#openBtn').click()
-        await self.page.wait_for_function("document.getElementById('liveStatus').textContent.includes('Błąd')",timeout=5000)
+        await self.page.wait_for_function("navigationState === 'failed' && !busy && frameInFlight === null",timeout=5000)
+        self.assertEqual(await self.page.locator('#liveStatus').inner_text(),'Strona niegotowa')
+        self.assertEqual(await self.page.locator('#error').inner_text(),await self.page.evaluate('navigationError'))
         self.assertTrue(await self.page.locator('#screen').is_hidden())
         self.assertTrue(await self.page.locator('#emptyScreen').is_visible())
         self.assertTrue(await self.page.locator('#typeBtn').is_disabled())
